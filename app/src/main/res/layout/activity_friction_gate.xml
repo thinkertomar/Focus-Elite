@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center_vertical" android:orientation="vertical" android:background="#ff121212" android:padding="24.0dip" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="22.0sp" android:textStyle="bold" android:textColor="#ffff6b6b" android:gravity="center" android:id="@id/tvFrictionTitle" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" />
+    <TextView android:textSize="14.0sp" android:textColor="#ffb0bec5" android:gravity="center" android:id="@id/tvFrictionInstruction" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip" />
+    <TextView android:textSize="16.0sp" android:textStyle="bold|italic" android:textColor="#ffffffff" android:gravity="center" android:id="@id/tvFrictionPhrase" android:background="#ff2c2c2c" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" />
+    <TextView android:textSize="18.0sp" android:textStyle="bold" android:textColor="#ff2196f3" android:gravity="center" android:id="@id/tvFrictionCounter" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" />
+    <EditText android:textColor="#ffffffff" android:textColorHint="#ff757575" android:id="@id/etFrictionInput" android:background="#ff1e1e1e" android:padding="16.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" android:hint="Type the phrase exactly..." />
+    <Button android:textColor="#ffffffff" android:id="@id/btnFrictionSubmit" android:layout_width="fill_parent" android:layout_height="50.0dip" android:layout_marginBottom="12.0dip" android:text="SUBMIT PHRASE" android:backgroundTint="#ff424242" />
+    <Button android:textColor="#ff757575" android:id="@id/btnFrictionCancel" android:background="@android:color/transparent" android:layout_width="fill_parent" android:layout_height="46.0dip" android:text="CANCEL" />
+</LinearLayout>

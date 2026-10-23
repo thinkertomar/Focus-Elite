@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView android:background="@color/background_dark" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:orientation="vertical" android:padding="20.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content">
+        <TextView android:textSize="16.0sp" android:textColor="@color/accent_purple" android:id="@id/summaryBackButton" android:padding="4.0dip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" android:text="@string/back" />
+        <TextView android:textSize="22.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip" android:text="@string/audit_summary_title" />
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/today_breakdown_label" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip">
+            <com.focusguardpro.app.SimpleBarChartView android:id="@id/todayBreakdownChart" android:layout_width="fill_parent" android:layout_height="170.0dip" />
+        </LinearLayout>
+        <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/todaySummaryText" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip" />
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/app_breakdown_label" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip">
+            <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/appBreakdownEmptyText" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:text="@string/app_breakdown_empty" />
+            <androidx.recyclerview.widget.RecyclerView android:id="@id/appBreakdownList" android:layout_width="fill_parent" android:layout_height="wrap_content" android:nestedScrollingEnabled="false" />
+        </LinearLayout>
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/weekly_distraction_label" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip">
+            <com.focusguardpro.app.SimpleBarChartView android:id="@id/weeklyDistractionChart" android:layout_width="fill_parent" android:layout_height="170.0dip" />
+        </LinearLayout>
+        <TextView android:textSize="14.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:gravity="center" android:id="@id/thirtyDaySummaryButton" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" android:text="@string/thirty_day_summary_button" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip">
+            <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="4.0dip" android:text="@string/main_cause_label" />
+            <TextView android:textSize="14.0sp" android:textColor="@color/text_primary" android:id="@id/mainCauseText" android:layout_width="fill_parent" android:layout_height="wrap_content" />
+        </LinearLayout>
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/todays_notes_label" />
+        <LinearLayout android:orientation="vertical" android:id="@id/notesContainer" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip">
+            <TextView android:textSize="14.0sp" android:textColor="@color/text_primary" android:id="@id/notesContentText" android:layout_width="fill_parent" android:layout_height="wrap_content" android:lineSpacingExtra="4.0dip" />
+        </LinearLayout>
+        <Button android:textColor="@color/text_primary" android:id="@id/btnOpenDailyNotebook" android:background="@drawable/bg_button_primary" android:layout_width="fill_parent" android:layout_height="48.0dip" android:layout_marginBottom="24.0dip" android:text="📓 Open Daily Time Notebook" android:textAllCaps="false" android:elevation="0.0dip" />
+    </LinearLayout>
+</ScrollView>

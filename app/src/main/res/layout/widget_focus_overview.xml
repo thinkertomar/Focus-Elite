@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <RelativeLayout android:gravity="center" android:id="@id/layout_widget_ring" android:layout_width="0.0dip" android:layout_height="fill_parent" android:layout_weight="1.0">
+        <ImageView android:id="@id/iv_widget_steps_ring" android:layout_width="90.0dip" android:layout_height="90.0dip" android:contentDescription="Steps Ring" />
+    </RelativeLayout>
+    <LinearLayout android:orientation="vertical" android:background="#ff2e3846" android:layout_width="1.0dip" android:layout_height="fill_parent" android:layout_marginVertical="6.0dip" />
+    <LinearLayout android:gravity="center" android:orientation="vertical" android:id="@id/btn_widget_focus_toggle" android:layout_width="0.0dip" android:layout_height="fill_parent" android:layout_weight="1.2" android:paddingHorizontal="8.0dip">
+        <TextView android:textSize="11.0sp" android:textStyle="bold" android:textColor="#ff8e9aa8" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="FOCUS LAYER" />
+        <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="#ffff5252" android:id="@id/tv_widget_focus_state" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" android:text="OFF" />
+        <TextView android:textSize="10.0sp" android:textColor="#ffffffff" android:background="@drawable/bg_button_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6.0dip" android:text="Tap to Toggle" android:paddingHorizontal="10.0dip" android:paddingVertical="4.0dip" />
+    </LinearLayout>
+</LinearLayout>

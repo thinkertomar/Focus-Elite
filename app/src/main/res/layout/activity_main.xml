@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView android:background="@color/background_dark" android:layout_width="fill_parent" android:layout_height="fill_parent" android:fillViewport="true"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:orientation="vertical" android:padding="20.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content">
+        <LinearLayout android:orientation="horizontal" android:gravity="center_vertical" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip">
+            <ImageView android:layout_width="48.0dip" android:layout_height="48.0dip" android:layout_marginEnd="14.0dip" android:src="@drawable/ic_focus_elite_logo" android:contentDescription="Focus Elite Logo" />
+            <LinearLayout android:orientation="vertical" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0">
+                <TextView android:textSize="26.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_name" android:letterSpacing="-0.01" />
+                <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2.0dip" android:text="@string/app_tagline" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:orientation="vertical" android:id="@id/screenTimeCard" android:background="@drawable/bg_card_hero" android:padding="20.0dip" android:focusable="true" android:clickable="true" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip">
+            <TextView android:textSize="12.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/todays_screen_time" android:letterSpacing="0.08" />
+            <TextView android:textSize="40.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:id="@id/screenTimeText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8.0dip" android:text="--" />
+            <TextView android:textSize="12.0sp" android:textColor="@color/text_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" android:text="@string/tap_for_breakdown" />
+        </LinearLayout>
+        <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:id="@id/dailyTimeAuditCard" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip">
+            <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip" android:layout_marginEnd="14.0dip">
+                <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_daily_notebook" android:contentDescription="Daily Time Notebook" />
+            </LinearLayout>
+            <LinearLayout android:orientation="vertical" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0">
+                <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Daily Time Notebook" />
+                <TextView android:textSize="12.0sp" android:textColor="@color/text_secondary" android:id="@id/tvDailyAuditSubtitle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2.0dip" android:text="Log offline hours, track habits &amp; reflect daily" />
+            </LinearLayout>
+            <ImageView android:layout_width="20.0dip" android:layout_height="20.0dip" android:src="@drawable/ic_arrow_forward" android:contentDescription="Open Notebook" />
+        </LinearLayout>
+        <TextView android:textSize="12.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="10.0dip" android:text="@string/section_focus_tools" android:letterSpacing="0.08" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip">
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/practiceSessionLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginEnd="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_target_practice" android:contentDescription="Practice Mode" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/practice_session_label" android:maxLines="2" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/activityLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginStart="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_activity_runner" android:contentDescription="Physical Activity" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/activity_label" android:maxLines="2" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip">
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/auditSummaryLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginEnd="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_audit_chart" android:contentDescription="Audit Summary" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/audit_summary_label" android:maxLines="2" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/insightsDashboardLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginStart="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_insights_bulb" android:contentDescription="Discipline Insights" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/insights_dashboard_label" android:maxLines="2" />
+            </LinearLayout>
+        </LinearLayout>
+        <TextView android:textSize="12.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="10.0dip" android:text="@string/section_configure" android:letterSpacing="0.08" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip">
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/pinWidgetLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginEnd="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_pin_widget" android:contentDescription="Home Widget" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/pin_widget_label" android:maxLines="2" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/auditSettingsLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginStart="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_settings_gear" android:contentDescription="Category Settings" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/category_settings_label" android:maxLines="2" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip">
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/websiteBlockLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginEnd="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_website_rules" android:contentDescription="Website Rules" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/website_rules_label" android:maxLines="2" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center_horizontal" android:orientation="vertical" android:id="@id/calendarLink" android:background="@drawable/bg_card" android:padding="16.0dip" android:focusable="true" android:clickable="true" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginStart="6.0dip">
+                <LinearLayout android:gravity="center" android:background="@drawable/bg_icon_circle" android:layout_width="44.0dip" android:layout_height="44.0dip">
+                    <ImageView android:layout_width="24.0dip" android:layout_height="24.0dip" android:src="@drawable/ic_calendar_focus" android:contentDescription="Calendar Focus" />
+                </LinearLayout>
+                <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="10.0dip" android:text="@string/calendar_focus_label" android:maxLines="2" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="10.0dip">
+            <ImageView android:layout_width="20.0dip" android:layout_height="20.0dip" android:src="@drawable/ic_shield_security" android:contentDescription="Shield" android:layout_marginEnd="6.0dip" />
+            <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/system_permissions" android:letterSpacing="0.02" />
+        </LinearLayout>
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="16.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip">
+            <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/success_green" android:gravity="center" android:id="@id/allPermissionsSetText" android:padding="8.0dip" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="4.0dip" />
+            <Button android:textSize="14.0sp" android:textColor="@color/text_primary" android:id="@id/usageAccessButton" android:background="@drawable/bg_button_primary" android:layout_width="fill_parent" android:layout_height="52.0dip" android:layout_marginBottom="10.0dip" android:text="@string/enable_usage_tracking" android:textAllCaps="false" android:elevation="0.0dip" />
+            <Button android:textSize="14.0sp" android:textColor="@color/text_primary" android:id="@id/accessibilityButton" android:background="@drawable/bg_button_primary" android:layout_width="fill_parent" android:layout_height="52.0dip" android:layout_marginBottom="10.0dip" android:text="@string/enable_blocker_shield" android:textAllCaps="false" android:elevation="0.0dip" />
+            <Button android:textStyle="bold" android:textColor="#ffffffff" android:id="@id/btnDeviceAdmin" android:background="@drawable/bg_button_pill" android:layout_width="fill_parent" android:layout_height="52.0dip" android:layout_marginTop="2.0dip" android:layout_marginBottom="10.0dip" android:text="Checking Status..." android:textAllCaps="false" android:elevation="0.0dip" />
+            <Button android:textSize="13.0sp" android:textColor="@color/accent_purple" android:id="@id/batteryOptButton" android:background="@drawable/bg_button_secondary" android:layout_width="fill_parent" android:layout_height="48.0dip" android:text="@string/disable_battery_optimization" android:textAllCaps="false" android:elevation="0.0dip" />
+        </LinearLayout>
+        <TextView android:textSize="12.0sp" android:textColor="@color/text_secondary" android:layout_gravity="center_horizontal" android:id="@id/deactivateShieldLink" android:padding="10.0dip" android:focusable="true" android:clickable="true" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/deactivate_shield_link" />
+        <TextView android:textSize="12.0sp" android:textColor="@color/text_secondary" android:layout_gravity="center_horizontal" android:id="@id/backupRestoreLink" android:padding="10.0dip" android:focusable="true" android:clickable="true" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="22.0dip" android:text="Backup &amp; Restore" />
+        <LinearLayout android:orientation="vertical" android:id="@id/suggestionCard" android:background="@drawable/bg_card" android:padding="14.0dip" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip">
+            <TextView android:textSize="11.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="6.0dip" android:text="SUGGESTION" android:letterSpacing="0.08" />
+            <TextView android:textSize="14.0sp" android:textColor="@color/text_primary" android:id="@id/suggestionText" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" />
+            <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content">
+                <Button android:textSize="13.0sp" android:textColor="@color/text_primary" android:id="@id/suggestionAcceptButton" android:background="@drawable/bg_button_primary" android:layout_width="0.0dip" android:layout_height="44.0dip" android:text="Undo" android:layout_weight="1.0" android:textAllCaps="false" android:layout_marginEnd="8.0dip" android:elevation="0.0dip" />
+                <Button android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/suggestionDismissButton" android:background="@drawable/bg_button_secondary" android:layout_width="0.0dip" android:layout_height="44.0dip" android:text="Got it" android:layout_weight="1.0" android:textAllCaps="false" android:elevation="0.0dip" />
+            </LinearLayout>
+        </LinearLayout>
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/apps_blocklist" android:letterSpacing="0.02" />
+        <androidx.recyclerview.widget.RecyclerView android:id="@id/appListView" android:layout_width="fill_parent" android:layout_height="wrap_content" android:nestedScrollingEnabled="false" />
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

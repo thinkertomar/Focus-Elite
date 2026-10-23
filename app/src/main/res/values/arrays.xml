@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="audit_prompts_with_app">
+        <item>You were on %1$s. What were you doing?</item>
+        <item>"Caught on %1$s — what's the story?"</item>
+        <item>%1$s again — what pulled you in this time?</item>
+        <item>Quick check: what were you doing on %1$s?</item>
+        <item>%1$s was open. What was the reason?</item>
+    </string-array>
+</resources>

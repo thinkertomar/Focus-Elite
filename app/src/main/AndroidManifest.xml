@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:versionCode="3"
+    android:versionName="1.2">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.health.READ_STEPS"/>
+    <uses-permission android:name="android.permission.health.READ_DISTANCE"/>
+    <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED"/>
+    <uses-permission android:name="android.permission.READ_CALENDAR"/>
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
+    <queries>
+        <package android:name="com.google.android.apps.healthdata"/>
+        <intent>
+            <action android:name="android.view.InputMethod" />
+        </intent>
+    </queries>
+    <permission
+        android:name="com.focusguardpro.elite.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        android:protectionLevel="signature"/>
+    <uses-permission android:name="com.focusguardpro.elite.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>
+    <application
+        android:name="com.focusguardpro.app.FocusGuardApp"
+        android:theme="@style/Theme.FocusGuardPro"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:debuggable="true"
+        android:allowBackup="true"
+        android:largeHeap="true"
+        android:extractNativeLibs="false"
+        android:usesCleartextTraffic="false"
+        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+        android:hasFragileUserData="true">
+        <activity
+            android:name="com.focusguardpro.app.OnboardingActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.focusguardpro.app.MainActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.AuxiliarySettingsActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.UsageStatsActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.CategorySettingsActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.AuditSummaryActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.CalendarActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.CalendarDayEditorActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity
+            android:name="com.focusguardpro.app.DayDetailActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.ThirtyDaySummaryActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.WebsiteBlockActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.SleepLogActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.SleepSummaryActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.ActivityStatsActivity"
+            android:exported="false"/>
+        <activity-alias
+            android:name="com.focusguardpro.app.ViewPermissionUsageActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:exported="true"
+            android:targetActivity="com.focusguardpro.app.ActivityStatsActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
+            </intent-filter>
+        </activity-alias>
+        <activity
+            android:name="com.focusguardpro.app.DistanceHistoryActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.CaloriesHistoryActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.MoveMinHistoryActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.WeightHistoryActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.BackupRestoreActivity"
+            android:exported="false"/>
+        <activity
+            android:theme="@style/Theme.FocusGuardPro"
+            android:name="com.focusguardpro.app.AuditActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"/>
+        <activity
+            android:theme="@style/Theme.FocusGuardPro.Dialog"
+            android:name="com.focusguardpro.app.TimeSplitterActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"/>
+        <activity
+            android:theme="@style/Theme.FocusGuardPro"
+            android:name="com.focusguardpro.app.BlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"/>
+        <service
+            android:name="com.focusguardpro.app.BlockerAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config"/>
+        </service>
+        <service
+            android:name="com.focusguardpro.app.WatchdogService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|location">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the focus-blocking accessibility service alive"/>
+        </service>
+        <service
+            android:name="com.focusguardpro.app.FocusForegroundMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Monitors foreground app activity and blocks distraction packages during focus hours"/>
+        </service>
+        <receiver
+            android:name="com.focusguardpro.app.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.focusguardpro.app.MyAdminReceiver"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="false">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policies"/>
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
+            </intent-filter>
+        </receiver>
+        <activity
+            android:theme="@style/Theme.FocusGuardPro"
+            android:name="com.focusguardpro.app.PracticeSessionActivity"
+            android:exported="false"
+            android:configChanges="screenSize|orientation|keyboardHidden"/>
+        <activity
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:name="com.focusguardpro.app.DeactivationActivity"
+            android:exported="false"/>
+        <activity
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
+            android:name="com.focusguardpro.app.MisclickActivity"
+            android:exported="false"/>
+        <activity
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:name="com.focusguardpro.app.FrictionGateActivity"
+            android:exported="false"/>
+        <activity
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:name="com.focusguardpro.app.PermissionTamperWarningActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"/>
+        <activity
+            android:name="com.focusguardpro.app.CalisthenicsActivity"
+            android:exported="false"/>
+        <receiver
+            android:name="com.focusguardpro.app.widget.FocusWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="com.focusguardpro.app.ACTION_TOGGLE_FOCUS"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_focus_info"/>
+        </receiver>
+        <receiver
+            android:name="com.focusguardpro.app.notification.DailySummaryReceiver"
+            android:exported="false"/>
+        <activity
+            android:theme="@style/Theme.FocusGuardPro"
+            android:label="Discipline Insights"
+            android:name="com.focusguardpro.app.insights.InsightsDashboardActivity"
+            android:exported="false"/>
+        <service
+            android:name="androidx.health.platform.client.impl.sdkservice.HealthDataSdkService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.platform.client.ACTION_BIND_SDK_SERVICE"/>
+            </intent-filter>
+        </service>
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:exported="false"
+            android:authorities="com.focusguardpro.elite.androidx-startup">
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                android:value="androidx.startup"/>
+            <meta-data
+                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+                android:value="androidx.startup"/>
+            <meta-data
+                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+                android:value="androidx.startup"/>
+        </provider>
+        <service
+            android:name="androidx.room.MultiInstanceInvalidationService"
+            android:exported="false"
+            android:directBootAware="true"/>
+        <receiver
+            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            android:permission="android.permission.DUMP"
+            android:enabled="true"
+            android:exported="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.SKIP_FILE"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

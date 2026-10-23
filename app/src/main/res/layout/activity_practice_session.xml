@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout android:background="#ff0f1115" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <WebView android:id="@id/jeeWebView" android:layout_width="fill_parent" android:layout_height="fill_parent" android:layout_above="@id/btnEngageLock" />
+    <com.google.android.material.button.MaterialButton android:textSize="16.0sp" android:textStyle="bold" android:textColor="#ff82b1ff" android:id="@id/btnEngageLock" android:layout_width="fill_parent" android:layout_height="60.0dip" android:layout_marginBottom="16.0dip" android:text="ENGAGE EXAM LOCK" app:icon="@drawable/ic_exam_lock" app:iconGravity="textStart" app:iconTint="#ff82b1ff" android:layout_alignParentBottom="true" android:layout_marginHorizontal="16.0dip" app:backgroundTint="#ff2d323f" app:cornerRadius="12.0dip" app:elevation="8.0dip" />
+</RelativeLayout>
