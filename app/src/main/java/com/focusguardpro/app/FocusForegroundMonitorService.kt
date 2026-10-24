@@ -34,8 +34,8 @@ class FocusForegroundMonitorService : Service() {
     companion object {
         const val CHANNEL_ID = "focusguard_focus_monitor"
         const val NOTIFICATION_ID = 1002
-        private const val FAST_POLL_MS = 350L
-        private const val IDLE_POLL_MS = 2500L
+        private const val FAST_POLL_MS = 1000L
+        private const val IDLE_POLL_MS = 3500L
         private const val ALARM_INTERVAL_MS = 300000L // 5 minutes keep-alive alarm
 
         fun start(context: Context) {
@@ -68,13 +68,16 @@ class FocusForegroundMonitorService : Service() {
                     isScreenOn = false
                     ForegroundTracker.currentPackage = null
                     ForegroundTracker.currentPackageSince = 0L
+                    stopMonitoringLoop()
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     isScreenOn = true
+                    startMonitoringLoop()
                     checkForegroundNow()
                 }
                 Intent.ACTION_USER_PRESENT -> {
                     isScreenOn = true
+                    startMonitoringLoop()
                     checkForegroundNow()
                 }
                 Intent.ACTION_TIME_TICK -> {
@@ -137,6 +140,7 @@ class FocusForegroundMonitorService : Service() {
     }
 
     private fun startMonitoringLoop() {
+        if (!isScreenOn) return
         monitorJob?.cancel()
         monitorJob = serviceScope.launch {
             while (isActive) {
@@ -154,6 +158,13 @@ class FocusForegroundMonitorService : Service() {
                 delay(delayTime)
             }
         }
+    }
+
+    private fun stopMonitoringLoop() {
+        try {
+            monitorJob?.cancel()
+            monitorJob = null
+        } catch (_: Throwable) {}
     }
 
     private fun checkForegroundNow() {

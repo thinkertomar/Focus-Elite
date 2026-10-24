@@ -500,7 +500,7 @@ object FocusLayerManager {
 
     fun toggleManualOverride(context: Context): Boolean {
         val currentlyActive = isActiveNow(context)
-        if (currentlyActive && isScheduledActiveNow(context) && !isHolidayToday(context)) {
+        if (currentlyActive && isLockedUntilCalendarHoliday(context)) {
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(
                     context.applicationContext,

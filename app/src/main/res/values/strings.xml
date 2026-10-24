@@ -292,8 +292,8 @@
     <string name="path_password_eye_mask_visible">M2,4.27 L2,4.27 L4.54,1.73 L4.54,1.73 L4.54,1 L23,1 L23,23 L1,23 L1,4.27 Z</string>
     <string name="path_password_strike_through">M3.27,4.27 L19.74,20.74</string>
     <string name="permission_required">Grant permission above</string>
-    <string name="pin_widget_label">Home Widget</string>
-    <string name="pin_widget_link">Add Home Screen Widget</string>
+    <string name="pin_widget_label">Widget Studio &amp; Deck</string>
+    <string name="pin_widget_link">Command Deck Widget Studio</string>
     <string name="pin_widget_requested">Follow the prompt to place the widget</string>
     <string name="pin_widget_unsupported">"Your launcher doesn't support quick-add - long-press the home screen and add the Focus Elite widget manually"</string>
     <string name="practice_session_label">Practice Mode</string>
@@ -362,5 +362,5 @@
     <string name="weight_invalid">Enter a valid weight in kg</string>
     <string name="weight_label">Weight</string>
     <string name="weight_saved">Weight saved</string>
-    <string name="widget_focus_description">Steps ring + one-tap Focus Layer toggle</string>
+    <string name="widget_focus_description">All-in-One Command Deck: Dual Neon Rings (Screen Time vs Steps), Focus Shield Toggle, and 1-Tap 25m + 40Hz Gamma Deep Focus</string>
 </resources>

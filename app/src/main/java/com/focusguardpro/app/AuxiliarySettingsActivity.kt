@@ -115,12 +115,12 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16f), dp(16f), dp(16f), dp(10f))
+            setPadding(dp(16f), dp(28f), dp(16f), dp(10f))
         }
 
         val backBtn = TextView(this).apply {
             text = "← Home"
-            textSize = 14f
+            textSize = 13.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
             setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
@@ -141,12 +141,12 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
         val titleView = TextView(this).apply {
             text = "Command & Studio Hub"
-            textSize = 19f
+            textSize = 18.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
         }
         headerSubtitleView = TextView(this).apply {
-            text = "Instructions • UI Colors • Focus Criteria • Alchemy"
+            text = "Guide • UI Themes • Focus Schedule • Alchemy"
             textSize = 11.5f
             setTextColor(palette.secondaryColor)
         }
@@ -197,9 +197,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         tabButtonsContainer.removeAllViews()
         val palette = UiThemePrefs.getSelectedPalette(this)
         val tabs = listOf(
-            TAB_INSTRUCTIONS to "📖 Instruction Tab",
+            TAB_INSTRUCTIONS to "📖 Guide & Tree",
             TAB_UI_COLOR to "🎨 UI & Colors",
-            TAB_AUXILIARY to "⚙️ Auxiliary & Focus",
+            TAB_AUXILIARY to "⚙️ Focus & Rules",
             TAB_INSPIRE to "✨ Inspire Me"
         )
 
@@ -207,12 +207,12 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             val selected = currentTab == tabId
             val pill = TextView(this).apply {
                 text = label
-                textSize = 13f
+                textSize = 12.5f
                 setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
                 setTextColor(if (selected) Color.WHITE else Color.parseColor("#94A3B8"))
-                setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
+                setPadding(dp(14f), dp(9f), dp(14f), dp(9f))
                 background = GradientDrawable().apply {
-                    cornerRadius = dp(22f).toFloat()
+                    cornerRadius = dp(20f).toFloat()
                     if (selected) {
                         setColor(palette.accentColor)
                     } else {
@@ -515,9 +515,11 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             textSize = 12f
             isAllCaps = false
             setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, dp(42f), 1f)
+            minHeight = dp(46f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
-                cornerRadius = dp(10f).toFloat()
+                cornerRadius = dp(12f).toFloat()
                 if (isDone) {
                     setColor(Color.parseColor("#14532D"))
                     setStroke(dp(1f), Color.parseColor("#22C55E"))
@@ -786,15 +788,18 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         val auditBtnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
         val togglePopupBtn = Button(this).apply {
-            text = if (auditPopupEnabled) "⏸️ Shut Down Screen-Off Popup" else "🔔 Re-Enable Auto Popup"
+            text = if (auditPopupEnabled) "⏸️ Pause Auto Popup" else "🔔 Enable Auto Popup"
             textSize = 12f
             isAllCaps = false
             setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, dp(42f), 1f).apply { marginEnd = dp(6f) }
+            minHeight = dp(46f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8f) }
             background = GradientDrawable().apply {
-                cornerRadius = dp(10f).toFloat()
+                cornerRadius = dp(12f).toFloat()
                 setColor(if (auditPopupEnabled) Color.parseColor("#B91C1C") else Color.parseColor("#1E293B"))
                 setStroke(dp(1f), palette.accentColor)
             }
@@ -811,13 +816,15 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             }
         }
         val manualNotebookBtn = Button(this).apply {
-            text = "📓 Open Notebook Manually"
+            text = "📓 Open Notebook"
             textSize = 12f
             isAllCaps = false
             setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, dp(42f), 1f)
+            minHeight = dp(46f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
-                cornerRadius = dp(10f).toFloat()
+                cornerRadius = dp(12f).toFloat()
                 setColor(palette.accentColor)
             }
             setOnClickListener {
@@ -997,12 +1004,40 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
 
         addAuxiliaryLauncherRow(
-            iconEmoji = "📌",
-            title = "Pin Focus Elite Widget to Home Screen",
-            subtitle = "Add one-tap focus status widget to your Android launcher",
+            iconEmoji = "🎨",
+            title = "Command Deck Widget Studio & Skins",
+            subtitle = "Interactive live widget preview, 4 skins, Dual Neon Rings calibrator & 1-tap pin",
             palette = palette
         ) {
             pinHomeWidget()
+        }
+
+        addAuxiliaryLauncherRow(
+            iconEmoji = "🎯",
+            title = "Deep Focus Studio",
+            subtitle = "Procedural soundscapes (40Hz Gamma), Pomodoro timer, and cognitive friction gate",
+            palette = palette
+        ) {
+            startActivity(Intent(this, FocusSessionActivity::class.java))
+        }
+
+        addAuxiliaryLauncherRow(
+            iconEmoji = "📥",
+            title = "Export Personal Data (CSV & JSON)",
+            subtitle = "Local-first private data sovereignty: 1-tap export of sessions, rules, and workouts",
+            palette = palette
+        ) {
+            val options = arrayOf("Export Complete JSON Backup", "Export Sessions CSV (Spreadsheet)")
+            AlertDialog.Builder(this)
+                .setTitle("Export Focus Data")
+                .setItems(options) { _, which ->
+                    when (which) {
+                        0 -> DataExportManager.exportAndShare(this, DataExportManager.ExportFormat.JSON)
+                        1 -> DataExportManager.exportAndShare(this, DataExportManager.ExportFormat.CSV)
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         addAuxiliaryLauncherRow(
@@ -1147,24 +1182,26 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             setPadding(0, dp(4f), 0, dp(6f))
         })
 
-        data class FocusPreset(val label: String, val s: Int, val e: Int)
+        data class FocusPreset(val title: String, val range: String, val s: Int, val e: Int)
         val presets = listOf(
-            FocusPreset("Classic 9AM–6PM", 540, 1080),
-            FocusPreset("Morning 6AM–12PM", 360, 720),
-            FocusPreset("Student 8AM–4PM", 480, 960),
-            FocusPreset("Evening 6PM–10PM", 1080, 1320),
-            FocusPreset("Night 10PM–6AM", 1320, 360),
-            FocusPreset("All Day 8AM–8PM", 480, 1200)
+            FocusPreset("Classic", "9AM–6PM", 540, 1080),
+            FocusPreset("Morning", "6AM–12PM", 360, 720),
+            FocusPreset("Student", "8AM–4PM", 480, 960),
+            FocusPreset("Evening", "6PM–10PM", 1080, 1320),
+            FocusPreset("Night", "10PM–6AM", 1320, 360),
+            FocusPreset("All Day", "8AM–8PM", 480, 1200)
         )
 
         fun createPresetChip(p: FocusPreset): View {
             val selected = scheduleEnabled && startMins == p.s && endMins == p.e
             return TextView(this).apply {
-                text = p.label
+                text = "${p.title}\n${p.range}"
                 textSize = 11f
                 gravity = Gravity.CENTER
+                setLineSpacing(0f, 1.15f)
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(if (selected) Color.WHITE else Color.parseColor("#CBD5E1"))
+                minHeight = dp(48f)
                 setPadding(dp(6f), dp(8f), dp(6f), dp(8f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(6f)
@@ -1186,7 +1223,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         p.e,
                         daysMode
                     )
-                    Toast.makeText(this@AuxiliarySettingsActivity, "Set focus hours to ${p.label}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@AuxiliarySettingsActivity, "Set focus hours to ${p.title} (${p.range})", Toast.LENGTH_SHORT).show()
                     renderActiveTab()
                 }
             }
@@ -1198,7 +1235,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
         val gridRow2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(10f) }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12f) }
         }
         for (i in 0..2) gridRow1.addView(createPresetChip(presets[i]))
         for (i in 3..5) gridRow2.addView(createPresetChip(presets[i]))
@@ -1227,7 +1264,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             textSize = 12f
             isAllCaps = false
             setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, dp(40f), 1f).apply { marginEnd = dp(6f) }
+            minHeight = dp(44f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6f) }
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
@@ -1260,7 +1299,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             textSize = 12f
             isAllCaps = false
             setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, dp(40f), 1f)
+            minHeight = dp(44f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
@@ -1462,11 +1503,13 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         if (breakRemaining > 0) {
             val breakActiveBtn = Button(this).apply {
-                text = "☕ Break Active ($breakRemaining m left) • Tap to Resume Focus"
+                text = "☕ Break ($breakRemaining m) • Resume"
                 textSize = 12f
                 isAllCaps = false
                 setTextColor(Color.WHITE)
-                layoutParams = LinearLayout.LayoutParams(0, dp(42f), 1f).apply { marginEnd = dp(6f) }
+                minHeight = dp(44f)
+                setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6f) }
                 background = GradientDrawable().apply {
                     cornerRadius = dp(10f).toFloat()
                     setColor(Color.parseColor("#0369A1"))
@@ -1485,7 +1528,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 textSize = 12f
                 isAllCaps = false
                 setTextColor(Color.WHITE)
-                layoutParams = LinearLayout.LayoutParams(0, dp(42f), 1f).apply { marginEnd = dp(6f) }
+                minHeight = dp(44f)
+                setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6f) }
                 background = GradientDrawable().apply {
                     cornerRadius = dp(10f).toFloat()
                     setColor(Color.parseColor("#1E293B"))
@@ -1505,7 +1550,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             textSize = 12f
             isAllCaps = false
             setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, dp(42f), 1f)
+            minHeight = dp(44f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#0F172A"))
@@ -1978,19 +2025,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
     }
 
     private fun pinHomeWidget() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val appWidgetManager = getSystemService(AppWidgetManager::class.java)
-            val provider = ComponentName(this, FocusWidgetProvider::class.java)
-            if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
-                appWidgetManager.requestPinAppWidget(provider, null, null)
-                return
-            }
-        }
-        Toast.makeText(
-            this,
-            "Long-press your Android home screen and select Widgets → Focus Elite.",
-            Toast.LENGTH_LONG
-        ).show()
+        startActivity(Intent(this, WidgetStudioActivity::class.java))
     }
 
     // =========================================================================
@@ -2109,8 +2144,8 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             }
 
             val leafTop = branchY + branchH + 22f * density
-            val leafH = 34f * density
-            val leafRect = RectF(w * 0.08f, leafTop, w * 0.92f, leafTop + leafH)
+            val leafH = 38f * density
+            val leafRect = RectF(w * 0.03f, leafTop, w * 0.97f, leafTop + leafH)
 
             nodes.forEachIndexed { i, node ->
                 val cx = gap + i * (branchW + gap) + branchW / 2f
@@ -2128,14 +2163,21 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 ) / 4
 
             boxPaint.color = Color.parseColor("#131C2E")
-            canvas.drawRoundRect(leafRect, 10f * density, 10f * density, boxPaint)
+            canvas.drawRoundRect(leafRect, 12f * density, 12f * density, boxPaint)
             strokePaint.color = if (totalScore >= 85) green else palette.accentColor
-            canvas.drawRoundRect(leafRect, 10f * density, 10f * density, strokePaint)
+            canvas.drawRoundRect(leafRect, 12f * density, 12f * density, strokePaint)
 
-            textPaint.textSize = 11f * density
+            val summaryText = "✓ Focus Layer + 30m Cap • System Readiness: $totalScore%"
+            var fittedSize = 11.5f * density
+            textPaint.textSize = fittedSize
+            val maxAllowedWidth = leafRect.width() - 20f * density
+            while (textPaint.measureText(summaryText) > maxAllowedWidth && fittedSize > 8.5f * density) {
+                fittedSize -= 0.5f * density
+                textPaint.textSize = fittedSize
+            }
             textPaint.color = Color.WHITE
             canvas.drawText(
-                "Custom Focus Layer + 30m Cap (✓) + Time Audit Readiness: $totalScore%",
+                summaryText,
                 leafRect.centerX(),
                 leafRect.centerY() + 4f * density,
                 textPaint

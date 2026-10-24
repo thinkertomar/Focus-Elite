@@ -117,7 +117,7 @@ class CategorySettingsActivity : AppCompatActivity() {
         AppCategoryPrefs.setIgnoredApps(this, newIgnored)
 
         try {
-            FocusWidgetProvider.updateAllWidgets(this)
+            EliteCommandWidgetProvider.updateAllWidgets(this)
         } catch (_: Exception) {}
 
         Toast.makeText(this, "Categories saved", Toast.LENGTH_SHORT).show()

@@ -56,6 +56,12 @@
             android:name="com.focusguardpro.app.MainActivity"
             android:exported="false"/>
         <activity
+            android:name="com.focusguardpro.app.FocusSessionActivity"
+            android:exported="false"/>
+        <activity
+            android:name="com.focusguardpro.app.WidgetStudioActivity"
+            android:exported="false"/>
+        <activity
             android:name="com.focusguardpro.app.AuxiliarySettingsActivity"
             android:exported="false"/>
         <activity
@@ -161,6 +167,9 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Monitors foreground app activity and blocks distraction packages during focus hours"/>
         </service>
+        <service
+            android:name="com.focusguardpro.app.FocusWidgetService"
+            android:exported="false"/>
         <receiver
             android:name="com.focusguardpro.app.BootReceiver"
             android:exported="false">
@@ -205,11 +214,14 @@
             android:name="com.focusguardpro.app.CalisthenicsActivity"
             android:exported="false"/>
         <receiver
-            android:name="com.focusguardpro.app.widget.FocusWidgetProvider"
+            android:name="com.focusguardpro.app.EliteCommandWidgetProvider"
+            android:label="Focus Elite Command Deck"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
                 <action android:name="com.focusguardpro.app.ACTION_TOGGLE_FOCUS"/>
+                <action android:name="com.focusguardpro.app.ACTION_QUICK_FOCUS"/>
+                <action android:name="com.focusguardpro.app.ACTION_REFRESH_WIDGET"/>
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
@@ -244,6 +256,15 @@
             <meta-data
                 android:name="androidx.profileinstaller.ProfileInstallerInitializer"
                 android:value="androidx.startup"/>
+        </provider>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
         </provider>
         <service
             android:name="androidx.room.MultiInstanceInvalidationService"

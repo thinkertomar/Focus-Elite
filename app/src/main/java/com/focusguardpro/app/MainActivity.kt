@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private var focusLayerStatusBannerView: LinearLayout? = null
     private var focusLayerStatusTitle: TextView? = null
     private var focusLayerStatusSubtitle: TextView? = null
+    private var focusStudioCardView: LinearLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         refreshDailyAuditCard()
         loadAppList()
         refreshSuggestionCard()
+        FocusWidgetService.syncTelemetryNow(this)
     }
 
     private fun dp(value: Float): Int =
@@ -190,13 +192,14 @@ class MainActivity : AppCompatActivity() {
 
         // Interactive Focus Layer Criteria & Holiday Lock Banner Card
         val focusBanner = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = dp(16f)
+                bottomMargin = dp(12f)
             }
             setOnClickListener {
                 if (FocusLayerManager.isLockedUntilCalendarHoliday(this@MainActivity)) {
@@ -218,7 +221,7 @@ class MainActivity : AppCompatActivity() {
                             Toast.makeText(this@MainActivity, "15-Minute Adaptive Break granted. Relax and return fresh!", Toast.LENGTH_SHORT).show()
                             applyDynamicThemeToHome()
                         }
-                        .setNegativeButton("📅 Calendar", { _, _ ->
+                        .setNegativeButton("📅 Calendar") { _, _ ->
                             try {
                                 startActivity(
                                     Intent(this@MainActivity, CalendarDayEditorActivity::class.java).apply {
@@ -228,7 +231,7 @@ class MainActivity : AppCompatActivity() {
                             } catch (_: Throwable) {
                                 startActivity(Intent(this@MainActivity, CalendarActivity::class.java))
                             }
-                        })
+                        }
                         .show()
                 } else {
                     startActivity(
@@ -239,18 +242,42 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        val shieldCircle = TextView(this).apply {
+            text = "🛡️"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            background = UiThemePrefs.createAccentCircleBackground(this@MainActivity)
+            layoutParams = LinearLayout.LayoutParams(dp(44f), dp(44f)).apply {
+                marginEnd = dp(14f)
+            }
+        }
+        val fTextCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
         val fTitle = TextView(this).apply {
-            textSize = 13f
+            textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
         }
         val fSub = TextView(this).apply {
-            textSize = 11.5f
+            textSize = 12f
             setTextColor(Color.parseColor("#94A3B8"))
-            setPadding(0, dp(3f), 0, 0)
+            setPadding(0, dp(2f), 0, 0)
         }
-        focusBanner.addView(fTitle)
-        focusBanner.addView(fSub)
+        fTextCol.addView(fTitle)
+        fTextCol.addView(fSub)
+        val fArrow = TextView(this).apply {
+            text = "→"
+            textSize = 16f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(palette.secondaryColor)
+            setPadding(dp(8f), 0, 0, 0)
+        }
+        focusBanner.addView(shieldCircle)
+        focusBanner.addView(fTextCol)
+        focusBanner.addView(fArrow)
 
         // Insert right after screenTimeCard
         val screenTimeIdx = mainColumn.indexOfChild(screenTimeCard)
@@ -258,6 +285,61 @@ class MainActivity : AppCompatActivity() {
         focusLayerStatusBannerView = focusBanner
         focusLayerStatusTitle = fTitle
         focusLayerStatusSubtitle = fSub
+
+        // Quick Deep Focus Studio Launch Card (matching Home card design language)
+        val focusStudioCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(12f)
+            }
+            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
+            background = UiThemePrefs.createCardBackground(this@MainActivity, cornerDp = 16f, isHero = false)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, FocusSessionActivity::class.java))
+            }
+        }
+        val iconCircle = TextView(this).apply {
+            text = "🎯"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            background = UiThemePrefs.createAccentCircleBackground(this@MainActivity)
+            layoutParams = LinearLayout.LayoutParams(dp(44f), dp(44f)).apply {
+                marginEnd = dp(14f)
+            }
+        }
+        val textCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        textCol.addView(TextView(this).apply {
+            text = "Deep Focus Studio"
+            textSize = 14.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        textCol.addView(TextView(this).apply {
+            text = "40Hz Gamma soundscape • Pomodoro • Mindful gate"
+            textSize = 12f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(2f), 0, 0)
+        })
+        val startLabel = TextView(this).apply {
+            text = "Start →"
+            textSize = 12.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(palette.secondaryColor)
+            setPadding(dp(8f), dp(4f), 0, dp(4f))
+        }
+        focusStudioCard.addView(iconCircle)
+        focusStudioCard.addView(textCol)
+        focusStudioCard.addView(startLabel)
+
+        mainColumn.addView(focusStudioCard, (screenTimeIdx + 2).coerceAtMost(mainColumn.childCount))
+        focusStudioCardView = focusStudioCard
     }
 
     private fun applyDynamicThemeToHome() {
@@ -297,27 +379,34 @@ class MainActivity : AppCompatActivity() {
         val isScheduled = FocusLayerManager.isScheduledActiveNow(this)
         val windowSummary = FocusLayerManager.formatWindowSummary(this)
         val currentTimeStr = FocusLayerManager.getCurrentDeviceTimeFormatted()
-        focusLayerStatusBannerView?.background = UiThemePrefs.createCardBackground(this, cornerDp = 14f, isHero = false)
+        focusLayerStatusBannerView?.background = UiThemePrefs.createCardBackground(this, cornerDp = 16f, isHero = false)
+        (focusLayerStatusBannerView?.getChildAt(0) as? View)?.background = UiThemePrefs.createAccentCircleBackground(this)
+        (focusLayerStatusBannerView?.getChildAt(2) as? TextView)?.setTextColor(palette.secondaryColor)
+
+        focusStudioCardView?.background = UiThemePrefs.createCardBackground(this, cornerDp = 16f, isHero = false)
+        (focusStudioCardView?.getChildAt(0) as? View)?.background = UiThemePrefs.createAccentCircleBackground(this)
+        (focusStudioCardView?.getChildAt(2) as? TextView)?.setTextColor(palette.secondaryColor)
+
         when {
             exemptionDetails != null -> {
                 focusLayerStatusTitle?.text = exemptionDetails
                 focusLayerStatusTitle?.setTextColor(Color.parseColor("#38BDF8"))
-                focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) is paused • $currentTimeStr • Tap to customize"
+                focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) paused • $currentTimeStr"
             }
             isLocked -> {
-                focusLayerStatusTitle?.text = "🔒 Focus Layer Active: $windowSummary"
+                focusLayerStatusTitle?.text = "🔒 Focus Layer Active ($windowSummary)"
                 focusLayerStatusTitle?.setTextColor(Color.parseColor("#F59E0B"))
-                focusLayerStatusSubtitle?.text = "Strict session in progress ($currentTimeStr) • Tap for break or settings"
+                focusLayerStatusSubtitle?.text = "Strict session ($currentTimeStr) • Tap for break or settings"
             }
             isScheduled -> {
-                focusLayerStatusTitle?.text = "🟢 Focus Layer Active: $windowSummary"
+                focusLayerStatusTitle?.text = "🟢 Focus Layer Active ($windowSummary)"
                 focusLayerStatusTitle?.setTextColor(Color.parseColor("#34D399"))
-                focusLayerStatusSubtitle?.text = "Session active right now ($currentTimeStr) • Tap to customize"
+                focusLayerStatusSubtitle?.text = "Active right now ($currentTimeStr) • Tap to customize"
             }
             else -> {
-                focusLayerStatusTitle?.text = "🛡️ Focus Layer: $windowSummary"
+                focusLayerStatusTitle?.text = "Focus Layer: $windowSummary"
                 focusLayerStatusTitle?.setTextColor(Color.WHITE)
-                focusLayerStatusSubtitle?.text = "Current: $currentTimeStr (Outside Window) • Tap to configure"
+                focusLayerStatusSubtitle?.text = "$currentTimeStr (Outside Window) • Tap to configure"
             }
         }
 
@@ -407,25 +496,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, InsightsDashboardActivity::class.java))
         }
         findViewById<View>(R.id.pinWidgetLink)?.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val appWidgetManager = getSystemService(AppWidgetManager::class.java)
-                val provider = ComponentName(this, FocusWidgetProvider::class.java)
-                if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
-                    appWidgetManager.requestPinAppWidget(provider, null, null)
-                } else {
-                    Toast.makeText(
-                        this,
-                        "Long-press on your home screen → Widgets → Focus Elite to add.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            } else {
-                Toast.makeText(
-                    this,
-                    "Long-press on your home screen → Widgets → Focus Elite to add.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+            startActivity(Intent(this, WidgetStudioActivity::class.java))
         }
         findViewById<View>(R.id.deactivateShieldLink)?.setOnClickListener {
             startActivity(Intent(this, DeactivationActivity::class.java))
