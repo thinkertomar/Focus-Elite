@@ -20,6 +20,7 @@ import java.util.Locale
 object FocusLayerManager {
     const val DEFAULT_START_MINUTES = 540 // 09:00 AM
     const val DEFAULT_END_MINUTES = 1080  // 06:00 PM
+    const val PRE_WINDOW_GRACE_MINUTES = 30 // 30-minute pre-window edit grace period
 
     const val DAYS_MON_SAT = 0
     const val DAYS_MON_FRI = 1
@@ -35,7 +36,10 @@ object FocusLayerManager {
     private const val KEY_STRICT_LOCK_ENABLED = "focus_strict_lock_enabled"
     private const val KEY_ADAPTIVE_CALENDAR_SYNC = "focus_adaptive_calendar_sync"
     private const val KEY_ADAPTIVE_BREAK_UNTIL_MS = "focus_adaptive_break_until_ms"
+    private const val KEY_HOLIDAY_FIRST_SEEN_PREFIX = "holiday_first_seen_"
     private const val OVERRIDE_KEY = "FOCUS_MANUAL_OVERRIDE"
+
+    private const val TWENTY_FOUR_HOURS_MS = 24L * 60L * 60L * 1000L
 
     private val HOLIDAY_EVENT_KEYWORDS = listOf(
         "holiday", "vacation", "day off", "day-off", "off day", "leave",
@@ -54,8 +58,16 @@ object FocusLayerManager {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun todayKey(): String {
-        return SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+    fun verifiedNowMs(context: Context? = null): Long {
+        return if (context != null) {
+            SettingsTamperGuard.getVerifiedCurrentTimeMillis(context)
+        } else {
+            System.currentTimeMillis()
+        }
+    }
+
+    fun todayKey(context: Context? = null): String {
+        return SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(verifiedNowMs(context)))
     }
 
     fun isSunday(nowMs: Long = System.currentTimeMillis()): Boolean {
@@ -64,9 +76,11 @@ object FocusLayerManager {
         return cal.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY
     }
 
+    /**
+     * Strict Fortress Lock is ON by default so there is no unguarded escape during focus hours.
+     */
     fun isStrictLockEnabled(context: Context): Boolean {
-        // Disabled by default for complete flexibility during configuration and presentations
-        return prefs(context).getBoolean(KEY_STRICT_LOCK_ENABLED, false)
+        return prefs(context).getBoolean(KEY_STRICT_LOCK_ENABLED, true)
     }
 
     fun setStrictLockEnabled(context: Context, enabled: Boolean) {
@@ -79,7 +93,14 @@ object FocusLayerManager {
             val parsed = raw.mapNotNull { it.toIntOrNull() }.toSet()
             if (parsed.isNotEmpty()) return parsed
         }
-        return setOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY)
+        return setOf(
+            Calendar.MONDAY,
+            Calendar.TUESDAY,
+            Calendar.WEDNESDAY,
+            Calendar.THURSDAY,
+            Calendar.FRIDAY,
+            Calendar.SATURDAY
+        )
     }
 
     fun setCustomDays(context: Context, days: Set<Int>) {
@@ -103,7 +124,7 @@ object FocusLayerManager {
         return newState
     }
 
-    fun isDayIncludedInSchedule(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun isDayIncludedInSchedule(context: Context, nowMs: Long = verifiedNowMs(context)): Boolean {
         val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
         val dow = cal.get(Calendar.DAY_OF_WEEK)
         return when (getActiveDaysMode(context)) {
@@ -190,11 +211,44 @@ object FocusLayerManager {
     }
 
     // =========================================================================
-    // USER-ADAPTIVE BREAK & CALENDAR EVENT DETECTION
+    // 30-MINUTE PRE-WINDOW EDIT GRACE PERIOD
+    // =========================================================================
+
+    /**
+     * Returns how many minutes remain in the 30-minute Pre-Window Edit Grace Period
+     * right before today's scheduled Focus Layer starts (or 0 if not in the grace period).
+     */
+    fun getPreWindowGraceRemainingMinutes(
+        context: Context,
+        nowMs: Long = verifiedNowMs(context)
+    ): Int {
+        if (!isScheduleEnabled(context) || !isDayIncludedInSchedule(context, nowMs)) {
+            return 0
+        }
+        val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
+        val nowMins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        val startMins = getStartMinutes(context)
+        val diff = if (startMins >= nowMins) {
+            startMins - nowMins
+        } else {
+            (1440 - nowMins) + startMins
+        }
+        return if (diff in 1..PRE_WINDOW_GRACE_MINUTES) diff else 0
+    }
+
+    fun isInPreWindowGracePeriod(
+        context: Context,
+        nowMs: Long = verifiedNowMs(context)
+    ): Boolean {
+        return getPreWindowGraceRemainingMinutes(context, nowMs) > 0
+    }
+
+    // =========================================================================
+    // USER-ADAPTIVE BREAK & 24-HOUR ADVANCE CALENDAR HOLIDAY VALIDATION
     // =========================================================================
 
     fun grantAdaptiveBreak(context: Context, minutes: Int = 15) {
-        val until = System.currentTimeMillis() + (minutes * 60_000L)
+        val until = verifiedNowMs(context) + (minutes * 60_000L)
         prefs(context).edit().putLong(KEY_ADAPTIVE_BREAK_UNTIL_MS, until).apply()
     }
 
@@ -204,7 +258,7 @@ object FocusLayerManager {
 
     fun getAdaptiveBreakRemainingMinutes(context: Context): Int {
         val until = prefs(context).getLong(KEY_ADAPTIVE_BREAK_UNTIL_MS, 0L)
-        val diff = until - System.currentTimeMillis()
+        val diff = until - verifiedNowMs(context)
         return if (diff > 0L) (diff / 60_000L).toInt().coerceAtLeast(1) else 0
     }
 
@@ -213,46 +267,168 @@ object FocusLayerManager {
     }
 
     /**
+     * Enforces the 24-Hour Advance Calendar Holiday Rule:
+     * When a date has a holiday flag or keyword, records the first timestamp it was seen.
+     * For today's date, returns true ONLY if the holiday was scheduled at least 24 hours in advance.
+     */
+    private fun verifyHolidayAdvanceEligibility(
+        context: Context,
+        dateKey: String,
+        nowMs: Long = verifiedNowMs(context)
+    ): Boolean {
+        val key = "$KEY_HOLIDAY_FIRST_SEEN_PREFIX$dateKey"
+        val p = prefs(context)
+        var firstSeenMs = p.getLong(key, 0L)
+        if (firstSeenMs <= 0L) {
+            firstSeenMs = nowMs
+            p.edit().putLong(key, firstSeenMs).apply()
+        }
+
+        // Future dates being pre-scheduled are always eligible if scheduled >=24h before that day's window
+        val today = todayKey(context)
+        if (dateKey != today) {
+            return true
+        }
+
+        // For today: check if it was created at least 24 hours ago
+        return (nowMs - firstSeenMs) >= TWENTY_FOUR_HOURS_MS
+    }
+
+    /**
+     * Pre-scans future calendar entries (next 14 days) so any holiday planned in advance
+     * gets its creation timestamp anchored immediately.
+     */
+    fun anchorUpcomingPlannedHolidays(context: Context) {
+        try {
+            FocusGuardApp.ensureRoomMainThreadQueries(context)
+            val dao = AppDatabase.getDatabase(context).systemDao()
+            val cal = Calendar.getInstance().apply { timeInMillis = verifiedNowMs(context) }
+            val fmt = SimpleDateFormat("yyyyMMdd", Locale.US)
+            val p = prefs(context)
+            val now = verifiedNowMs(context)
+
+            for (offset in 1..14) {
+                cal.add(Calendar.DAY_OF_YEAR, 1)
+                val dKey = fmt.format(cal.time)
+                val entry = dao.getDiaryEntry(dKey)
+                val todos = dao.getTodosForDate(dKey)
+                val hasHoliday = (entry?.isHoliday == true) ||
+                    (entry != null && HOLIDAY_EVENT_KEYWORDS.any { entry.note.lowercase().contains(it) }) ||
+                    todos.any { t -> HOLIDAY_EVENT_KEYWORDS.any { t.text.lowercase().contains(it) } }
+
+                val prefKey = "$KEY_HOLIDAY_FIRST_SEEN_PREFIX$dKey"
+                if (hasHoliday) {
+                    if (p.getLong(prefKey, 0L) <= 0L) {
+                        p.edit().putLong(prefKey, now).apply()
+                    }
+                } else {
+                    p.edit().remove(prefKey).apply()
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * Returns a non-null warning string if the user marked Today as a Holiday on the same day
+     * (violating the 24-hour advance rule), so UI screens can explain why Focus Lock remains active.
+     */
+    fun getSameDayHolidayRejectionNotice(
+        context: Context,
+        nowMs: Long = verifiedNowMs(context)
+    ): String? {
+        val rawExemption = detectRawTodayCalendarEntry(context) ?: return null
+        val tKey = todayKey(context)
+        val eligible = verifyHolidayAdvanceEligibility(context, tKey, nowMs)
+        return if (!eligible) {
+            val firstSeen = prefs(context).getLong("$KEY_HOLIDAY_FIRST_SEEN_PREFIX$tKey", nowMs)
+            val hoursRemaining = ((TWENTY_FOUR_HOURS_MS - (nowMs - firstSeen)) / 3600_000L).coerceIn(1L, 24L)
+            "🛡️ 24h Advance Rule: '$rawExemption' was added today (${hoursRemaining}h cooldown left). Same-day holidays cannot unlock active Focus!"
+        } else {
+            null
+        }
+    }
+
+    private fun detectRawTodayCalendarEntry(context: Context): String? {
+        val tKey = todayKey(context)
+        try {
+            FocusGuardApp.ensureRoomMainThreadQueries(context)
+            val entry = AppDatabase.getDatabase(context).systemDao().getDiaryEntry(tKey)
+            if (entry != null) {
+                if (entry.isHoliday) {
+                    return entry.note.ifBlank { "Marked as Holiday" }
+                }
+                val noteLower = entry.note.lowercase()
+                for (kw in HOLIDAY_EVENT_KEYWORDS) {
+                    if (noteLower.contains(kw)) {
+                        return entry.note
+                    }
+                }
+            }
+            val todos = AppDatabase.getDatabase(context).systemDao().getTodosForDate(tKey)
+            for (t in todos) {
+                val textLower = t.text.lowercase()
+                for (kw in HOLIDAY_EVENT_KEYWORDS) {
+                    if (textLower.contains(kw)) {
+                        return t.text
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    /**
      * Inspects active calendar events or holidays across:
-     * 1. 15-minute user-initiated adaptive breaks
-     * 2. In-app Calendar DiaryEntry (marked holiday or break note)
-     * 3. In-app Calendar TodoItem events (tasks marked [break], [holiday], etc.)
-     * 4. Android Device Calendar (if READ_CALENDAR is granted)
-     *
-     * Returns CalendarExemption which describes why strict focus blocking is relaxed/paused.
+     * 1. 15-minute user-initiated adaptive breaks (unlocked via Physical Proof-of-Effort)
+     * 2. In-app Calendar DiaryEntry (must satisfy 24h advance rule)
+     * 3. In-app Calendar TodoItem events (must satisfy 24h advance rule)
+     * 4. Android Device Calendar (must satisfy 24h advance rule)
      */
     fun getCalendarExemption(
         context: Context,
-        nowMs: Long = System.currentTimeMillis()
+        nowMs: Long = verifiedNowMs(context)
     ): CalendarExemption {
+        anchorUpcomingPlannedHolidays(context)
+
         // 1. Check temporary adaptive break
         val breakMins = getAdaptiveBreakRemainingMinutes(context)
         if (breakMins > 0) {
             return CalendarExemption.AdaptiveBreak(breakMins)
         }
 
+        val tKey = todayKey(context)
+
         if (!isAdaptiveCalendarSyncEnabled(context)) {
-            // If user turned off adaptive sync, still respect direct holiday marks in DiaryEntry
-            return if (isExplicitHolidayInDatabase(context, todayKey())) {
-                CalendarExemption.Holiday("Marked as Holiday in Calendar")
+            if (isExplicitHolidayInDatabase(context, tKey)) {
+                if (verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
+                    return CalendarExemption.Holiday("Marked as Holiday in Calendar (24h+ Verified)")
+                }
             } else {
-                CalendarExemption.None
+                prefs(context).edit().remove("$KEY_HOLIDAY_FIRST_SEEN_PREFIX$tKey").apply()
             }
+            return CalendarExemption.None
         }
 
         // 2. Check In-App Calendar Diary Entry for Today
+        var foundTodayHolidayOrKeyword = false
         try {
             FocusGuardApp.ensureRoomMainThreadQueries(context)
-            val entry = AppDatabase.getDatabase(context).systemDao().getDiaryEntry(todayKey())
+            val entry = AppDatabase.getDatabase(context).systemDao().getDiaryEntry(tKey)
             if (entry != null) {
                 if (entry.isHoliday) {
-                    val label = if (entry.note.isNotBlank()) entry.note else "Marked as Holiday in Calendar"
-                    return CalendarExemption.Holiday(label)
+                    foundTodayHolidayOrKeyword = true
+                    if (verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
+                        val label = if (entry.note.isNotBlank()) entry.note else "Marked as Holiday in Calendar"
+                        return CalendarExemption.Holiday(label)
+                    }
                 }
                 val noteLower = entry.note.lowercase()
                 for (kw in HOLIDAY_EVENT_KEYWORDS) {
                     if (noteLower.contains(kw)) {
-                        return CalendarExemption.Holiday(entry.note)
+                        foundTodayHolidayOrKeyword = true
+                        if (verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
+                            return CalendarExemption.Holiday(entry.note)
+                        }
                     }
                 }
             }
@@ -261,20 +437,27 @@ object FocusLayerManager {
         // 3. Check In-App Calendar TodoItems / Events for Today
         try {
             FocusGuardApp.ensureRoomMainThreadQueries(context)
-            val todos = AppDatabase.getDatabase(context).systemDao().getTodosForDate(todayKey())
+            val todos = AppDatabase.getDatabase(context).systemDao().getTodosForDate(tKey)
             for (t in todos) {
                 val textLower = t.text.lowercase()
                 for (kw in HOLIDAY_EVENT_KEYWORDS) {
                     if (textLower.contains(kw)) {
-                        return CalendarExemption.CalendarEvent(t.text)
+                        foundTodayHolidayOrKeyword = true
+                        if (verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
+                            return CalendarExemption.CalendarEvent(t.text)
+                        }
                     }
                 }
             }
         } catch (_: Throwable) {}
 
+        if (!foundTodayHolidayOrKeyword) {
+            prefs(context).edit().remove("$KEY_HOLIDAY_FIRST_SEEN_PREFIX$tKey").apply()
+        }
+
         // 4. Check Android Device Calendar Events if permission is available
         val deviceCalendarEvent = checkDeviceCalendarEvents(context, nowMs)
-        if (deviceCalendarEvent != null) {
+        if (deviceCalendarEvent != null && verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
             return deviceCalendarEvent
         }
 
@@ -353,7 +536,7 @@ object FocusLayerManager {
     }
 
     fun isHoliday(context: Context, dateKey: String): Boolean {
-        if (dateKey == todayKey()) {
+        if (dateKey == todayKey(context)) {
             return isHolidayToday(context)
         }
         return isExplicitHolidayInDatabase(context, dateKey)
@@ -372,7 +555,7 @@ object FocusLayerManager {
     // FOCUS LOCK & SCHEDULE ENFORCEMENT
     // =========================================================================
 
-    fun getFocusStatusDescription(context: Context, nowMs: Long = System.currentTimeMillis()): String {
+    fun getFocusStatusDescription(context: Context, nowMs: Long = verifiedNowMs(context)): String {
         val exemption = getCalendarExemption(context, nowMs)
         if (exemption !is CalendarExemption.None) {
             val exText = getCalendarExemptionDetails(context) ?: "Exemption Active"
@@ -381,10 +564,14 @@ object FocusLayerManager {
         if (!isScheduleEnabled(context)) {
             return "Flexible Mode (Schedule Disabled)"
         }
+        val graceMins = getPreWindowGraceRemainingMinutes(context, nowMs)
+        if (graceMins > 0) {
+            return "⚡ Pre-Window Grace Open (${graceMins}m left before Fortress Lock)"
+        }
         val scheduled = isScheduledActiveNow(context, nowMs)
         val window = formatWindowSummary(context)
         return if (scheduled) {
-            "🟢 Focus Layer Active (Inside $window)"
+            "🔒 Fortress Focus Active (Inside $window)"
         } else {
             "⚪ Inactive (Outside $window)"
         }
@@ -392,20 +579,28 @@ object FocusLayerManager {
 
     /**
      * Checks whether the Focus Layer is currently strictly locked.
-     * By default, strict locking is OFF so users and presenters can customize their hours freely.
-     * When strict lock is enabled, rules can be relaxed via a 15-minute break or Calendar Holiday.
+     * Strict Fortress Lock is ON by default. During initial 4-step setup (before core permissions
+     * and app categories are configured) or during the 30-minute Pre-Window Grace Period,
+     * users can freely edit their rules. Once setup is complete and focus hours start,
+     * rules and category promotions freeze unless unlocked via Physical Proof-of-Effort.
      */
-    fun isLockedUntilCalendarHoliday(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun isLockedUntilCalendarHoliday(context: Context, nowMs: Long = verifiedNowMs(context)): Boolean {
+        if (!SettingsTamperGuard.isInitialSetupComplete(context)) {
+            return false
+        }
         if (!isStrictLockEnabled(context)) {
             return false
         }
         if (isHolidayToday(context)) {
             return false
         }
+        if (isInPreWindowGracePeriod(context, nowMs)) {
+            return false
+        }
         return isScheduledActiveNow(context, nowMs)
     }
 
-    fun canModifyFocusSettingsNow(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun canModifyFocusSettingsNow(context: Context, nowMs: Long = verifiedNowMs(context)): Boolean {
         return !isLockedUntilCalendarHoliday(context, nowMs)
     }
 
@@ -422,11 +617,12 @@ object FocusLayerManager {
             .putInt(KEY_END_MINUTES, endMinutes.coerceIn(0, 1439))
             .putInt(KEY_DAYS_MODE, daysMode)
             .apply()
+        UiThemePrefs.markSetupScheduleConfigured(context)
         return true
     }
 
     fun isActiveNow(context: Context): Boolean {
-        val nowMs = System.currentTimeMillis()
+        val nowMs = verifiedNowMs(context)
         if (isHolidayToday(context)) {
             val manual = getManualOverride(context)
             return manual == true
@@ -442,7 +638,7 @@ object FocusLayerManager {
         return manual == true
     }
 
-    fun isScheduledActiveNow(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun isScheduledActiveNow(context: Context, nowMs: Long = verifiedNowMs(context)): Boolean {
         val shieldPrefs = context.getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
         if (!shieldPrefs.getBoolean("shield_active", true)) {
             return false
@@ -453,7 +649,7 @@ object FocusLayerManager {
         if (!isDayIncludedInSchedule(context, nowMs)) {
             return false
         }
-        // User-adaptive: Active calendar event or holiday relaxes strict scheduled blocking
+        // User-adaptive: Verified 24h+ calendar holiday or Proof-of-Effort adaptive break relaxes blocking
         if (isHolidayToday(context)) {
             return false
         }
@@ -476,7 +672,7 @@ object FocusLayerManager {
             FocusGuardApp.ensureRoomMainThreadQueries(context)
             val raw = AppDatabase.getDatabase(context).systemDao().getState(OVERRIDE_KEY) ?: return null
             val parts = raw.split(":")
-            if (parts.size != 2 || parts[1] != todayKey()) {
+            if (parts.size != 2 || parts[1] != todayKey(context)) {
                 return null
             }
             parts[0] == "ON"
@@ -493,7 +689,7 @@ object FocusLayerManager {
         try {
             FocusGuardApp.ensureRoomMainThreadQueries(context)
             AppDatabase.getDatabase(context).systemDao().putState(
-                SystemState(OVERRIDE_KEY, "", System.currentTimeMillis())
+                SystemState(OVERRIDE_KEY, "", verifiedNowMs(context))
             )
         } catch (_: Throwable) {}
     }
@@ -504,7 +700,7 @@ object FocusLayerManager {
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(
                     context.applicationContext,
-                    "🔒 Focus Layer is locked during active hours! Mark today as a Holiday or Event in Calendar first to turn off Focus.",
+                    "🔒 Fortress Lock is active! Complete Physical Proof-of-Effort in Focus & Rules Hub to pause.",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -515,7 +711,7 @@ object FocusLayerManager {
         try {
             FocusGuardApp.ensureRoomMainThreadQueries(context)
             AppDatabase.getDatabase(context).systemDao().putState(
-                SystemState(OVERRIDE_KEY, "${if (newState) "ON" else "OFF"}:${todayKey()}", System.currentTimeMillis())
+                SystemState(OVERRIDE_KEY, "${if (newState) "ON" else "OFF"}:${todayKey(context)}", verifiedNowMs(context))
             )
         } catch (_: Throwable) {}
 

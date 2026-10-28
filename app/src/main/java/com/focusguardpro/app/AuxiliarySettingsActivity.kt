@@ -260,7 +260,27 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
     private fun buildInstructionsTab() {
         val palette = UiThemePrefs.getSelectedPalette(this)
 
-        // 1. First-Time Welcome Greeting Banner
+        val usageReady = hasUsageStatsPermission()
+        val studyCount = AppCategoryPrefs.getStudyApps(this).size
+        val improveCount = AppCategoryPrefs.getImprovementApps(this).size
+        val ignoredCount = AppCategoryPrefs.getIgnoredApps(this).size
+        val criteriaCount = studyCount + improveCount + ignoredCount
+        val criteriaReady = UiThemePrefs.isSetupCategoriesConfigured(this)
+        val scheduleReady = UiThemePrefs.isSetupScheduleConfigured(this)
+        val batteryReady = isIgnoringBatteryOptimizations()
+        val adminReady = isDeviceAdminActive()
+        val shieldReady = isAccessibilityServiceEnabled()
+        val step4Ready = adminReady && shieldReady
+
+        val currentStepNumber = when {
+            !usageReady -> 1
+            !criteriaReady -> 2
+            !scheduleReady -> 3
+            !step4Ready -> 4
+            else -> 5
+        }
+
+        // 1. First-Time Welcome & Guided 4-Step Setup Wizard Card
         val welcomeCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = UiThemePrefs.createCardBackground(this@AuxiliarySettingsActivity, cornerDp = 18f, isHero = true)
@@ -274,20 +294,20 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
 
         val badgeText = TextView(this).apply {
-            text = if (showFirstTimeWelcome) {
-                "✨ WELCOME TO FOCUS ELITE • FIRST-TIME GUIDE"
+            text = if (currentStepNumber <= 4) {
+                "✨ GUIDED FIRST-TIME SETUP • STEP $currentStepNumber OF 4"
             } else {
-                "📖 MASTER INSTRUCTION & SETUP BLUEPRINT"
+                "✓ ALL 4 SETUP STEPS COMPLETE • FORTRESS READY"
             }
             textSize = 11f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(palette.secondaryColor)
+            setTextColor(if (currentStepNumber <= 4) palette.secondaryColor else Color.parseColor("#4ADE80"))
         }
         val welcomeTitle = TextView(this).apply {
-            text = if (showFirstTimeWelcome) {
-                "Welcome aboard! Start your journey here."
+            text = if (currentStepNumber <= 4) {
+                "Smooth 4-Step Setup (Zero Self-Lockout Order)"
             } else {
-                "Everything you need to understand Focus Elite"
+                "Your Focus Elite Fortress is 100% Configured!"
             }
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
@@ -295,8 +315,8 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             setPadding(0, dp(4f), 0, dp(4f))
         }
         val welcomeBody = TextView(this).apply {
-            text = "Below is your live Setup Tree & Bar Graph followed by clear guides for the Time Audit (with screen-off popup paused by default), Customizable Focus Layer + Calendar Holiday Lock, 30-Minute Smart Blocker (Blue Tick ✓), and Physical Activity trackers."
-            textSize = 13f
+            text = "Why this exact order matters: You configure Usage Access (Step 1), App Criteria with all system apps automatically allowed (Step 2), and your Focus Schedule (Step 3) FIRST — and enable Device Admin & Accessibility Shield LAST (Step 4). This guarantees the no-escape Focus Lock never blocks you inside Android Settings while you are still setting up!"
+            textSize = 12.5f
             setTextColor(Color.parseColor("#CBD5E1"))
             setLineSpacing(0f, 1.2f)
         }
@@ -304,35 +324,202 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         welcomeCard.addView(welcomeTitle)
         welcomeCard.addView(welcomeBody)
 
-        if (showFirstTimeWelcome) {
-            val startBtn = Button(this).apply {
-                text = "Got It — Explore Setup Tree Below ↓"
-                isAllCaps = false
-                setTextColor(Color.WHITE)
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(12f).toFloat()
-                    setColor(palette.accentColor)
-                }
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(42f)
-                ).apply {
-                    topMargin = dp(12f)
-                }
-                setOnClickListener {
-                    showFirstTimeWelcome = false
+        // Step-by-Step Interactive Wizard Cards inside the Welcome/Setup Hub
+        // STEP 1: USAGE ACCESS
+        welcomeCard.addView(
+            buildGuidedStepRow(
+                stepNum = 1,
+                title = "Grant Usage Access Sensor",
+                subtitle = if (usageReady) {
+                    "✓ Usage Access granted — Focus Elite can measure screen time & app usage."
+                } else {
+                    "Required first so Focus Elite can see your installed apps and daily screen time."
+                },
+                isDone = usageReady,
+                isCurrent = currentStepNumber == 1,
+                buttonText = if (usageReady) "✓ Done" else "1. Grant Usage →",
+                palette = palette
+            ) {
+                SettingsTamperGuard.grantPermissionSetupGrace(this)
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            }
+        )
+
+        // STEP 2: DEFINE APP CRITERIA (STUDY / IMPROVE / IGNORE — SYSTEM APPS AUTO-EXCLUDED)
+        welcomeCard.addView(
+            buildGuidedStepRow(
+                stepNum = 2,
+                title = "Define Your App Criteria (Study • Improve • Ignore)",
+                subtitle = if (criteriaReady) {
+                    "✓ Configured ($studyCount Study, $improveCount Improve, $ignoredCount Ignored) • All Android system apps automatically allowed 24/7."
+                } else {
+                    "Classify your apps into Study/Improve (always allowed) or Ignored (30m cap). All Android system apps (Phone, Camera, Clock, Calculator, SMS, Settings, Files) are automatically excluded & allowed!"
+                },
+                isDone = criteriaReady,
+                isCurrent = currentStepNumber == 2,
+                buttonText = if (criteriaReady) "Edit Apps ($criteriaCount)" else "2. Define Apps →",
+                palette = palette
+            ) {
+                startActivity(
+                    Intent(this, CategorySettingsActivity::class.java).apply {
+                        putExtra("from_guided_setup", true)
+                    }
+                )
+            }
+        )
+
+        // STEP 3: CONFIGURE FOCUS SCHEDULE BEFORE ENABLING ACCESSIBILITY
+        val currentScheduleSummary = FocusLayerManager.formatWindowSummary(this)
+        welcomeCard.addView(
+            buildGuidedStepRow(
+                stepNum = 3,
+                title = "Set Your Focus Schedule Window",
+                subtitle = if (scheduleReady) {
+                    "✓ Schedule confirmed: $currentScheduleSummary (Set before turning on Accessibility Shield)."
+                } else {
+                    "Current window: $currentScheduleSummary. Tap 'Confirm' to keep this window or tap 'Customize' to pick your own hours & days before enabling the shield."
+                },
+                isDone = scheduleReady,
+                isCurrent = currentStepNumber == 3,
+                buttonText = if (scheduleReady) "Customize Hours" else "3. Set Schedule →",
+                palette = palette,
+                secondaryButtonText = if (!scheduleReady) "✓ Keep 9AM–6PM" else null,
+                onSecondaryClick = {
+                    UiThemePrefs.markSetupScheduleConfigured(this)
                     Toast.makeText(
-                        this@AuxiliarySettingsActivity,
-                        "Tap any button below to complete setup, or press '← Home' anytime!",
+                        this,
+                        "✓ Step 3 Complete! Focus schedule ($currentScheduleSummary) confirmed. Now complete Step 4!",
                         Toast.LENGTH_SHORT
                     ).show()
+                    renderActiveTab()
+                }
+            ) {
+                UiThemePrefs.markSetupScheduleConfigured(this)
+                currentTab = TAB_AUXILIARY
+                renderActiveTab()
+                contentScrollView.smoothScrollTo(0, 0)
+                Toast.makeText(
+                    this,
+                    "Customize your Focus Schedule hours & days below, then return to Step 4!",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+
+        // STEP 4: ENABLE FINAL ENFORCEMENT PERMISSIONS LAST (BATTERY + DEVICE ADMIN + ACCESSIBILITY SHIELD)
+        val step4Container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14f).toFloat()
+                setColor(Color.parseColor("#111827"))
+                setStroke(
+                    dp(if (currentStepNumber == 4) 2f else 1f),
+                    when {
+                        step4Ready -> Color.parseColor("#22C55E")
+                        currentStepNumber == 4 -> palette.accentColor
+                        else -> Color.parseColor("#334155")
+                    }
+                )
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(10f)
+            }
+        }
+
+        step4Container.addView(TextView(this).apply {
+            text = if (step4Ready) {
+                "✓ STEP 4 OF 4: FINAL ENFORCEMENT SHIELDS ACTIVE"
+            } else {
+                "🛡️ STEP 4 OF 4 (FINAL STEP): ENABLE ADMIN & ACCESSIBILITY SHIELD"
+            }
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(if (step4Ready) Color.parseColor("#4ADE80") else Color.WHITE)
+        })
+
+        step4Container.addView(TextView(this).apply {
+            text = "Enable these LAST after Steps 1–3 are set. Tapping any button below activates a 3-minute Setup Grace Window so Android Settings will NEVER block you while turning on Device Admin or Accessibility!"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(3f), 0, dp(8f))
+        })
+
+        val step4ButtonsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(6f) }
+        }
+        step4ButtonsRow.addView(
+            createQuickSetupButton(
+                label = if (batteryReady) "✓ 4A. Battery Set" else "⚡ 4A. Unrestricted Battery",
+                isDone = batteryReady,
+                palette = palette
+            ) {
+                SettingsTamperGuard.grantPermissionSetupGrace(this)
+                requestBatteryExemption()
+            }
+        )
+        step4ButtonsRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(8f), 1) })
+        step4ButtonsRow.addView(
+            createQuickSetupButton(
+                label = if (adminReady) "✓ 4B. Admin Active" else "🛡️ 4B. Enable Device Admin",
+                isDone = adminReady,
+                palette = palette
+            ) {
+                SettingsTamperGuard.grantPermissionSetupGrace(this)
+                requestDeviceAdmin()
+            }
+        )
+        step4Container.addView(step4ButtonsRow)
+
+        val accessFinalBtn = Button(this).apply {
+            text = if (shieldReady) {
+                "✓ 4C. Accessibility Blocker Shield Active (Setup Complete!)"
+            } else {
+                "🔒 4C. Enable Accessibility Blocker Shield (Enable Last →)"
+            }
+            textSize = 12.5f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            minHeight = dp(46f)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12f).toFloat()
+                if (shieldReady) {
+                    setColor(Color.parseColor("#14532D"))
+                    setStroke(dp(1f), Color.parseColor("#22C55E"))
+                } else {
+                    setColor(palette.accentColor)
                 }
             }
-            welcomeCard.addView(startBtn)
+            setOnClickListener {
+                // Mark Steps 2 & 3 seen if user jumps straight to Step 4 so they aren't stuck
+                UiThemePrefs.markSetupCategoriesConfigured(this@AuxiliarySettingsActivity)
+                UiThemePrefs.markSetupScheduleConfigured(this@AuxiliarySettingsActivity)
+                SettingsTamperGuard.grantPermissionSetupGrace(this@AuxiliarySettingsActivity, 180_000L)
+                Toast.makeText(
+                    this@AuxiliarySettingsActivity,
+                    "🛡️ Setup Grace Active: Enable 'Focus Elite' in Accessibility Settings.",
+                    Toast.LENGTH_LONG
+                ).show()
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
         }
+        step4Container.addView(accessFinalBtn)
+        welcomeCard.addView(step4Container)
+
         contentContainer.addView(welcomeCard)
 
-        // 2. TOP FEATURE: Interactive Setup Tree + Readiness Bar Graph Card
+        // 2. 100% OFFLINE & ZERO-INTERNET PRIVACY AUDIT CARD
+        buildPrivacyAuditCard(palette)
+
+        // 3. VISUAL SETUP TREE + READINESS BAR GRAPH CARD
         val treeCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = UiThemePrefs.createCardBackground(this@AuxiliarySettingsActivity, cornerDp = 18f, isHero = false)
@@ -346,13 +533,13 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
 
         val treeTitle = TextView(this).apply {
-            text = "🌳 APP SETUP TREE & READINESS BAR GRAPH"
+            text = "🌳 4-STEP SETUP TREE & READINESS BAR GRAPH"
             textSize = 12f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(palette.accentColor)
         }
         val treeSub = TextView(this).apply {
-            text = "Visual hierarchy of how Focus Elite's 4 pillars connect + live setup completion bar chart:"
+            text = "Live visual blueprint: 1. Usage Access → 2. App Criteria (System Apps Safe) → 3. Schedule → 4. Shields:"
             textSize = 12.5f
             setTextColor(Color.parseColor("#94A3B8"))
             setPadding(0, dp(4f), 0, dp(10f))
@@ -360,103 +547,31 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         treeCard.addView(treeTitle)
         treeCard.addView(treeSub)
 
-        val usageReady = hasUsageStatsPermission()
-        val shieldReady = isAccessibilityServiceEnabled()
-        val adminReady = isDeviceAdminActive()
-        val batteryReady = isIgnoringBatteryOptimizations()
-        val studyCount = AppCategoryPrefs.getStudyApps(this).size
-        val studyReady = studyCount > 0
-
         val treeGraphView = SetupTreeAndBarGraphView(
             context = this,
             palette = palette,
             usageReady = usageReady,
+            criteriaReady = criteriaReady,
+            criteriaCount = criteriaCount,
+            scheduleReady = scheduleReady,
             shieldReady = shieldReady,
             adminReady = adminReady,
-            batteryReady = batteryReady,
-            studyReady = studyReady,
-            studyCount = studyCount
+            batteryReady = batteryReady
         )
         treeGraphView.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             dp(420f)
         )
         treeCard.addView(treeGraphView)
-
-        val actionTitle = TextView(this).apply {
-            text = "Quick-Fix Setup Actions (Tap any step to configure):"
-            textSize = 12f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            setPadding(0, dp(10f), 0, dp(8f))
-        }
-        treeCard.addView(actionTitle)
-
-        val quickRow1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8f) }
-        }
-        quickRow1.addView(
-            createQuickSetupButton(
-                label = if (usageReady) "✓ 1. Usage Tracking" else "⚡ 1. Enable Usage",
-                isDone = usageReady,
-                palette = palette
-            ) {
-                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-            }
-        )
-        quickRow1.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(8f), 1) })
-        quickRow1.addView(
-            createQuickSetupButton(
-                label = if (shieldReady) "✓ 2. Blocker Shield" else "⚡ 2. Enable Shield",
-                isDone = shieldReady,
-                palette = palette
-            ) {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-        )
-        treeCard.addView(quickRow1)
-
-        val quickRow2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
-        quickRow2.addView(
-            createQuickSetupButton(
-                label = if (batteryReady) "✓ 3. Unrestricted Battery" else "⚡ 3. Fix Battery",
-                isDone = batteryReady,
-                palette = palette
-            ) {
-                requestBatteryExemption()
-            }
-        )
-        quickRow2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(8f), 1) })
-        quickRow2.addView(
-            createQuickSetupButton(
-                label = "📚 4. Study Whitelist ($studyCount)",
-                isDone = studyReady,
-                palette = palette
-            ) {
-                startActivity(Intent(this, CategorySettingsActivity::class.java))
-            }
-        )
-        treeCard.addView(quickRow2)
-
         contentContainer.addView(treeCard)
 
-        // 3. EASY-TO-UNDERSTAND FUNCTION GUIDES
+        // 4. EASY-TO-UNDERSTAND FUNCTION GUIDES
         addSectionTitle("EVERYDAY USER GUIDE — HOW EACH FUNCTION WORKS", palette)
 
         addInstructionGuideCard(
             stepBadge = "MODULE 1 • TIME AUDIT & NOTEBOOK (POPUP SHUT DOWN BY DEFAULT)",
             title = "How Daily Time Audit & Bar Graph Analytics Work",
-            body = "• Screen-Off Popup Shut Down: The automatic Audit popup after screen-off is now shut down/paused by default so it won't interrupt you when unlocking your phone (you can re-enable it anytime in the '⚙️ Auxiliary & Focus' tab).\n" +
+            body = "• Screen-Off Popup Shut Down: The automatic Audit popup after screen-off is now shut down/paused by default so it won't interrupt you when unlocking your phone (you can re-enable it anytime in the '⚙️ Focus & Rules' tab).\n" +
                 "• Manual Daily Time Notebook: Tap 'Daily Time Notebook' on the Home screen whenever you want to log or split your offline hours and write daily reflections.\n" +
                 "• Interactive Bar Graph Breakdown: Open 'Time Analysis' on the Home screen to see your 7-day stacked bar chart and 24h pie chart. Tapping ANY bar opens that day's granular breakdown.",
             actionLabel = "Open Time Analysis Bar Graph →",
@@ -467,10 +582,10 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         addInstructionGuideCard(
             stepBadge = "MODULE 2 • CUSTOMIZABLE FOCUS LAYER & CALENDAR HOLIDAY LOCK",
-            title = "Flexible Focus Hours + Holiday Commitment Rule",
-            body = "• Customize Your Criteria: Not everyone follows 9:00 AM – 6:00 PM! In the '⚙️ Auxiliary & Focus' tab, you can choose your own Focus Window hours (e.g. 8 AM–4 PM, 6 AM–2 PM, custom hours) and active days.\n" +
-                "• Locked During Active Focus Until Calendar Holiday: Once your Focus Window is currently active, you CANNOT weaken, change, or turn off the Focus Layer mid-session unless you first go to the Calendar and mark today as a Holiday (with a reason note)!\n" +
-                "• Smart Whitelisting: Study Apps, Authenticators, and Payment apps remain accessible during focus hours.",
+            title = "Flexible Focus Hours + 24h Advance Holiday Rule",
+            body = "• Customize Your Criteria: In the '⚙️ Focus & Rules' tab, you can choose your own Focus Window hours (e.g. 9 AM–6 PM, 8 AM–4 PM, custom hours) and active days.\n" +
+                "• 30-Minute Pre-Window Grace Period: You can freely adjust your schedule and categories up until your focus window starts.\n" +
+                "• All System Apps Automatically Allowed: Phone, SMS, Camera, Clock/Alarm, Calculator, Contacts, Files, Settings, and Payment apps are excluded from blocking 24/7 so you never face any issue using device features.",
             actionLabel = "Configure Focus Layer Criteria →",
             palette = palette
         ) {
@@ -483,7 +598,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             stepBadge = "MODULE 3 • SMART SUGGESTIONS & BLUE TICK (✓) BLOCKING",
             title = "How 30-Minute Limits, Home Suggestions & Blue Ticks Work",
             body = "• 30-Minute Threshold: When you use any non-study app for 30+ minutes in a day, Focus Elite flags it.\n" +
-                "• Per-App Home Screen Suggestion: On the Home screen, the Suggestion Card recommends blocking that PARTICULAR app (never all apps at once unless you want it to).\n" +
+                "• Per-App Home Screen Suggestion: On the Home screen, the Suggestion Card recommends blocking that PARTICULAR app.\n" +
                 "• The Blue Tick (✓) Indicator: Once you block an app from the suggestion card, toggle its switch, or once it hits its 30-minute daily cap, it displays a bright Blue Tick (✓) and blue switch in the Apps Blocklist.",
             actionLabel = "Configure App Categories & Study Whitelist →",
             palette = palette
@@ -494,7 +609,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         addInstructionGuideCard(
             stepBadge = "MODULE 4 • PHYSICAL ACTIVITY & CALISTHENICS",
             title = "How Movement, Kilometre, Calories & Calisthenics Work",
-            body = "• Step & Sensor Tracking: 'Physical Activity' tracks your daily Steps, Kilometres (Distance), Active Movement Minutes, and Calories burned.\n" +
+            body = "• Step & Sensor Tracking: 'Physical Activity' tracks your daily Steps, Kilometres (Distance), Active Movement Minutes, and Calories burned using on-device hardware sensors.\n" +
                 "• Tap Any Metric for 7-Day Breakdown: Tap Distance (km), Calories, Active Time, or the Weekly Steps chart inside Physical Activity to inspect your day-by-day history.\n" +
                 "• Calisthenics Progression: Log push-ups, pull-ups, squats, and core progressions with built-in rest timers.",
             actionLabel = "Open Physical Activity & Breakdowns →",
@@ -502,6 +617,191 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         ) {
             startActivity(Intent(this, ActivityStatsActivity::class.java))
         }
+    }
+
+    private fun buildGuidedStepRow(
+        stepNum: Int,
+        title: String,
+        subtitle: String,
+        isDone: Boolean,
+        isCurrent: Boolean,
+        buttonText: String,
+        palette: UiThemePrefs.ThemePalette,
+        secondaryButtonText: String? = null,
+        onSecondaryClick: (() -> Unit)? = null,
+        onClick: () -> Unit
+    ): View {
+        val rowCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14f).toFloat()
+                setColor(Color.parseColor("#111827"))
+                setStroke(
+                    dp(if (isCurrent) 2f else 1f),
+                    when {
+                        isDone -> Color.parseColor("#22C55E")
+                        isCurrent -> palette.accentColor
+                        else -> Color.parseColor("#334155")
+                    }
+                )
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(10f)
+            }
+        }
+
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val stepBadge = TextView(this).apply {
+            text = if (isDone) "✓ STEP $stepNum" else "STEP $stepNum"
+            textSize = 10.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(dp(8f), dp(4f), dp(8f), dp(4f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8f).toFloat()
+                setColor(if (isDone) Color.parseColor("#15803D") else palette.accentColor)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(8f) }
+        }
+        topRow.addView(stepBadge)
+
+        val titleTv = TextView(this).apply {
+            text = title
+            textSize = 13.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        topRow.addView(titleTv)
+        rowCard.addView(topRow)
+
+        val subTv = TextView(this).apply {
+            text = subtitle
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setPadding(0, dp(4f), 0, dp(8f))
+            setLineSpacing(0f, 1.15f)
+        }
+        rowCard.addView(subTv)
+
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        if (secondaryButtonText != null && onSecondaryClick != null) {
+            val secBtn = Button(this).apply {
+                text = secondaryButtonText
+                textSize = 11.5f
+                isAllCaps = false
+                setTextColor(Color.WHITE)
+                minHeight = dp(40f)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(8f)
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10f).toFloat()
+                    setColor(Color.parseColor("#14532D"))
+                    setStroke(dp(1f), Color.parseColor("#22C55E"))
+                }
+                setOnClickListener { onSecondaryClick() }
+            }
+            actionRow.addView(secBtn)
+        }
+
+        val mainBtn = Button(this).apply {
+            text = buttonText
+            textSize = 11.5f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            minHeight = dp(40f)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                if (isDone) {
+                    setColor(Color.parseColor("#1E293B"))
+                    setStroke(dp(1f), Color.parseColor("#22C55E"))
+                } else {
+                    setColor(palette.accentColor)
+                }
+            }
+            setOnClickListener { onClick() }
+        }
+        actionRow.addView(mainBtn)
+        rowCard.addView(actionRow)
+
+        return rowCard
+    }
+
+    private fun buildPrivacyAuditCard(palette: UiThemePrefs.ThemePalette) {
+        val hasInternetPerm = try {
+            val pkgInfo = packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
+            val perms = pkgInfo.requestedPermissions?.toList() ?: emptyList()
+            perms.contains("android.permission.INTERNET")
+        } catch (_: Throwable) {
+            false
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16f).toFloat()
+                setColor(Color.parseColor("#0A1F17"))
+                setStroke(dp(1.5f), Color.parseColor("#10B981"))
+            }
+            setPadding(dp(16f), dp(16f), dp(16f), dp(16f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(16f)
+            }
+        }
+
+        card.addView(TextView(this).apply {
+            text = if (!hasInternetPerm) {
+                "🔒 PRIVACY AUDIT VERIFIED: ZERO INTERNET PERMISSION (100% OFFLINE)"
+            } else {
+                "🔒 PRIVACY & PERMISSIONS AUDIT"
+            }
+            textSize = 11.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#34D399"))
+        })
+
+        card.addView(TextView(this).apply {
+            text = "Does Focus Elite have Internet Permission? NO!"
+            textSize = 16f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(4f), 0, dp(4f))
+        })
+
+        card.addView(TextView(this).apply {
+            text = "• Zero Network Access: Focus Elite does NOT request 'android.permission.INTERNET' in its AndroidManifest. The Android OS kernel blocks any app without this permission from opening network sockets. Zero bytes of your data can ever leave your phone.\n" +
+                "• Zero Location / GPS Tracking: No location permissions are requested or used.\n" +
+                "• Why Local Permissions Are Used (100% On-Device SQLite):\n" +
+                "  1. Usage Access: Calculates your daily screen time and 30m app limits locally.\n" +
+                "  2. Accessibility Service: Detects when a blocked distraction app or blocked browser URL opens so it can show the local Focus Shield.\n" +
+                "  3. Device Admin: Prevents impulse uninstallation during active focus hours.\n" +
+                "  4. Physical Activity Sensor: Counts hardware steps & squats locally for your fitness stats and Proof-of-Effort gate."
+            textSize = 12f
+            setTextColor(Color.parseColor("#D1FAE5"))
+            setLineSpacing(0f, 1.22f)
+        })
+
+        contentContainer.addView(card)
     }
 
     private fun createQuickSetupButton(
@@ -1052,16 +1352,51 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         addAuxiliaryLauncherRow(
             iconEmoji = "🛡️",
             title = "Deactivate Shield / Emergency Cooldown",
-            subtitle = "Manage shield deactivation friction gate and device admin status",
+            subtitle = "Protected by Physical Proof-of-Effort Gate during active focus hours",
             palette = palette
         ) {
-            startActivity(Intent(this, DeactivationActivity::class.java))
+            if (FocusLayerManager.isLockedUntilCalendarHoliday(this)) {
+                CognitiveFrictionGate.show(
+                    context = this,
+                    title = "Access Shield Deactivation",
+                    reasonPrompt = "Fortress Lock is active. Complete physical proof-of-effort (25 verified steps or 10 squats) to open Shield Deactivation."
+                ) {
+                    startActivity(Intent(this, DeactivationActivity::class.java))
+                }
+            } else {
+                startActivity(Intent(this, DeactivationActivity::class.java))
+            }
+        }
+    }
+
+    /**
+     * Helper that runs [onAuthorized] immediately if outside active Fortress Lock
+     * (or inside the 30m Pre-Window Grace Period), or gates the action behind
+     * Physical Proof-of-Effort when Fortress Lock is active.
+     */
+    private fun runWithFortressGateIfLocked(
+        actionTitle: String,
+        onCancelRevert: (() -> Unit)? = null,
+        onAuthorized: () -> Unit
+    ) {
+        if (FocusLayerManager.isLockedUntilCalendarHoliday(this)) {
+            onCancelRevert?.invoke()
+            CognitiveFrictionGate.show(
+                context = this,
+                title = actionTitle,
+                reasonPrompt = "Fortress Lock is active (${FocusLayerManager.formatWindowSummary(this)}). Complete physical proof-of-effort (25 steps or 10 squats) + commitment phrase to authorize '$actionTitle'."
+            ) {
+                onAuthorized()
+            }
+        } else {
+            onAuthorized()
         }
     }
 
     /**
      * Builds the customizable Focus Layer Criteria card (hours, days, schedule toggle)
-     * with strict enforcement of the Calendar Holiday Lock rule when Focus is currently active.
+     * with strict enforcement of the Fortress Lock, 30-Minute Pre-Window Grace Period,
+     * and 24-Hour Advance Calendar Holiday Rule.
      */
     private fun buildFocusLayerCriteriaCard(palette: UiThemePrefs.ThemePalette) {
         val exemptionDetails = FocusLayerManager.getCalendarExemptionDetails(this)
@@ -1070,11 +1405,14 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         val isStrictLock = FocusLayerManager.isStrictLockEnabled(this)
         val scheduleEnabled = FocusLayerManager.isScheduleEnabled(this)
         val isScheduledNow = FocusLayerManager.isScheduledActiveNow(this)
+        val graceMins = FocusLayerManager.getPreWindowGraceRemainingMinutes(this)
+        val sameDayRejection = FocusLayerManager.getSameDayHolidayRejectionNotice(this)
+        val clockTampered = SettingsTamperGuard.isClockTamperActive(this)
         val startMins = FocusLayerManager.getStartMinutes(this)
         val endMins = FocusLayerManager.getEndMinutes(this)
         val daysMode = FocusLayerManager.getActiveDaysMode(this)
         val customDays = FocusLayerManager.getCustomDays(this)
-        val currentDeviceTime = FocusLayerManager.getCurrentDeviceTimeFormatted()
+        val currentDeviceTime = FocusLayerManager.getCurrentDeviceTimeFormatted(FocusLayerManager.verifiedNowMs(this))
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1094,24 +1432,32 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         val statusColor = when {
             exemptionDetails != null -> Color.parseColor("#38BDF8")
+            graceMins > 0 -> Color.parseColor("#38BDF8")
+            isLockedNow -> Color.parseColor("#F59E0B")
             isScheduledNow -> Color.parseColor("#34D399")
             else -> Color.parseColor("#94A3B8")
         }
 
         val liveTimeView = TextView(this).apply {
-            text = "🕒 Device Clock: $currentDeviceTime"
+            text = if (clockTampered) {
+                "🛡️ Monotonic Hardware Clock: $currentDeviceTime (Device Clock Drift Blocked)"
+            } else {
+                "🕒 Verified Monotonic Clock: $currentDeviceTime"
+            }
             textSize = 12f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(palette.secondaryColor)
+            setTextColor(if (clockTampered) Color.parseColor("#FCA5A5") else palette.secondaryColor)
         }
         statusHeaderRow.addView(liveTimeView)
 
         val statusLabelView = TextView(this).apply {
             text = when {
                 exemptionDetails != null -> "$exemptionDetails • Focus Layer Paused"
+                graceMins > 0 -> "⚡ Pre-Window Grace Period Open ($graceMins min left to edit freely)"
                 !scheduleEnabled -> "⚪ Focus Schedule Disabled (Flexible Manual Mode)"
+                isLockedNow -> "🔒 Fortress Lock Engaged ($currentDeviceTime • Proof-of-Effort Gated)"
                 isScheduledNow -> "🟢 Focus Window Active Right Now ($currentDeviceTime)"
-                else -> "⚪ Inactive Right Now (Outside Focus Window)"
+                else -> "⚪ Inactive Right Now (Outside Focus Window — Edits Open)"
             }
             textSize = 13.5f
             setTypeface(typeface, Typeface.BOLD)
@@ -1126,6 +1472,25 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
         }
         statusHeaderRow.addView(criteriaSummaryView)
+
+        if (sameDayRejection != null) {
+            statusHeaderRow.addView(TextView(this).apply {
+                text = sameDayRejection
+                textSize = 11.5f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.parseColor("#FCA5A5"))
+                setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(8f).toFloat()
+                    setColor(Color.parseColor("#450A0A"))
+                    setStroke(dp(1f), Color.parseColor("#EF4444"))
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8f) }
+            })
+        }
 
         card.addView(statusHeaderRow)
 
@@ -1155,19 +1520,32 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         val enableSwitch = Switch(this).apply {
             isChecked = scheduleEnabled
             setOnCheckedChangeListener { _, isChecked ->
-                FocusLayerManager.updateFocusScheduleCriteria(
-                    this@AuxiliarySettingsActivity,
-                    isChecked,
-                    startMins,
-                    endMins,
-                    daysMode
-                )
-                Toast.makeText(
-                    this@AuxiliarySettingsActivity,
-                    if (isChecked) "Focus schedule enabled" else "Focus schedule disabled",
-                    Toast.LENGTH_SHORT
-                ).show()
-                renderActiveTab()
+                if (!isChecked) {
+                    runWithFortressGateIfLocked(
+                        actionTitle = "Disable Focus Schedule",
+                        onCancelRevert = { renderActiveTab() }
+                    ) {
+                        FocusLayerManager.updateFocusScheduleCriteria(
+                            this@AuxiliarySettingsActivity,
+                            false,
+                            startMins,
+                            endMins,
+                            daysMode
+                        )
+                        Toast.makeText(this@AuxiliarySettingsActivity, "Focus schedule disabled", Toast.LENGTH_SHORT).show()
+                        renderActiveTab()
+                    }
+                } else {
+                    FocusLayerManager.updateFocusScheduleCriteria(
+                        this@AuxiliarySettingsActivity,
+                        true,
+                        startMins,
+                        endMins,
+                        daysMode
+                    )
+                    Toast.makeText(this@AuxiliarySettingsActivity, "Focus schedule enabled", Toast.LENGTH_SHORT).show()
+                    renderActiveTab()
+                }
             }
         }
         enableRow.addView(enableSwitch)
@@ -1216,15 +1594,17 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     }
                 }
                 setOnClickListener {
-                    FocusLayerManager.updateFocusScheduleCriteria(
-                        this@AuxiliarySettingsActivity,
-                        true,
-                        p.s,
-                        p.e,
-                        daysMode
-                    )
-                    Toast.makeText(this@AuxiliarySettingsActivity, "Set focus hours to ${p.title} (${p.range})", Toast.LENGTH_SHORT).show()
-                    renderActiveTab()
+                    runWithFortressGateIfLocked(actionTitle = "Change Preset to ${p.title}") {
+                        FocusLayerManager.updateFocusScheduleCriteria(
+                            this@AuxiliarySettingsActivity,
+                            true,
+                            p.s,
+                            p.e,
+                            daysMode
+                        )
+                        Toast.makeText(this@AuxiliarySettingsActivity, "Set focus hours to ${p.title} (${p.range})", Toast.LENGTH_SHORT).show()
+                        renderActiveTab()
+                    }
                 }
             }
         }
@@ -1244,7 +1624,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         // 4. CUSTOM START & END TIME PICKERS
         card.addView(TextView(this).apply {
-            text = "Custom Focus Time Window (Tap to pick exact times):"
+            text = "Custom Focus Time Window (Editable in 30m Grace Period or outside hours):"
             textSize = 12f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#CBD5E1"))
@@ -1273,24 +1653,26 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 setStroke(dp(1f), palette.accentColor)
             }
             setOnClickListener {
-                TimePickerDialog(
-                    this@AuxiliarySettingsActivity,
-                    { _, hourOfDay, minute ->
-                        val newStart = hourOfDay * 60 + minute
-                        FocusLayerManager.updateFocusScheduleCriteria(
-                            this@AuxiliarySettingsActivity,
-                            true,
-                            newStart,
-                            endMins,
-                            daysMode
-                        )
-                        Toast.makeText(this@AuxiliarySettingsActivity, "Start time set to ${FocusLayerManager.formatMinutesOfDay(newStart)}", Toast.LENGTH_SHORT).show()
-                        renderActiveTab()
-                    },
-                    startMins / 60,
-                    startMins % 60,
-                    false
-                ).show()
+                runWithFortressGateIfLocked(actionTitle = "Edit Focus Start Time") {
+                    TimePickerDialog(
+                        this@AuxiliarySettingsActivity,
+                        { _, hourOfDay, minute ->
+                            val newStart = hourOfDay * 60 + minute
+                            FocusLayerManager.updateFocusScheduleCriteria(
+                                this@AuxiliarySettingsActivity,
+                                true,
+                                newStart,
+                                endMins,
+                                daysMode
+                            )
+                            Toast.makeText(this@AuxiliarySettingsActivity, "Start time set to ${FocusLayerManager.formatMinutesOfDay(newStart)}", Toast.LENGTH_SHORT).show()
+                            renderActiveTab()
+                        },
+                        startMins / 60,
+                        startMins % 60,
+                        false
+                    ).show()
+                }
             }
         }
 
@@ -1308,24 +1690,26 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 setStroke(dp(1f), palette.accentColor)
             }
             setOnClickListener {
-                TimePickerDialog(
-                    this@AuxiliarySettingsActivity,
-                    { _, hourOfDay, minute ->
-                        val newEnd = hourOfDay * 60 + minute
-                        FocusLayerManager.updateFocusScheduleCriteria(
-                            this@AuxiliarySettingsActivity,
-                            true,
-                            startMins,
-                            newEnd,
-                            daysMode
-                        )
-                        Toast.makeText(this@AuxiliarySettingsActivity, "End time set to ${FocusLayerManager.formatMinutesOfDay(newEnd)}", Toast.LENGTH_SHORT).show()
-                        renderActiveTab()
-                    },
-                    endMins / 60,
-                    endMins % 60,
-                    false
-                ).show()
+                runWithFortressGateIfLocked(actionTitle = "Edit Focus End Time") {
+                    TimePickerDialog(
+                        this@AuxiliarySettingsActivity,
+                        { _, hourOfDay, minute ->
+                            val newEnd = hourOfDay * 60 + minute
+                            FocusLayerManager.updateFocusScheduleCriteria(
+                                this@AuxiliarySettingsActivity,
+                                true,
+                                startMins,
+                                newEnd,
+                                daysMode
+                            )
+                            Toast.makeText(this@AuxiliarySettingsActivity, "End time set to ${FocusLayerManager.formatMinutesOfDay(newEnd)}", Toast.LENGTH_SHORT).show()
+                            renderActiveTab()
+                        },
+                        endMins / 60,
+                        endMins % 60,
+                        false
+                    ).show()
+                }
             }
         }
         customTimeRow.addView(startBtn)
@@ -1375,14 +1759,16 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     }
                 }
                 setOnClickListener {
-                    FocusLayerManager.updateFocusScheduleCriteria(
-                        this@AuxiliarySettingsActivity,
-                        scheduleEnabled,
-                        startMins,
-                        endMins,
-                        modeVal
-                    )
-                    renderActiveTab()
+                    runWithFortressGateIfLocked(actionTitle = "Change Active Days to $modeLabel") {
+                        FocusLayerManager.updateFocusScheduleCriteria(
+                            this@AuxiliarySettingsActivity,
+                            scheduleEnabled,
+                            startMins,
+                            endMins,
+                            modeVal
+                        )
+                        renderActiveTab()
+                    }
                 }
             }
             dayModesRow.addView(btn)
@@ -1436,20 +1822,22 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     }
                 }
                 setOnClickListener {
-                    val toggled = FocusLayerManager.toggleCustomDay(this@AuxiliarySettingsActivity, calDay)
-                    Toast.makeText(
-                        this@AuxiliarySettingsActivity,
-                        "$dayName ${if (toggled) "added to" else "removed from"} Focus schedule",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    renderActiveTab()
+                    runWithFortressGateIfLocked(actionTitle = "Toggle $dayName Schedule") {
+                        val toggled = FocusLayerManager.toggleCustomDay(this@AuxiliarySettingsActivity, calDay)
+                        Toast.makeText(
+                            this@AuxiliarySettingsActivity,
+                            "$dayName ${if (toggled) "added to" else "removed from"} Focus schedule",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        renderActiveTab()
+                    }
                 }
             }
             individualDaysRow.addView(pill)
         }
         card.addView(individualDaysRow)
 
-        // 6. STRICT COMMITMENT LOCK MODE TOGGLE
+        // 6. STRICT FORTRESS LOCK MODE TOGGLE (ON BY DEFAULT)
         val strictRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1460,16 +1848,16 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         strictTextCol.addView(TextView(this).apply {
-            text = "Strict Lockdown Mode"
+            text = "Strict Fortress Lock (Default ON)"
             textSize = 13.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
         })
         strictTextCol.addView(TextView(this).apply {
             text = if (isStrictLock) {
-                "ON: Prompts before mid-session alterations (requires 15m break or calendar holiday)"
+                "ON: Free edits in 30m Pre-Window Grace Period; mid-session edits require Physical Proof-of-Effort"
             } else {
-                "OFF (Recommended): Flexible mode — you can customize hours & days anytime freely"
+                "OFF: Flexible mode — you can customize hours & days anytime"
             }
             textSize = 11.5f
             setTextColor(if (isStrictLock) Color.parseColor("#F59E0B") else Color.parseColor("#94A3B8"))
@@ -1479,13 +1867,28 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         val strictSwitch = Switch(this).apply {
             isChecked = isStrictLock
             setOnCheckedChangeListener { _, isChecked ->
-                FocusLayerManager.setStrictLockEnabled(this@AuxiliarySettingsActivity, isChecked)
-                Toast.makeText(
-                    this@AuxiliarySettingsActivity,
-                    if (isChecked) "Strict lockdown enabled" else "Flexible mode enabled (can edit anytime)",
-                    Toast.LENGTH_SHORT
-                ).show()
-                renderActiveTab()
+                if (!isChecked) {
+                    runWithFortressGateIfLocked(
+                        actionTitle = "Turn Off Strict Fortress Lock",
+                        onCancelRevert = { renderActiveTab() }
+                    ) {
+                        FocusLayerManager.setStrictLockEnabled(this@AuxiliarySettingsActivity, false)
+                        Toast.makeText(
+                            this@AuxiliarySettingsActivity,
+                            "🔓 Strict Fortress Lock disabled via Proof-of-Effort",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        renderActiveTab()
+                    }
+                } else {
+                    FocusLayerManager.setStrictLockEnabled(this@AuxiliarySettingsActivity, true)
+                    Toast.makeText(
+                        this@AuxiliarySettingsActivity,
+                        "🔒 Strict Fortress Lock enabled",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    renderActiveTab()
+                }
             }
         }
         strictRow.addView(strictSwitch)
@@ -1524,7 +1927,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             actionsRow.addView(breakActiveBtn)
         } else {
             val takeBreakBtn = Button(this).apply {
-                text = "☕ Take 15m Break"
+                text = if (isLockedNow) "🏋️ 15m Break (Proof)" else "☕ Take 15m Break"
                 textSize = 12f
                 isAllCaps = false
                 setTextColor(Color.WHITE)
@@ -1537,16 +1940,18 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     setStroke(dp(1f), palette.accentColor)
                 }
                 setOnClickListener {
-                    FocusLayerManager.grantAdaptiveBreak(this@AuxiliarySettingsActivity, 15)
-                    Toast.makeText(this@AuxiliarySettingsActivity, "15-minute adaptive break granted. Focus Layer relaxed.", Toast.LENGTH_SHORT).show()
-                    renderActiveTab()
+                    runWithFortressGateIfLocked(actionTitle = "Unlock 15-Minute Adaptive Break") {
+                        FocusLayerManager.grantAdaptiveBreak(this@AuxiliarySettingsActivity, 15)
+                        Toast.makeText(this@AuxiliarySettingsActivity, "15-minute adaptive break granted.", Toast.LENGTH_SHORT).show()
+                        renderActiveTab()
+                    }
                 }
             }
             actionsRow.addView(takeBreakBtn)
         }
 
         val calendarHolidayBtn = Button(this).apply {
-            text = if (isHolidayToday) "📅 Edit in Calendar" else "📅 Calendar Holiday"
+            text = if (isHolidayToday) "📅 Edit in Calendar" else "📅 Plan Holiday (≥24h)"
             textSize = 12f
             isAllCaps = false
             setTextColor(Color.WHITE)
@@ -1576,13 +1981,13 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         syncCol.addView(TextView(this).apply {
-            text = "Adaptive Calendar & Event Sync"
+            text = "24h Advance Calendar Holiday Sync"
             textSize = 12.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
         })
         syncCol.addView(TextView(this).apply {
-            text = "Automatically relaxes strict focus when Diary holidays, Todo tasks, or system calendar events are active today"
+            text = "Relaxes focus ONLY for holidays & events scheduled at least 24 hours in advance (prevents same-day self-exemption)"
             textSize = 11f
             setTextColor(Color.parseColor("#94A3B8"))
         })
@@ -1594,7 +1999,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 FocusLayerManager.setAdaptiveCalendarSyncEnabled(this@AuxiliarySettingsActivity, isChecked)
                 Toast.makeText(
                     this@AuxiliarySettingsActivity,
-                    if (isChecked) "Adaptive calendar event sync enabled" else "Adaptive calendar sync disabled",
+                    if (isChecked) "24h advance calendar sync enabled" else "Adaptive calendar sync disabled",
                     Toast.LENGTH_SHORT
                 ).show()
                 renderActiveTab()
@@ -2024,23 +2429,43 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun requestDeviceAdmin() {
+        try {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val adminComponent = ComponentName(this, MyAdminReceiver::class.java)
+            if (!dpm.isAdminActive(adminComponent)) {
+                val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                    putExtra(
+                        DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                        "Required to prevent unauthorized uninstallation during active focus hours."
+                    )
+                }
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "✓ Device Admin Lock is already active!", Toast.LENGTH_SHORT).show()
+            }
+        } catch (_: Throwable) {}
+    }
+
     private fun pinHomeWidget() {
         startActivity(Intent(this, WidgetStudioActivity::class.java))
     }
 
     // =========================================================================
-    // CUSTOM CANVAS VIEW 1: SETUP TREE + READINESS BAR GRAPH
+    // CUSTOM CANVAS VIEW 1: SETUP TREE + READINESS BAR GRAPH (4-STEP ORDER)
     // =========================================================================
 
     private class SetupTreeAndBarGraphView(
         context: Context,
         private val palette: UiThemePrefs.ThemePalette,
         private val usageReady: Boolean,
+        private val criteriaReady: Boolean,
+        private val criteriaCount: Int,
+        private val scheduleReady: Boolean,
         private val shieldReady: Boolean,
         private val adminReady: Boolean,
-        private val batteryReady: Boolean,
-        private val studyReady: Boolean,
-        private val studyCount: Int
+        private val batteryReady: Boolean
     ) : View(context) {
 
         private val density = resources.displayMetrics.density
@@ -2076,7 +2501,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             val green = Color.parseColor("#22C55E")
             val amber = Color.parseColor("#F59E0B")
 
-            val rootWidth = w * 0.62f
+            val rootWidth = w * 0.66f
             val rootHeight = 40f * density
             val rootRect = RectF(
                 (w - rootWidth) / 2f,
@@ -2090,9 +2515,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             strokePaint.color = palette.accentColor
             canvas.drawRoundRect(rootRect, 12f * density, 12f * density, strokePaint)
 
-            textPaint.textSize = 12.5f * density
+            textPaint.textSize = 12f * density
             canvas.drawText(
-                "⚡ FOCUS ELITE CORE ENGINE",
+                "⚡ FOCUS ELITE 4-STEP SETUP FLOW",
                 rootRect.centerX(),
                 rootRect.centerY() + 4f * density,
                 textPaint
@@ -2103,12 +2528,13 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             val gap = 6f * density
             val branchW = (w - gap * 5f) / 4f
 
+            val step4Ready = shieldReady && adminReady
             data class TreeNode(val title: String, val sub: String, val ready: Boolean)
             val nodes = listOf(
-                TreeNode("1. Usage", if (usageReady) "✓ Active" else "⚡ Setup", usageReady),
-                TreeNode("2. Shield", if (shieldReady) "✓ Active" else "⚡ Setup", shieldReady),
-                TreeNode("3. Persist", if (batteryReady && adminReady) "✓ Locked" else if (batteryReady || adminReady) "50% Set" else "⚡ Setup", batteryReady),
-                TreeNode("4. Audit", if (studyReady) "✓ $studyCount Study" else "⚡ Config", studyReady)
+                TreeNode("1. Usage", if (usageReady) "✓ Granted" else "⚡ Step 1", usageReady),
+                TreeNode("2. Criteria", if (criteriaReady) "✓ $criteriaCount Apps" else "⚡ Step 2", criteriaReady),
+                TreeNode("3. Schedule", if (scheduleReady) "✓ Set" else "⚡ Step 3", scheduleReady),
+                TreeNode("4. Shields", if (step4Ready) "✓ Locked" else "⚡ Step 4", step4Ready)
             )
 
             nodes.forEachIndexed { i, node ->
@@ -2134,7 +2560,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 strokePaint.color = if (node.ready) green else amber
                 canvas.drawRoundRect(rect, 10f * density, 10f * density, strokePaint)
 
-                textPaint.textSize = 11f * density
+                textPaint.textSize = 10.5f * density
                 textPaint.color = Color.WHITE
                 canvas.drawText(node.title, rect.centerX(), rect.top + 21f * density, textPaint)
 
@@ -2153,13 +2579,15 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 canvas.drawLine(cx, branchY + branchH, leafRect.centerX(), leafRect.top, linePaint)
             }
 
-            val persistScore = (if (batteryReady) 50 else 0) + (if (adminReady) 50 else 0)
-            val studyScore = if (studyReady) 100 else 60
+            val step1Score = if (usageReady) 100 else 15
+            val step2Score = if (criteriaReady) 100 else 25
+            val step3Score = if (scheduleReady) 100 else 50
+            val step4Score = (if (shieldReady) 50 else 0) + (if (adminReady) 35 else 0) + (if (batteryReady) 15 else 0)
             val totalScore = (
                 (if (usageReady) 100 else 0) +
-                    (if (shieldReady) 100 else 0) +
-                    persistScore +
-                    studyScore
+                    (if (criteriaReady) 100 else 0) +
+                    (if (scheduleReady) 100 else 0) +
+                    step4Score
                 ) / 4
 
             boxPaint.color = Color.parseColor("#131C2E")
@@ -2167,7 +2595,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             strokePaint.color = if (totalScore >= 85) green else palette.accentColor
             canvas.drawRoundRect(leafRect, 12f * density, 12f * density, strokePaint)
 
-            val summaryText = "✓ Focus Layer + 30m Cap • System Readiness: $totalScore%"
+            val summaryText = "✓ System Apps Safe • Setup Readiness: $totalScore%"
             var fittedSize = 11.5f * density
             textPaint.textSize = fittedSize
             val maxAllowedWidth = leafRect.width() - 20f * density
@@ -2187,20 +2615,20 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             textPaint.textAlign = Paint.Align.LEFT
             textPaint.textSize = 11.5f * density
             textPaint.color = palette.secondaryColor
-            canvas.drawText("📊 SETUP READINESS BAR GRAPH (BY MODULE)", 8f * density, chartTitleY, textPaint)
+            canvas.drawText("📊 4-STEP SETUP READINESS BAR GRAPH", 8f * density, chartTitleY, textPaint)
 
             data class BarItem(val label: String, val percent: Int, val color: Int)
             val bars = listOf(
-                BarItem("Usage Sensor", if (usageReady) 100 else 15, if (usageReady) green else amber),
-                BarItem("Blocker Shield", if (shieldReady) 100 else 15, if (shieldReady) green else amber),
-                BarItem("Anti-Bypass", persistScore.coerceAtLeast(15), if (persistScore == 100) green else amber),
-                BarItem("Audit & Study", studyScore, if (studyReady) green else palette.accentColor),
+                BarItem("1. Usage Access", step1Score, if (usageReady) green else amber),
+                BarItem("2. App Criteria", step2Score, if (criteriaReady) green else amber),
+                BarItem("3. Focus Schedule", step3Score, if (scheduleReady) green else amber),
+                BarItem("4. Admin & Shield", step4Score.coerceAtLeast(15), if (step4Score >= 85) green else amber),
                 BarItem("Total Readiness", totalScore.coerceAtLeast(15), palette.accentColor)
             )
 
             val startY = chartTitleY + 14f * density
             val rowH = 34f * density
-            val labelW = w * 0.32f
+            val labelW = w * 0.34f
             val barLeft = labelW + 8f * density
             val barRightMax = w - 48f * density
             val barMaxW = (barRightMax - barLeft).coerceAtLeast(40f)

@@ -203,34 +203,34 @@ class MainActivity : AppCompatActivity() {
             }
             setOnClickListener {
                 if (FocusLayerManager.isLockedUntilCalendarHoliday(this@MainActivity)) {
+                    val rejectionMsg = FocusLayerManager.getSameDayHolidayRejectionNotice(this@MainActivity)
+                    val extraHolidayRule = if (rejectionMsg != null) "\n\n$rejectionMsg" else "\n\n• Calendar Holidays must be scheduled ≥24 hours in advance."
                     AlertDialog.Builder(this@MainActivity)
-                        .setTitle("🔒 Focus Layer Active")
+                        .setTitle("🔒 Fortress Focus Lock Active")
                         .setMessage(
-                            "Your Focus Layer (${FocusLayerManager.formatWindowSummary(this@MainActivity)}) is currently active.\n\n" +
-                                "Strict Lock is enabled. You can take a quick 15-minute break, mark a holiday/event in Calendar, or open Settings."
+                            "Your Focus Layer (${FocusLayerManager.formatWindowSummary(this@MainActivity)}) is strictly locked.\n" +
+                                "• Emergency 15m breaks & rule changes require Physical Proof-of-Effort (25 steps or 10 squats).$extraHolidayRule"
                         )
-                        .setPositiveButton("⚙️ Open Settings") { _, _ ->
+                        .setPositiveButton("⚙️ Focus Hub") { _, _ ->
                             startActivity(
                                 Intent(this@MainActivity, AuxiliarySettingsActivity::class.java).apply {
                                     putExtra(AuxiliarySettingsActivity.EXTRA_INITIAL_TAB, AuxiliarySettingsActivity.TAB_AUXILIARY)
                                 }
                             )
                         }
-                        .setNeutralButton("☕ 15m Break") { _, _ ->
-                            FocusLayerManager.grantAdaptiveBreak(this@MainActivity, 15)
-                            Toast.makeText(this@MainActivity, "15-Minute Adaptive Break granted. Relax and return fresh!", Toast.LENGTH_SHORT).show()
-                            applyDynamicThemeToHome()
-                        }
-                        .setNegativeButton("📅 Calendar") { _, _ ->
-                            try {
-                                startActivity(
-                                    Intent(this@MainActivity, CalendarDayEditorActivity::class.java).apply {
-                                        putExtra(CalendarDayEditorActivity.EXTRA_DATE_KEY, FocusLayerManager.todayKey())
-                                    }
-                                )
-                            } catch (_: Throwable) {
-                                startActivity(Intent(this@MainActivity, CalendarActivity::class.java))
+                        .setNeutralButton("🏋️ 15m Break (Proof)") { _, _ ->
+                            CognitiveFrictionGate.show(
+                                context = this@MainActivity,
+                                title = "Unlock 15-Minute Adaptive Break",
+                                reasonPrompt = "Complete physical proof-of-effort (25 verified steps or 10 squats) + commitment phrase to earn a 15-minute break."
+                            ) {
+                                FocusLayerManager.grantAdaptiveBreak(this@MainActivity, 15)
+                                Toast.makeText(this@MainActivity, "🔓 Proof verified! 15-Minute Break granted.", Toast.LENGTH_SHORT).show()
+                                applyDynamicThemeToHome()
                             }
+                        }
+                        .setNegativeButton("📅 Plan Future Holiday") { _, _ ->
+                            startActivity(Intent(this@MainActivity, CalendarActivity::class.java))
                         }
                         .show()
                 } else {
@@ -387,16 +387,30 @@ class MainActivity : AppCompatActivity() {
         (focusStudioCardView?.getChildAt(0) as? View)?.background = UiThemePrefs.createAccentCircleBackground(this)
         (focusStudioCardView?.getChildAt(2) as? TextView)?.setTextColor(palette.secondaryColor)
 
+        val graceMins = FocusLayerManager.getPreWindowGraceRemainingMinutes(this)
+        val sameDayRejection = FocusLayerManager.getSameDayHolidayRejectionNotice(this)
+        val clockTampered = SettingsTamperGuard.isClockTamperActive(this)
+
         when {
             exemptionDetails != null -> {
                 focusLayerStatusTitle?.text = exemptionDetails
                 focusLayerStatusTitle?.setTextColor(Color.parseColor("#38BDF8"))
                 focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) paused • $currentTimeStr"
             }
+            graceMins > 0 -> {
+                focusLayerStatusTitle?.text = "⚡ Pre-Window Grace Period ($graceMins min left)"
+                focusLayerStatusTitle?.setTextColor(Color.parseColor("#38BDF8"))
+                focusLayerStatusSubtitle?.text = "Adjust categories & schedule freely before Fortress Lock engages"
+            }
             isLocked -> {
-                focusLayerStatusTitle?.text = "🔒 Focus Layer Active ($windowSummary)"
+                focusLayerStatusTitle?.text = if (clockTampered) {
+                    "🛡️ Fortress Lock Active (Monotonic Clock Guarded)"
+                } else {
+                    "🔒 Fortress Lock Active ($windowSummary)"
+                }
                 focusLayerStatusTitle?.setTextColor(Color.parseColor("#F59E0B"))
-                focusLayerStatusSubtitle?.text = "Strict session ($currentTimeStr) • Tap for break or settings"
+                focusLayerStatusSubtitle?.text = sameDayRejection
+                    ?: "Zero-escape active ($currentTimeStr) • Tap for Proof-of-Effort break"
             }
             isScheduled -> {
                 focusLayerStatusTitle?.text = "🟢 Focus Layer Active ($windowSummary)"
@@ -429,12 +443,53 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupPermissionsUI() {
         findViewById<Button>(R.id.usageAccessButton)?.setOnClickListener {
+            SettingsTamperGuard.grantPermissionSetupGrace(this, 180_000L)
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
         findViewById<Button>(R.id.accessibilityButton)?.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            val criteriaDone = UiThemePrefs.isSetupCategoriesConfigured(this)
+            val scheduleDone = UiThemePrefs.isSetupScheduleConfigured(this)
+            if (!criteriaDone || !scheduleDone) {
+                AlertDialog.Builder(this)
+                    .setTitle("Recommended 4-Step Setup Order")
+                    .setMessage(
+                        "To ensure Smooth First-Time Setup without any Focus Lock popups:\n\n" +
+                            "1. Usage Access (${if (hasUsageStatsPermission()) "✓ Done" else "Pending"})\n" +
+                            "2. Define App Criteria — Study / Improve / Ignore (${if (criteriaDone) "✓ Done" else "Next Step"})\n" +
+                            "3. Set Focus Schedule (${if (scheduleDone) "✓ Done" else "Pending"})\n" +
+                            "4. Enable Device Admin & Accessibility Shield LAST\n\n" +
+                            "Would you like to configure your App Criteria & Focus Schedule first, or enable the Accessibility Shield now?"
+                    )
+                    .setPositiveButton("Configure Step ${if (!criteriaDone) "2 (Apps)" else "3 (Schedule)"} First") { _, _ ->
+                        if (!criteriaDone) {
+                            startActivity(
+                                Intent(this, CategorySettingsActivity::class.java).apply {
+                                    putExtra("from_guided_setup", true)
+                                }
+                            )
+                        } else {
+                            startActivity(
+                                Intent(this, AuxiliarySettingsActivity::class.java).apply {
+                                    putExtra(AuxiliarySettingsActivity.EXTRA_INITIAL_TAB, AuxiliarySettingsActivity.TAB_AUXILIARY)
+                                }
+                            )
+                        }
+                    }
+                    .setNeutralButton("Enable Shield Now (Grace Active)") { _, _ ->
+                        UiThemePrefs.markSetupCategoriesConfigured(this)
+                        UiThemePrefs.markSetupScheduleConfigured(this)
+                        SettingsTamperGuard.grantPermissionSetupGrace(this, 180_000L)
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
+                SettingsTamperGuard.grantPermissionSetupGrace(this, 180_000L)
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
         }
         findViewById<Button>(R.id.batteryOptButton)?.setOnClickListener {
+            SettingsTamperGuard.grantPermissionSetupGrace(this, 180_000L)
             if (!isIgnoringBatteryOptimizations()) {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                     data = Uri.parse("package:$packageName")
@@ -445,6 +500,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<Button>(R.id.btnDeviceAdmin)?.setOnClickListener {
+            SettingsTamperGuard.grantPermissionSetupGrace(this, 180_000L)
             val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val adminComponent = ComponentName(this, MyAdminReceiver::class.java)
             if (!dpm.isAdminActive(adminComponent)) {
@@ -549,18 +605,30 @@ class MainActivity : AppCompatActivity() {
         val adminComponent = ComponentName(this, MyAdminReceiver::class.java)
         val hasAdmin = dpm.isAdminActive(adminComponent)
 
+        usageBtn.text = "1. Enable Usage Access (Step 1)"
+        adminBtn.text = "4A. Enable Device Admin Lock"
+        accessBtn.text = "4B. Enable Accessibility Shield (Enable Last)"
+        batteryBtn.text = "Optional: Disable Battery Optimization"
+
         usageBtn.visibility = if (hasUsage) View.GONE else View.VISIBLE
+        adminBtn.visibility = if (hasAdmin) View.GONE else View.VISIBLE
         accessBtn.visibility = if (hasAccess) View.GONE else View.VISIBLE
         batteryBtn.visibility = if (hasBattery) View.GONE else View.VISIBLE
-        adminBtn.visibility = if (hasAdmin) View.GONE else View.VISIBLE
 
         val deactivateLink = findViewById<TextView>(R.id.deactivateShieldLink)
         if (hasUsage && hasAccess && hasBattery && hasAdmin) {
             allSetText.visibility = View.VISIBLE
-            allSetText.text = "✓ All System Shields & Sensors Active"
+            allSetText.text = "✓ All System Shields & Sensors Active (100% Offline • Zero Internet)"
             deactivateLink?.visibility = View.VISIBLE
         } else {
-            allSetText.visibility = View.GONE
+            allSetText.visibility = View.VISIBLE
+            val nextHint = when {
+                !hasUsage -> "Guided Setup: Step 1 → Grant Usage Access below"
+                !UiThemePrefs.isSetupCategoriesConfigured(this) -> "Guided Setup: Step 2 → Tap 'Category Settings' above to define Study/Improve/Ignore apps"
+                !UiThemePrefs.isSetupScheduleConfigured(this) -> "Guided Setup: Step 3 → Tap 'Focus Layer' banner above to confirm your schedule"
+                else -> "Guided Setup: Step 4 → Enable Device Admin & Accessibility Shield below"
+            }
+            allSetText.text = nextHint
             deactivateLink?.visibility = if (hasAdmin) View.VISIBLE else View.GONE
         }
     }
@@ -615,6 +683,8 @@ class MainActivity : AppCompatActivity() {
             val appModels = resolveInfos.mapNotNull { ri ->
                 val pkg = ri.activityInfo.packageName
                 if (pkg == packageName) return@mapNotNull null
+                // Exclude all Android system & utility apps so system features always work 24/7
+                if (SystemExclusions.isExcludedPackage(this@MainActivity, pkg)) return@mapNotNull null
                 val name = ri.loadLabel(pm).toString()
                 val icon = ri.loadIcon(pm)
                 val usedMins = ((usageMsMap[pkg] ?: 0L) / 60000L).toInt()
@@ -643,14 +713,29 @@ class MainActivity : AppCompatActivity() {
                     onLimitClick = { app -> showLimitDialog(app, usedMinsMap[app.packageName] ?: 0) },
                     onToggle = { app, isChecked ->
                         val cap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
-                        BlockPolicyEngine.setAppBlocked(this@MainActivity, app.packageName, isChecked, cap)
-                        val msg = if (isChecked) {
-                            "✓ ${app.appName} blocked (${TimeLimitManager.getLimitMinutes(this@MainActivity, app.packageName)}m cap)"
+                        if (!isChecked && FocusLayerManager.isLockedUntilCalendarHoliday(this@MainActivity)) {
+                            // Reverting the switch immediately until Proof-of-Effort is completed
+                            loadAppList()
+                            CognitiveFrictionGate.show(
+                                context = this@MainActivity,
+                                title = "Unblock ${app.appName}",
+                                reasonPrompt = "Fortress Lock is active. Complete physical proof-of-effort (25 steps or 10 squats) to unblock ${app.appName}."
+                            ) {
+                                BlockPolicyEngine.setAppBlocked(this@MainActivity, app.packageName, false, cap)
+                                Toast.makeText(this@MainActivity, "🔓 ${app.appName} unblocked via Proof-of-Effort", Toast.LENGTH_SHORT).show()
+                                loadAppList()
+                                refreshSuggestionCard()
+                            }
                         } else {
-                            "${app.appName} unblocked"
+                            BlockPolicyEngine.setAppBlocked(this@MainActivity, app.packageName, isChecked, cap)
+                            val msg = if (isChecked) {
+                                "✓ ${app.appName} blocked (${TimeLimitManager.getLimitMinutes(this@MainActivity, app.packageName)}m cap)"
+                            } else {
+                                "${app.appName} unblocked"
+                            }
+                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                            refreshSuggestionCard()
                         }
-                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
-                        refreshSuggestionCard()
                     }
                 )
             }
@@ -759,21 +844,50 @@ class MainActivity : AppCompatActivity() {
             .setView(input)
             .setPositiveButton("Save & Apply ✓") { _, _ ->
                 val minutes = input.text.toString().toIntOrNull() ?: 0
-                TimeLimitManager.setLimitMinutes(this, app.packageName, minutes)
-                if (minutes > 0 && usedMinutesToday >= minutes) {
-                    HardBlockManager.setHardBlocked(this, app.packageName, true)
+                val isLooseningLimit = (currentLimit > 0 && (minutes == 0 || minutes > currentLimit))
+                if (isLooseningLimit && FocusLayerManager.isLockedUntilCalendarHoliday(this)) {
+                    CognitiveFrictionGate.show(
+                        context = this,
+                        title = "Increase Limit — ${app.appName}",
+                        reasonPrompt = "Increasing or clearing a daily cap during active Fortress Lock requires Physical Proof-of-Effort."
+                    ) {
+                        TimeLimitManager.setLimitMinutes(this, app.packageName, minutes)
+                        Toast.makeText(
+                            this,
+                            if (minutes > 0) "🔓 ${app.appName} limit updated to ${minutes}m/day" else "🔓 Custom limit cleared for ${app.appName}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        loadAppList()
+                    }
+                } else {
+                    TimeLimitManager.setLimitMinutes(this, app.packageName, minutes)
+                    if (minutes > 0 && usedMinutesToday >= minutes) {
+                        HardBlockManager.setHardBlocked(this, app.packageName, true)
+                    }
+                    Toast.makeText(
+                        this,
+                        if (minutes > 0) "✓ ${app.appName} limit set to ${minutes}m/day" else "Custom limit cleared for ${app.appName}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    loadAppList()
                 }
-                Toast.makeText(
-                    this,
-                    if (minutes > 0) "✓ ${app.appName} limit set to ${minutes}m/day" else "Custom limit cleared for ${app.appName}",
-                    Toast.LENGTH_SHORT
-                ).show()
-                loadAppList()
             }
             .setNeutralButton("Clear Limit & Unblock") { _, _ ->
-                TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
-                HardBlockManager.setHardBlocked(this, app.packageName, false)
-                loadAppList()
+                if (FocusLayerManager.isLockedUntilCalendarHoliday(this)) {
+                    CognitiveFrictionGate.show(
+                        context = this,
+                        title = "Clear Limit & Unblock — ${app.appName}",
+                        reasonPrompt = "Unblocking ${app.appName} during active Fortress Lock requires Physical Proof-of-Effort."
+                    ) {
+                        TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
+                        HardBlockManager.setHardBlocked(this, app.packageName, false)
+                        loadAppList()
+                    }
+                } else {
+                    TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
+                    HardBlockManager.setHardBlocked(this, app.packageName, false)
+                    loadAppList()
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()

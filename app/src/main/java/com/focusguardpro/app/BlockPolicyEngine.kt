@@ -5,7 +5,7 @@ import java.util.Calendar
 
 object BlockPolicyEngine {
 
-    fun evaluateApp(context: Context, packageName: String, nowMs: Long = System.currentTimeMillis()): BlockDecision {
+    fun evaluateApp(context: Context, packageName: String, nowMs: Long = FocusLayerManager.verifiedNowMs(context)): BlockDecision {
         val shieldPrefs = context.getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
         if (!shieldPrefs.getBoolean("shield_active", true)) {
             return BlockDecision.Allowed

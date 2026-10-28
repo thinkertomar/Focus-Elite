@@ -325,6 +325,7 @@ class WatchdogService : Service() {
     }
 
     private fun markHeartbeat() {
+        SettingsTamperGuard.recordVerifiedHeartbeat(this)
         val now = System.currentTimeMillis()
         AppDatabase.getDatabase(this).systemDao().putState(
             SystemState("WATCHDOG_HEARTBEAT", now.toString(), now)
@@ -419,33 +420,11 @@ class WatchdogService : Service() {
         val notification = buildNotification()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                var type = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                if (GpsWalkTracker.hasPermission(this)) {
-                    type = type or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-                }
-                try {
-                    startForeground(AUDIT_NOTIFICATION_ID, notification, type)
-                } catch (_: Throwable) {
-                    startForeground(
-                        AUDIT_NOTIFICATION_ID,
-                        notification,
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                    )
-                }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                if (GpsWalkTracker.hasPermission(this)) {
-                    try {
-                        startForeground(
-                            AUDIT_NOTIFICATION_ID,
-                            notification,
-                            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-                        )
-                    } catch (_: Throwable) {
-                        startForeground(AUDIT_NOTIFICATION_ID, notification)
-                    }
-                } else {
-                    startForeground(AUDIT_NOTIFICATION_ID, notification)
-                }
+                startForeground(
+                    AUDIT_NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
             } else {
                 startForeground(AUDIT_NOTIFICATION_ID, notification)
             }

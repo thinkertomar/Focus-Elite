@@ -1,45 +1,85 @@
-name: Build Focus Elite Debug APK
+name: Build Android APK
 
 on:
   push:
-    branches:
-      - main
-      - focus-elite-redesign-20261025-222742
+    branches: [ main ]
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+      actions: write
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Java 21
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Accept Android SDK licences
-        run: yes | sdkmanager --licenses
+      - name: Ensure debug keystore
+        run: |
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              echo "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" | base64 -d > debug.keystore
+            fi
+          fi
 
-      - name: Make Gradle wrapper executable
+      - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          name: focus-elite-debug-apk
+          gradle-version: 9.3.1
+          cache-disabled: true
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Prune old artifacts to stay under quota
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            try {
+              const res = await github.rest.actions.listArtifactsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+              for (const a of (res.data.artifacts || [])) {
+                try {
+                  await github.rest.actions.deleteArtifact({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    artifact_id: a.id
+                  });
+                } catch (_) {}
+              }
+            } catch (_) {}
+
+      - name: Publish APK to GitHub Release (Bypasses Artifact Quota)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes || true
+          git tag -d latest || true
+          git push origin :refs/tags/latest || true
+          gh release create latest app/build/outputs/apk/debug/app-debug.apk --title "FocusGuard Pro - Latest APK" --notes "Latest automated debug APK build (bypasses artifact quota limits)."
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
+          retention-days: 1

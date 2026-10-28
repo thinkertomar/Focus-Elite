@@ -81,6 +81,13 @@ class FocusForegroundMonitorService : Service() {
                     checkForegroundNow()
                 }
                 Intent.ACTION_TIME_TICK -> {
+                    SettingsTamperGuard.recordVerifiedHeartbeat(this@FocusForegroundMonitorService)
+                    updateNotification()
+                    checkForegroundNow()
+                }
+                Intent.ACTION_TIME_CHANGED,
+                Intent.ACTION_TIMEZONE_CHANGED -> {
+                    SettingsTamperGuard.onSystemTimeChanged(this@FocusForegroundMonitorService)
                     updateNotification()
                     checkForegroundNow()
                 }
@@ -91,6 +98,7 @@ class FocusForegroundMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         FocusGuardApp.ensureRoomMainThreadQueries(this)
+        SettingsTamperGuard.recordVerifiedHeartbeat(this)
         timeLimitManager = TimeLimitManager(this)
         createNotificationChannel()
         try {
@@ -110,6 +118,8 @@ class FocusForegroundMonitorService : Service() {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
             addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -195,7 +205,7 @@ class FocusForegroundMonitorService : Service() {
             return
         }
 
-        val nowMs = System.currentTimeMillis()
+        val nowMs = FocusLayerManager.verifiedNowMs(this)
 
         // 3. 9:00 AM to 6:00 PM Focus Layer enforcement
         val isFocusActive = FocusLayerManager.isActiveNow(this)

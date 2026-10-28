@@ -12,6 +12,11 @@ class BlockerAccessibilityService : AccessibilityService() {
     private var lastBlockedAtMs: Long = 0L
     private var lastTamperWarningAtMs: Long = 0L
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        SettingsTamperGuard.recordAccessibilityJustConnected(this)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val shieldPrefs = getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
         if (!shieldPrefs.getBoolean("shield_active", true)) {
@@ -54,7 +59,19 @@ class BlockerAccessibilityService : AccessibilityService() {
             return
         }
 
-        // 3. System exclusions (SystemUI, Launcher, Phone Dialer, Settings)
+        // 2.5 ZERO-ESCAPE FORTRESS: Surgical Android Settings & Uninstaller Tamper Guard
+        if (SettingsTamperGuard.isSettingsOrInstallerPackage(activePkg)) {
+            val rootNode = try {
+                rootInActiveWindow
+            } catch (_: Exception) {
+                null
+            }
+            if (SettingsTamperGuard.inspectAndBlockSettingsTamper(this, activePkg, rootNode)) {
+                return
+            }
+        }
+
+        // 3. System exclusions (SystemUI, Launcher, Phone Dialer, benign Settings screens)
         if (SystemExclusions.isExcludedPackage(this, activePkg)) {
             ForegroundTracker.currentPackage = activePkg
             ForegroundTracker.currentPackageSince = System.currentTimeMillis()

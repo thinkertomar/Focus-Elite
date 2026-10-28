@@ -1,109 +1,124 @@
-# Next-Gen Home Screen Command Deck & Interactive Widget Studio
+# Focus Elite — Zero-Escape Fortress & Strict Commitment Architecture
 
-Transform the basic "Add Home Screen Widget" button into a signature **Interactive Widget Studio & Quick-Pin Hub**, paired with an **All-in-One Command Deck Home Screen Widget** that brings live dual-ring telemetry, Focus Layer schedule control, and 1-tap 25m Deep Focus + 40Hz Gamma audio directly to the Android launcher.
+Transform Focus Elite from a customizable focus assistant into an inescapable, self-sovereign behavioral fortress by closing all system-level, clock-spoofing, calendar-exemption, and category-reassignment loopholes while requiring real **Physical Proof-of-Effort** (hardware-verified steps/squats + anti-paste cognitive typing) for any emergency override.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Please review the confirmed architectural choices below and click **Proceed** to build the upgraded Widget Studio and Command Deck Widget.
+> Your confirmed architectural choices from Phase 1 govern this upgrade:
 
-- **Confirmed Decision 1 (All-in-One Command Deck Widget)**: Replace the legacy static widget with a multi-zone Command Deck featuring Dual Neon Telemetry Rings (Screen Time Budget vs. Daily Steps), live Focus Layer schedule status with shield toggle, and a 1-tap 25m Deep Focus + 40Hz Gamma audio launcher.
-- **Confirmed Decision 2 (Hybrid Quick-Pin + Interactive Widget Studio)**: Tapping "Add Home Screen Widget" opens a sleek Studio sheet/screen that combines an instant 1-tap Quick-Pin style bar at the top with a live, interactive WYSIWYG preview canvas underneath.
-- **Confirmed Decision 3 (Custom High-DPI Canvas Rendering)**: Render the widget's dual concentric neon rings, glow effects, and live metrics via a hardware-sharp custom `Canvas` bitmap inside `RemoteViews`, bypassing standard Android XML widget limitations while maintaining zero battery drain.
+- **Confirmed Decision 1 — Physical Proof-of-Effort Gate**: Unlocking settings, promoting app categories, or pausing the shield during an active Focus Layer window or Deep Focus session requires completing **verified physical movement** (e.g., 25 real hardware-detected steps or 10 accelerometer-verified squats) **plus** typing a randomized anti-paste cognitive commitment phrase. The 1-tap `Auto-Fill` bypass chip is permanently removed.
+- **Confirmed Decision 2 — Multi-Vector Anti-Tamper Protection**:
+  - **Surgical Android Settings Guard**: Inspects active window hierarchy inside Android Settings and blocks access to Focus Elite App Info (Force Stop / Uninstall), Accessibility Settings, and Device Admin pages while Focus Lock is active.
+  - **Date & Time Anti-Spoofing**: Blocks the Android Date & Time settings screen during active focus and pairs wall-clock time with hardware monotonic elapsed time (`SystemClock.elapsedRealtime()`) + `ACTION_TIME_CHANGED` tamper detection so shifting the device clock cannot bypass the 9:00 AM – 6:00 PM schedule.
+  - **24-Hour Advance Holiday Rule**: Calendar Holiday markings and keyword exemptions only relax the Focus Layer if they were created **at least 24 hours before** the focus day begins—preventing same-day self-exemption during a moment of weakness.
+- **Confirmed Decision 3 — Strict Fortress Lock by Default + Pre-Window Grace Period**: Strict Fortress Lock is enabled by default. Users can freely adjust schedules and categories during a **30-minute Pre-Window Grace Period** (e.g., 8:30 AM – 9:00 AM) or outside active focus hours, after which all rules and categories freeze automatically until the window completes.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**:
-  1. **In-App Experience (Widget Studio & Quick-Pin Hub)**: When the user taps **Add Home Screen Widget** on the Home dashboard, instead of firing a blind system toast, Focus Elite opens the **Command Deck Widget Studio**. Users can immediately pick a visual skin and tap **Pin to Home Screen Now** at the top, or interact with the live preview to customize ring goals (daily screen-time budget and step goal), test the 40Hz Gamma quick-launch, and preview how the widget adapts to active Focus Layer states.
-  2. **Launcher Experience (All-in-One Command Deck Widget)**: A resizable `4x2` / `3x2` home screen widget on the user's phone launcher that acts as a real-time cockpit:
-     - **Left Zone — Dual Concentric Neon Rings**: Outer ring tracks daily Screen Time vs. target budget; inner ring tracks Daily Steps progress with center readout.
-     - **Center Zone — Live Focus Layer & Covenant Telemetry**: Displays active Focus Window hours, Holiday/Calendar exemption status, current streak, and a 1-tap **Focus Shield Toggle**.
-     - **Right Zone — 1-Tap Deep Flow Ignition**: Dedicated **`⚡ 25m + 40Hz`** action button that immediately ignites a 25-minute Pomodoro session with procedural 40Hz Gamma binaural audio (or pauses/stops if a session is already running) without even opening the main app.
-- **Target Audience / Persona**: High-agency builders, students, and executives who want immediate situational awareness and 1-tap deep work ignition from their phone's home screen without navigating menus.
-- **Key Value**: Elevates a forgotten utility button into the flagship visual centerpiece of Focus Elite—combining biometric step tracking, screen-time discipline, and neuro-acoustic focus into a single launcher surface.
+- **What It Does**: Eliminates every backdoor that impulsive habits exploit when willpower drops. Once the Focus Layer window or a Deep Focus session begins, the app locks its own settings, freezes app category promotions, guards Android system settings against force-stopping or permission revocation, neutralizes device clock manipulation, and demands real physical exertion before allowing any emergency override.
+- **Target Audience / Persona**: High-agency builders, students, and deep-work practitioners who want their phone to act as an unbreakable external commitment contract rather than a soft reminder.
+- **Key Value**: Converts moments of digital temptation into either uninterrupted deep work or immediate physical exercise (steps/squats), ensuring zero unearned escapes.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  1. **Quick-Pin & Customization Flow**:
-     - User taps **Add Home Screen Widget** on the Home screen.
-     - The **Widget Studio** opens with a live animated preview of the Command Deck showing the user's actual real-time steps, screen time, and Focus Layer window.
-     - Top bar offers 4 instant architectural skins (*Cyber Obsidian*, *Emerald Matrix*, *Solar Gold*, *Minimal Frost*) and a prominent **📌 Pin Command Deck to Home Screen** button.
-     - If the user's launcher supports direct pinning, the system pin dialog appears immediately; if the user already pinned the widget, tapping **Apply & Sync Widget** updates all active home screen widgets in real time.
-  2. **Launcher 1-Tap 25m + 40Hz Ignition Flow**:
-     - From the Android home screen, the user taps **`⚡ 25m + 40Hz`** on the widget.
-     - The widget immediately starts `FocusSessionManager` (25m countdown + 40Hz Gamma Waves via `AmbientFocusAudioEngine`) and flips the widget button state to **`🟢 25:00 FLOW (Tap to Studio)`** with a glowing emerald border.
-  3. **Launcher Focus Shield Toggle Flow**:
-     - User taps the **Focus Shield** badge on the widget.
-     - If the Focus Layer is in flexible mode, it toggles the active override or opens the Focus Layer schedule hub; if strict lock is active, it routes through the mindful friction/holiday check.
+  1. **Pre-Window Grace Period Banner (30 Minutes Before Focus Start)**:
+     - On the Home Screen and Auxiliary Settings, a live countdown pill shows when the **Pre-Window Grace Period** is open (e.g., *"⚡ Grace Period Open: 18m left to adjust today's categories & schedule before Fortress Lock engages"*).
+  2. **Active Fortress Lock Experience**:
+     - Once the focus window starts, **App Categories** (`Study`, `Self-Improvement`, `Ignored`) lock into read-only mode for promotions (users can still *demote* an app to Blocked at any time, but cannot promote a Blocked app to Study/Ignored without clearing the Physical Proof-of-Effort Gate).
+     - Attempting to mark "Today" as a Holiday in the Calendar displays a clear rule badge: *"🛡️ 24h Advance Rule: Same-day holidays cannot disable today's active Focus Layer. Schedule future off-days at least 24h ahead."*
+  3. **Physical Proof-of-Effort Gate (Replacing Soft 10s Gate)**:
+     - When a user attempts an emergency bypass (turning off the Focus Layer, modifying locked rules, or unlocking a frozen category), a dark obsidian modal launches with two mandatory stages:
+       - **Stage 1 — Physical Exertion Verification**: Live hardware sensor gauge tracking **25 Real Steps** (via Step Detector / Accelerometer cadence) or **10 Calisthenics Squats** (via vertical G-force peak-and-valley detection).
+       - **Stage 2 — Anti-Paste Cognitive Reflection**: Once physical reps reach 100%, the text input unlocks with clipboard paste disabled (`setCustomSelectionActionModeCallback`) requiring the user to type a dynamically generated discipline statement.
+  4. **Surgical Settings Tamper Intercept**:
+     - If the user opens Android Settings and navigates to **Focus Elite App Info**, **Accessibility**, **Device Admin**, or **Date & Time** while Fortress Lock is active, the screen is immediately closed via back-navigation and replaced by a high-contrast **Fortress Tamper Shield** overlay explaining why system settings are protected during focus hours.
 
 - **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Precision telemetry cockpit meets luxury dark glassmorphism—inspired by high-end chronographs and mission control HUDs.
+  - *Aesthetic Direction*: Tactical Obsidian & High-Contrast Telemetry (authoritative, zero-clutter, precision-engineered dark surfaces).
   - *Color Palette & Mood*:
-    - `--background`: `#09090B` (Deep Zinc Obsidian) with subtle radial gradient depth `#121218`
-    - `--primary`: `#38BDF8` (Electric Sky Cyan — Screen Time & Gamma Wave accent)
-    - `--secondary`: `#10B981` (Biometric Emerald — Steps Ring & Active Flow state)
-    - `--accent`: `#F59E0B` (Solar Amber — Strict Lock & Covenant badge)
-    - `--destructive`: `#EF4444` (Crimson Alert — Budget exceeded indicator)
-  - *Typography & Hierarchy*: Crisp monospace numeric readouts (`Typeface.MONOSPACE`) for timers and telemetry percentages, paired with bold geometric sans-serif uppercase micro-labels (`letterSpacing = 0.08`).
-  - *Component Styling & Layout*: Asymmetric 3-zone horizontal cockpit layout with rounded `22dp` outer bezel, `1.5dp` glowing accent border, and tactile pill buttons.
-- **Interactive Feedback & Motion**:
-  - In the Widget Studio, sweeping arc animations (`ValueAnimator`) animate the dual neon rings on entry, and tapping any skin chip smoothly morphs the preview card and ring gradients in real time.
+    - `--background`: Deep Obsidian (`#09090B`)
+    - `--surface`: Elevated Zinc Card (`#18181B`) with `#27272A` structural hairlines
+    - `--primary`: Electric Indigo / Cobalt (`#3B82F6`) for active focus states
+    - `--accent`: Emerald Pulse (`#10B981`) for verified physical sensor progress
+    - `--warning`: Crimson Alert (`#EF4444` on `#450A0A`) for tamper interception and Fortress Lock badges
+  - *Typography & Hierarchy*: Bold geometric headers with tabular monospace numerals (`Typeface.MONOSPACE`) for countdowns, rep counters, and monotonic lock timers.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Custom Canvas Bitmap Rendering for RemoteViews Telemetry**
-  - *Chosen Approach*: Render the Dual Concentric Neon Rings, glow shaders, and crisp typography onto an offscreen anti-aliased `Bitmap` via Android `Canvas` and inject it into the widget layout alongside dedicated `PendingIntent` click zones.
-  - *Why*: Standard Android `RemoteViews` only supports basic XML views and cannot render concentric progress arcs, sweep gradients, or custom glow effects. Canvas rendering guarantees pixel-perfect, flagship visuals on every Android launcher.
-  - *Alternatives Considered*: Static XML `ProgressBar` views—rejected because they look generic, lack dual-ring concentric geometry, and cannot dynamically recolor by theme skin.
-- **Decision 2: Background Broadcast Receiver for Instant 40Hz + Pomodoro Ignition**
-  - *Chosen Approach*: Handle `ACTION_WIDGET_QUICK_FOCUS` directly inside the widget's `AppWidgetProvider` broadcast receiver, starting `FocusSessionManager` and `AmbientFocusAudioEngine` immediately and refreshing the widget UI.
-  - *Why*: Allows true 1-tap focus ignition directly from the home screen without forcing a full activity launch, while still offering a tap zone to open `FocusSessionActivity` when desired.
+- **Decision 1: Surgical Node Inspection in Android Settings vs. Blanket Blocking Settings**
+  - *Chosen Approach*: Inspect `AccessibilityNodeInfo` text and view hierarchy inside `com.android.settings` to block only tamper-sensitive sub-screens (Focus Elite App Info, Accessibility, Device Admin, Date & Time) while still allowing benign settings like Wi-Fi or Bluetooth.
+  - *Why*: Blanket-blocking the entire Settings app frustrates users who need to connect Bluetooth headphones or switch Wi-Fi during work, whereas surgical node inspection stops uninstallation, force-stop, permission revocation, and clock tampering without breaking daily utility.
+- **Decision 2: Dual-Clock Monotonic Anchor vs. Network Time Lookup**
+  - *Chosen Approach*: Record a monotonic snapshot (`SystemClock.elapsedRealtime()` paired with `System.currentTimeMillis()`) whenever the Focus Layer or Watchdog runs, and listen for `ACTION_TIME_CHANGED` / `ACTION_TIMEZONE_CHANGED`.
+  - *Why*: Works 100% offline with zero network latency. If the user shifts the wall clock backward or forward to escape the 9:00 AM – 6:00 PM window, the drift between wall-clock delta and monotonic elapsed delta immediately flags a clock-tamper state and maintains the lock using monotonic time.
+- **Decision 3: Asymmetric Category Freeze**
+  - *Chosen Approach*: Freeze *relaxing* rules (moving Blocked → Study/Improvement/Ignored, or increasing daily limits) during active focus, while always permitting *tightening* rules (blocking additional distracting apps or lowering limits).
+  - *Why*: A user who discovers a new distraction mid-workday should be able to block it immediately, but must never be able to whitelist a distraction on impulse.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy *(Technical Reference)*
 
-- **Architecture & Component Diagram**:
+### Architecture & Component Diagram
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                     HOME SCREEN & WIDGET STUDIO FLOW                       │
-├────────────────────────────────────────────────────────────────────────────┤
-│  MainActivity ("Add Home Screen Widget" Card)                              │
-│       │                                                                    │
-│       ▼                                                                    │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ WidgetStudioActivity (Hybrid Quick-Pin Bar + Live WYSIWYG Studio)    │  │
-│  │  ├─ Top Quick-Pin Bar: 4 Theme Skins + 1-Tap Pin / Live Sync Button  │  │
-│  │  ├─ Interactive Live Preview: Real-time Canvas Telemetry Deck        │  │
-│  │  └─ Goal Calibrator: Screen-Time Budget Slider & Daily Step Target   │  │
-│  └──────────────────┬───────────────────────────────────────────────────┘  │
-│                     │ Saves Skin & Goals + Triggers Broadcast              │
-│                     ▼                                                      │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ EliteCommandWidgetProvider (AppWidgetProvider)                       │  │
-│  │  ├─ Reads: FocusLayerManager + FocusSessionManager + Step/Usage Data │  │
-│  │  ├─ Renders: High-DPI Dual Neon Rings & HUD Bitmap via Canvas        │  │
-│  │  └─ Binds 4 PendingIntent Zones:                                     │  │
-│  │       1. [Rings Zone]      -> Opens Usage & Activity Breakdown       │  │
-│  │       2. [Shield Zone]     -> Toggles Focus Layer / Opens Schedule   │  │
-│  │       3. [⚡ 25m + 40Hz]   -> Instant Start/Stop Deep Focus + Audio  │  │
-│  │       4. [⚙ Studio Icon]   -> Opens WidgetStudioActivity             │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        ZERO-ESCAPE FORTRESS ENGINE                           │
+├───────────────────────┬──────────────────────────┬───────────────────────────┤
+│  System Tamper Guard  │  Monotonic Time Anchor   │  24h Holiday Validator    │
+│  (Accessibility Node  │  (Wall vs Elapsed Drift  │  (Creation Timestamp      │
+│   Tree Inspector)     │   & Broadcast Receiver)  │   Audit in Room DB)       │
+└───────────┬───────────┴────────────┬─────────────┴─────────────┬─────────────┘
+            │                        │                           │
+            ▼                        ▼                           ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                     CENTRAL POLICY & COMMITMENT CORE                         │
+│  • Strict Fortress Lock ON by default + 30m Pre-Window Edit Grace Period     │
+│  • Asymmetric Category Freeze (Blocks Promotions during Active Focus)        │
+│  • Adaptive Break & Manual Override Gated by Physical Proof-of-Effort        │
+└────────────────────────────────────┬─────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    PHYSICAL PROOF-OF-EFFORT FRICTION GATE                    │
+│  ┌─────────────────────────────────┐    ┌─────────────────────────────────┐  │
+│  │ Stage 1: Hardware Sensor Engine │───▶│ Stage 2: Anti-Paste Reflection  │  │
+│  │ • 25 Steps or 10 Squats (Live)  │    │ • Dynamic Randomized Prompt     │  │
+│  │ • Cadence & G-Force Validation  │    │ • Clipboard/Autofill Disabled   │  │
+│  └─────────────────────────────────┘    └─────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Data Model & State**:
-  - **Widget Preferences (`widget_studio_prefs`)**: Stores selected widget theme skin (`CYBER_OBSIDIAN`, `EMERALD_MATRIX`, `SOLAR_GOLD`, `MINIMAL_FROST`), daily screen-time budget minutes (default `180m`), daily step goal (default `8000`), and show/hide telemetry flags.
-  - **Live Telemetry Aggregation**: Queries today's screen-time minutes via `UsageStatsManager`, daily steps from sensor/step preferences, active schedule state from `FocusLayerManager`, and active timer state from `FocusSessionManager`.
-- **Interactive Component & State Mapping**:
-  - **Skin Selector Chips**: Mutates `selectedSkin` in preferences, immediately redraws the in-app `WidgetPreviewView` canvas, and broadcasts `ACTION_APPWIDGET_UPDATE` so any pinned launcher widget updates within milliseconds.
-  - **Goal Sliders (Screen Time Budget & Step Target)**: Dynamically recalculates ring sweep angles (`0°–360°`) in the live preview and persists thresholds for launcher rendering.
-  - **`⚡ 25m + 40Hz` Widget Action**: Checks `FocusSessionManager.snapshot.value.state`. If `IDLE`, starts a 25-minute session with `SoundMode.GAMMA_40HZ`; if `RUNNING`, opens `FocusSessionActivity` (respecting the `CognitiveFrictionGate` if the user chooses to stop).
+### Data Model & State
+- **Monotonic Time Anchor (`SharedPreferences` + `SystemState`)**:
+  - Stores `last_verified_wall_ms`, `last_verified_elapsed_ms`, and `clock_tamper_detected_until_ms`. Computes real focus time using `last_verified_wall_ms + (SystemClock.elapsedRealtime() - last_verified_elapsed_ms)` whenever `abs(wallDelta - elapsedDelta) > 120_000L` (2 minutes drift).
+- **24-Hour Holiday Audit (`SharedPreferences` / Room `SystemState`)**:
+  - Records `holiday_created_at_<yyyyMMdd>` timestamp whenever a calendar date is marked as a holiday or a holiday keyword is added. `FocusLayerManager.getCalendarExemption()` verifies that `startOfTodayMs - createdAtMs >= 24 * 3600 * 1000L` (or that the holiday was created before the current day's focus lock period) before granting an exemption.
+- **Fortress Lock Lifecycle**:
+  - `KEY_STRICT_LOCK_ENABLED` defaults to `true`.
+  - Computes `isInPreWindowGracePeriod(nowMs)`: returns `true` during the 30 minutes immediately preceding `getStartMinutes(context)`.
+
+### Interactive Component & State Mapping
+- **Settings Tamper Interceptor**:
+  - Instead of returning early on `com.android.settings`, `BlockerAccessibilityService` invokes `SettingsTamperGuard.inspectSettingsWindow(this, rootInActiveWindow)`.
+  - Scans visible node texts for sensitive combinations:
+    1. App Info tamper: `("Focus Elite" or "FocusGuard") AND ("Force stop" or "Uninstall" or "Clear storage" or "Clear data")`
+    2. Accessibility tamper: `"Accessibility" AND ("Focus Elite" or "FocusGuard" or "Downloaded apps" or "Installed apps")`
+    3. Device Admin tamper: `("Device admin" or "Deviceadmin") AND ("Focus Elite" or "FocusGuard" or "Deactivate")`
+    4. Clock tamper: `"Date & time" or "Set time" or "Automatic date & time"`
+  - On match while `FocusLayerManager.isActiveNow(this)` or `FocusSessionManager.isSessionActive(this)` is true: executes `performGlobalAction(GLOBAL_ACTION_BACK)`, routes to Home, and launches `PermissionTamperWarningActivity` with the specific tamper vector logged.
+- **Physical Proof-of-Effort Gate (`CognitiveFrictionGate`)**:
+  - Registers `SensorManager` listener (`TYPE_STEP_DETECTOR`, `TYPE_ACCELEROMETER`) directly inside the dialog lifecycle and cleans up on `OnDismissListener`.
+  - Users can toggle between **"🚶 Walk 25 Steps"** or **"🏋️ Do 10 Squats"** with a live animated progress bar and cadence anti-shake filter (260ms–1800ms step interval; 750ms–3500ms squat cycle between `< 7.8 m/s²` descent and `> 12.2 m/s²` ascent).
+  - Once physical effort reaches 100%, unlocks the anti-paste `EditText` requiring a randomized commitment phrase before enabling the final bypass button.
+- **Category & Schedule Lock Enforcement**:
+  - In `CategorySettingsActivity`, when `FocusLayerManager.isLockedUntilCalendarHoliday(this)` is active, existing Study/Improvement/Ignored apps can be unchecked (demoted to Blocked), but checking a new app into Study/Improvement/Ignored triggers the **Physical Proof-of-Effort Gate** before allowing the promotion.
+  - In `AuxiliarySettingsActivity`, modifying the active Focus Window schedule or disabling the shield during active hours requires passing the **Physical Proof-of-Effort Gate**, while edits during the 30-minute Pre-Window Grace Period are friction-free.

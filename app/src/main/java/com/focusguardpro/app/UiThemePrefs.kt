@@ -179,6 +179,9 @@ object UiThemePrefs {
             .apply()
     }
 
+    private const val KEY_SETUP_CATEGORIES_DONE = "guided_setup_categories_done"
+    private const val KEY_SETUP_SCHEDULE_DONE = "guided_setup_schedule_done"
+
     fun hasSeenFirstTimeInstructions(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_FIRST_TIME_INSTRUCTIONS_SHOWN, false)
@@ -188,6 +191,34 @@ object UiThemePrefs {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_FIRST_TIME_INSTRUCTIONS_SHOWN, true)
+            .apply()
+    }
+
+    fun isSetupCategoriesConfigured(context: Context): Boolean {
+        val flag = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SETUP_CATEGORIES_DONE, false)
+        if (flag) return true
+        return AppCategoryPrefs.getStudyApps(context).isNotEmpty() ||
+            AppCategoryPrefs.getImprovementApps(context).isNotEmpty() ||
+            AppCategoryPrefs.getIgnoredApps(context).isNotEmpty()
+    }
+
+    fun markSetupCategoriesConfigured(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SETUP_CATEGORIES_DONE, true)
+            .apply()
+    }
+
+    fun isSetupScheduleConfigured(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SETUP_SCHEDULE_DONE, false)
+    }
+
+    fun markSetupScheduleConfigured(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SETUP_SCHEDULE_DONE, true)
             .apply()
     }
 
