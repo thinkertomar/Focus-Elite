@@ -1,6 +1,0 @@
-{
-  "name": "Focus Elite",
-  "description": "Digital Wellbeing & Distraction Blocker app with activity tracking and focus sessions.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

@@ -575,7 +575,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
         })
 
         feedbackCard.addView(TextView(activity).apply {
-            text = "Write what new feature you want to add, your self-opinion on an upgrade, or any bug you noticed. Tap 'Copy Professional Report' and paste it directly into AI Studio chat or GitHub Issues — zero background network permissions required!"
+            text = "Write what new feature you want to add, your self-opinion on an upgrade, or any bug you noticed. Tap 'Copy Professional Report' and share it directly in GitHub Issues or your developer workspace — zero background network permissions required!"
             textSize = 12f
             setTextColor(Color.parseColor("#CBD5E1"))
             setLineSpacing(0f, 1.2f)

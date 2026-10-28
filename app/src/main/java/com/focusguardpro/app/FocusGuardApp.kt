@@ -8,7 +8,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import com.focusguardpro.app.db.AppDatabase
 
-class FocusGuardApp : Application() {
+open class FocusGuardApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
@@ -92,8 +92,10 @@ class FocusGuardApp : Application() {
                 configuredDbRef = db
                 instanceField.set(null, db)
             } catch (e: Throwable) {
-                android.util.Log.e("FocusGuardApp", "Failed to init Room with allowMainThreadQueries", e)
+                android.util.Log.e("FocusEliteApp", "Failed to init Room with allowMainThreadQueries", e)
             }
         }
     }
 }
+
+class FocusEliteApp : FocusGuardApp()

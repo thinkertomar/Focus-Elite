@@ -3,15 +3,17 @@
 > **100% Offline Digital Wellbeing, Fortress Distraction Shield, Time Analytics & Physical Proof-of-Effort Engine for Android**
 
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-3DDC84?logo=android&logoColor=white)](https://github.com/thinkertomar/Focus-Elite)
+[![Package](https://img.shields.io/badge/Package-com.focuselite.app-6366F1)](https://github.com/thinkertomar/Focus-Elite)
 [![Language](https://img.shields.io/badge/Language-Kotlin-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Offline%20%E2%80%A2%20Zero%20Internet%20Permission-10B981)](#100-offline--zero-internet-privacy-guarantee)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Offline%20%E2%80%A2%20Zero%20Internet%20Permission-10B981)](./SECURITY.md)
 [![Version](https://img.shields.io/badge/Release-v1.3%20(Build%204)-38BDF8)](https://github.com/thinkertomar/Focus-Elite/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg)](./LICENSE)
 
 ---
 
 ## 📖 Overview
 
-**Focus Elite** is a high-discipline, privacy-first Android application engineered to eliminate digital distractions, reclaim deep work hours, and connect screen discipline with physical movement.
+**Focus Elite (`com.focuselite.app`)** is an open-source, high-discipline, privacy-first Android application engineered to eliminate digital distractions, reclaim deep work hours, and connect screen discipline with physical movement.
 
 Unlike cloud-based screen time trackers that harvest telemetry, **Focus Elite does not request `android.permission.INTERNET`**. The Android OS kernel strictly prevents the app from opening network sockets—meaning **zero bytes of your usage data, habits, or personal logs can ever leave your device**.
 
@@ -43,7 +45,7 @@ All core Android system apps and essential device utilities—including **Phone/
 Located inside **Hub & Guide → `🛠️ Updates & Health`**:
 - **🎉 What's New Presentation & GitHub Release Launcher:** Automatically notifies you when a new version is installed, presents a full visual breakdown of new features, and provides a 1-tap browser launcher to download & install updates in-place from [GitHub Releases](https://github.com/thinkertomar/Focus-Elite/releases) without losing data.
 - **🩺 7-Point Offline Error Detector & Auto-Repair:** Scans Privacy Seal, SQLite Room Database, Usage Access, App Criteria, Device Admin, Accessibility Shield, and Battery/Clock Integrity—with a **1-Tap Auto-Repair** button and local crash/anomaly log.
-- **💬 Privacy-Driven Feedback & Upgrade Studio:** Write feature requests, self-opinions, or bug reports with an optional 7-point diagnostic snapshot and copy a clean Markdown report directly to your clipboard.
+- **💬 Privacy-Driven Feedback & Upgrade Studio:** Write feature requests, self-opinions, or bug reports with an optional 7-point diagnostic snapshot and copy a clean Markdown report directly to your clipboard or open GitHub Issues.
 
 ---
 
@@ -60,17 +62,19 @@ Located inside **Hub & Guide → `🛠️ Updates & Health`**:
 
 ---
 
-## 🔄 Updating Focus Elite Without Losing Data
+## 📲 Installation, Play Protect & In-Place Updates
 
-Android **never requires uninstalling** Focus Elite to update to a newer version:
-1. Open **Hub & Guide (`⚙️`) → `🛠️ Updates & Health` → `🌐 Download Update (GitHub)`** (or visit [Releases](https://github.com/thinkertomar/Focus-Elite/releases)).
-2. Download the latest `.apk` and tap to install.
-3. Android installs the new version **in-place** over the existing app, preserving all your focus schedules, whitelisted study apps, analytics history, and settings.
-4. On first launch of the new version, Focus Elite automatically displays the **🎉 What's New** feature presentation.
+### Installing from GitHub Releases
+1. Download **`Focus-Elite-latest.apk`** from the [Latest Release](https://github.com/thinkertomar/Focus-Elite/releases).
+2. **Note on Google Play Protect (Sideloaded APKs):** Because Focus Elite is installed outside the Google Play Store and uses `AccessibilityService` + `DeviceAdmin` to block distracting apps, Android's Play Protect may display a standard precautionary prompt (*"App blocked to protect your device"*). Tap **"More details" → "Install anyway"**. (See [SECURITY.md](./SECURITY.md) for why Focus Elite is provably safe with zero internet permissions.)
+3. **Android 13+ Restricted Settings:** Before enabling the Accessibility Shield in Step 4, if Android shows *"Restricted setting"*, open **Android Settings → Apps → Focus Elite → Top-right `⋮` menu → "Allow restricted settings"**.
+
+### Updating Without Losing Data
+Once you are on `com.focuselite.app`, installing any newer release APK from [GitHub Releases](https://github.com/thinkertomar/Focus-Elite/releases) updates the app **in-place** while preserving all your schedules, categories, and history.
 
 ---
 
-## 🛠️ Building from Source
+## 🛠️ Building from Source & Contributing
 
 ```bash
 git clone https://github.com/thinkertomar/Focus-Elite.git
@@ -78,4 +82,7 @@ cd Focus-Elite
 ./gradlew assembleDebug
 ```
 
-The signed debug/release APK will be generated under `app/build/outputs/apk/`.
+We welcome code reviews, architectural guidance, and Pull Requests! Please read:
+- [**CONTRIBUTING.md**](./CONTRIBUTING.md) — Architecture overview, coding standards, and PR workflow
+- [**SECURITY.md**](./SECURITY.md) — Zero-Internet verification and permission model
+- [**LICENSE**](./LICENSE) — MIT License
