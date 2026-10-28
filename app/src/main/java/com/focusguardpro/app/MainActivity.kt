@@ -359,8 +359,39 @@ class MainActivity : AppCompatActivity() {
     private fun applyDynamicThemeToHome() {
         val palette = UiThemePrefs.getSelectedPalette(this)
         val screenTimeCard = findViewById<LinearLayout>(R.id.screenTimeCard)
-        val rootScroll = screenTimeCard?.parent?.parent as? NestedScrollView
-        rootScroll?.setBackgroundColor(palette.backgroundColor)
+        val mainColumn = screenTimeCard?.parent as? LinearLayout
+        val rootScroll = mainColumn?.parent as? NestedScrollView
+        rootScroll?.setBackgroundColor(UiThemePrefs.getScreenBackgroundColor(this))
+
+        // Adapt top-level header & section titles sitting directly on the screen background
+        val headerTitleColor = UiThemePrefs.getScreenHeaderTextColor(this)
+        val headerSubColor = UiThemePrefs.getScreenSubHeaderTextColor(this)
+        val sectionAccentColor = if (UiThemePrefs.isWhiteBackgroundActive(this)) {
+            Color.parseColor("#0284C7")
+        } else {
+            palette.accentColor
+        }
+        val headerRow = mainColumn?.getChildAt(0) as? LinearLayout
+        val headerTextCol = headerRow?.getChildAt(1) as? LinearLayout
+        (headerTextCol?.getChildAt(0) as? TextView)?.setTextColor(headerTitleColor)
+        (headerTextCol?.getChildAt(1) as? TextView)?.setTextColor(headerSubColor)
+        findViewById<TextView>(R.id.deactivateShieldLink)?.setTextColor(headerSubColor)
+        findViewById<TextView>(R.id.backupRestoreLink)?.setTextColor(headerSubColor)
+
+        if (mainColumn != null) {
+            for (i in 0 until mainColumn.childCount) {
+                val child = mainColumn.getChildAt(i)
+                if (child is TextView && child != covenantBannerView && child.id != R.id.deactivateShieldLink && child.id != R.id.backupRestoreLink) {
+                    if (child.textSize / resources.displayMetrics.scaledDensity <= 13f) {
+                        child.setTextColor(sectionAccentColor)
+                    } else {
+                        child.setTextColor(headerTitleColor)
+                    }
+                } else if (child is LinearLayout && child.childCount == 2 && child.getChildAt(1) is TextView && child.background == null) {
+                    (child.getChildAt(1) as? TextView)?.setTextColor(headerTitleColor)
+                }
+            }
+        }
 
         screenTimeCard?.background = UiThemePrefs.createCardBackground(this, cornerDp = 18f, isHero = true)
 
@@ -542,7 +573,8 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, UsageStatsActivity::class.java))
         }
         findViewById<View>(R.id.dailyTimeAuditCard)?.setOnClickListener {
-            startActivity(Intent(this, TimeSplitterActivity::class.java))
+            // Directly open Daily Time Notebook (AuditActivity) instead of the "Welcome Back" TimeSplitter popup
+            startActivity(Intent(this, AuditActivity::class.java))
         }
         findViewById<View>(R.id.auditSettingsLink)?.setOnClickListener {
             startActivity(Intent(this, CategorySettingsActivity::class.java))
@@ -594,11 +626,10 @@ class MainActivity : AppCompatActivity() {
                 DaySummaryHelper.awayIgnoreMinutes(awayRecords) +
                 DaySummaryHelper.awaySleepMinutes(awayRecords)
 
-            val popupStatus = if (!AwayTimeTracker.isAutoAuditPopupEnabled(this)) "Auto-popup off" else "Auto-popup on"
             if (totalAwayMins > 0L) {
-                subtitle.text = "${DaySummaryHelper.formatMinutes(totalAwayMins)} logged today ($popupStatus) • Tap to open"
+                subtitle.text = "${DaySummaryHelper.formatMinutes(totalAwayMins)} logged today • Tap to open Daily Time Notebook"
             } else {
-                subtitle.text = "Manual notebook ($popupStatus) • Log offline hours & notes"
+                subtitle.text = "Tap to open Daily Time Notebook & log activities"
             }
         } catch (_: Throwable) {
             subtitle.text = "Log offline hours, track habits & reflect daily"

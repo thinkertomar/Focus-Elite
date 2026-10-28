@@ -189,9 +189,18 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
     private fun applyThemeToScaffold() {
         val palette = UiThemePrefs.getSelectedPalette(this)
-        rootLayout.setBackgroundColor(palette.backgroundColor)
-        headerSubtitleView.setTextColor(palette.secondaryColor)
-        headerSubtitleView.text = "Theme: ${palette.name} • Tap any tab below"
+        val isWhiteBg = UiThemePrefs.isWhiteBackgroundActive(this)
+        rootLayout.setBackgroundColor(UiThemePrefs.getScreenBackgroundColor(this))
+        val topBar = rootLayout.getChildAt(0) as? LinearLayout
+        val titleCol = topBar?.getChildAt(1) as? LinearLayout
+        (titleCol?.getChildAt(0) as? TextView)?.setTextColor(UiThemePrefs.getScreenHeaderTextColor(this))
+        headerSubtitleView.setTextColor(if (isWhiteBg) Color.parseColor("#0284C7") else palette.secondaryColor)
+        val bgLabel = when (UiThemePrefs.getBackgroundMode(this)) {
+            UiThemePrefs.BG_MODE_BLACK -> " • Pure Black BG"
+            UiThemePrefs.BG_MODE_WHITE -> " • Pure White BG"
+            else -> ""
+        }
+        headerSubtitleView.text = "Theme: ${palette.name}$bgLabel • Tap any tab below"
     }
 
     private fun renderTabPills() {
@@ -944,14 +953,113 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             setPadding(0, dp(4f), 0, dp(2f))
         })
+        val bgMode = UiThemePrefs.getBackgroundMode(this)
+        val bgModeName = when (bgMode) {
+            UiThemePrefs.BG_MODE_BLACK -> "Pure Black (#000000)"
+            UiThemePrefs.BG_MODE_WHITE -> "Pure White (#F8FAFC)"
+            else -> "Theme Default"
+        }
         previewCard.addView(TextView(this).apply {
-            text = "${activePalette.subtitle} • Applied across Home Screen & Blocklist"
+            text = "${activePalette.subtitle} • Background: $bgModeName"
             textSize = 13f
             setTextColor(Color.parseColor("#CBD5E1"))
         })
         contentContainer.addView(previewCard)
 
-        addSectionTitle("CHOOSE APP COLOR PALETTE (INSTANT APPLY)", activePalette)
+        addSectionTitle("CHOOSE SCREEN BACKGROUND (DEFAULT / BLACK / WHITE)", activePalette)
+
+        val bgSelectorCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = UiThemePrefs.createCardBackground(this@AuxiliarySettingsActivity, cornerDp = 16f, isHero = false)
+            setPadding(dp(14f), dp(14f), dp(14f), dp(14f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(16f) }
+        }
+
+        bgSelectorCard.addView(TextView(this).apply {
+            text = "Background Surface Mode"
+            textSize = 14.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        bgSelectorCard.addView(TextView(this).apply {
+            text = "Switch between the theme's signature dark navy, True AMOLED Black (#000000), or Clean Daylight White (#F8FAFC):"
+            textSize = 12f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(2f), 0, dp(10f))
+        })
+
+        val bgBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val bgOptions = listOf(
+            Triple(UiThemePrefs.BG_MODE_THEME, "🌊 Theme Default", activePalette.backgroundColor),
+            Triple(UiThemePrefs.BG_MODE_BLACK, "⚫ Pure Black", Color.parseColor("#000000")),
+            Triple(UiThemePrefs.BG_MODE_WHITE, "⚪ Pure White", Color.parseColor("#F8FAFC"))
+        )
+
+        bgOptions.forEachIndexed { idx, (modeKey, label, _) ->
+            val selected = bgMode == modeKey
+            val btn = TextView(this).apply {
+                text = if (selected) "✓ $label" else label
+                textSize = 11.5f
+                gravity = Gravity.CENTER
+                setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                setTextColor(
+                    when {
+                        selected && modeKey == UiThemePrefs.BG_MODE_WHITE -> Color.parseColor("#0F172A")
+                        selected -> Color.WHITE
+                        else -> Color.parseColor("#CBD5E1")
+                    }
+                )
+                setPadding(dp(8f), dp(10f), dp(8f), dp(10f))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (idx < bgOptions.lastIndex) marginEnd = dp(6f)
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12f).toFloat()
+                    when {
+                        selected && modeKey == UiThemePrefs.BG_MODE_WHITE -> {
+                            setColor(Color.parseColor("#F8FAFC"))
+                            setStroke(dp(2f), activePalette.accentColor)
+                        }
+                        selected && modeKey == UiThemePrefs.BG_MODE_BLACK -> {
+                            setColor(Color.parseColor("#000000"))
+                            setStroke(dp(2f), activePalette.accentColor)
+                        }
+                        selected -> {
+                            setColor(activePalette.accentColor)
+                        }
+                        else -> {
+                            setColor(Color.parseColor("#111827"))
+                            setStroke(dp(1f), Color.parseColor("#334155"))
+                        }
+                    }
+                }
+                setOnClickListener {
+                    UiThemePrefs.setBackgroundMode(this@AuxiliarySettingsActivity, modeKey)
+                    renderActiveTab()
+                    Toast.makeText(
+                        this@AuxiliarySettingsActivity,
+                        "Applied $label background!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            bgBtnRow.addView(btn)
+        }
+
+        bgSelectorCard.addView(bgBtnRow)
+        contentContainer.addView(bgSelectorCard)
+
+        addSectionTitle("CHOOSE APP COLOR PALETTE (OCEAN CYAN DEFAULT)", activePalette)
 
         for (palette in UiThemePrefs.PALETTES) {
             val isSelected = palette.id == activePalette.id
@@ -1154,7 +1262,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 setColor(palette.accentColor)
             }
             setOnClickListener {
-                startActivity(Intent(this@AuxiliarySettingsActivity, TimeSplitterActivity::class.java))
+                startActivity(Intent(this@AuxiliarySettingsActivity, AuditActivity::class.java))
             }
         }
         auditBtnRow.addView(togglePopupBtn)
@@ -1251,10 +1359,10 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         addAuxiliaryLauncherRow(
             iconEmoji = "📓",
             title = "Daily Time Notebook (Offline Audit)",
-            subtitle = "Log offline hours, split unallocated time, and record daily notes",
+            subtitle = "Open Daily Time Notebook directly to log activities, sleep & daily reflections",
             palette = palette
         ) {
-            startActivity(Intent(this, TimeSplitterActivity::class.java))
+            startActivity(Intent(this, AuditActivity::class.java))
         }
 
         addAuxiliaryLauncherRow(
@@ -2377,11 +2485,12 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
     }
 
     private fun addSectionTitle(title: String, palette: UiThemePrefs.ThemePalette) {
+        val isWhiteBg = UiThemePrefs.isWhiteBackgroundActive(this)
         val tv = TextView(this).apply {
             text = title
             textSize = 11.5f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(palette.accentColor)
+            setTextColor(if (isWhiteBg) Color.parseColor("#0284C7") else palette.accentColor)
             letterSpacing = 0.06f
             setPadding(dp(2f), dp(6f), dp(2f), dp(8f))
         }

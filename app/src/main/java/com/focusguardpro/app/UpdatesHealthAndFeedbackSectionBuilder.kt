@@ -278,7 +278,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
         }
 
         val releaseBtn = Button(activity).apply {
-            text = "🌐 Download Update (GitHub)"
+            text = "🌐 Download Official Release"
             textSize = 11.5f
             isAllCaps = false
             setTextColor(Color.WHITE)
@@ -296,6 +296,28 @@ object UpdatesHealthAndFeedbackSectionBuilder {
         topUpdateBtns.addView(showcaseBtn)
         topUpdateBtns.addView(releaseBtn)
         updateCard.addView(topUpdateBtns)
+
+        val publishHelperBtn = Button(activity).apply {
+            text = "🎯 Copy Termux Command: Publish Official Release v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME}"
+            textSize = 11.5f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            minHeight = dp(activity, 42f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(activity, 8f) }
+            background = GradientDrawable().apply {
+                cornerRadius = dp(activity, 12f).toFloat()
+                setColor(Color.parseColor("#1E293B"))
+                setStroke(dp(activity, 1f), palette.secondaryColor)
+            }
+            setOnClickListener {
+                val cmd = "git tag -f v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME} && git push origin v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME} --force"
+                SystemDiagnosticsAndUpdatesManager.copyReportToClipboard(activity, cmd)
+            }
+        }
+        updateCard.addView(publishHelperBtn)
 
         // Expandable / visible release notes history
         for (rel in SystemDiagnosticsAndUpdatesManager.RELEASE_HISTORY) {

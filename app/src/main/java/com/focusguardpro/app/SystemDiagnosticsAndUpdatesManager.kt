@@ -33,13 +33,14 @@ object SystemDiagnosticsAndUpdatesManager {
     private const val KEY_SAVED_FEEDBACK_JSON = "saved_feedback_json"
     private const val KEY_LAST_SCAN_TIMESTAMP = "last_scan_timestamp"
 
-    const val CURRENT_VERSION_CODE = 4
-    const val CURRENT_VERSION_NAME = "1.3"
+    const val CURRENT_VERSION_CODE = 5
+    const val CURRENT_VERSION_NAME = "1.4"
     const val GITHUB_REPO_URL = "https://github.com/thinkertomar/Focus-Elite"
-    const val GITHUB_RELEASES_URL = "https://github.com/thinkertomar/Focus-Elite/releases"
+    const val GITHUB_RELEASES_URL = "https://github.com/thinkertomar/Focus-Elite/releases/latest"
+    const val GITHUB_ACTIONS_URL = "https://github.com/thinkertomar/Focus-Elite/actions"
 
     private const val UPDATE_NOTIFICATION_CHANNEL_ID = "focus_elite_updates_channel"
-    private const val UPDATE_NOTIFICATION_ID = 4104
+    private const val UPDATE_NOTIFICATION_ID = 4105
 
     data class ReleaseNote(
         val versionName: String,
@@ -76,38 +77,39 @@ object SystemDiagnosticsAndUpdatesManager {
 
     val RELEASE_HISTORY: List<ReleaseNote> = listOf(
         ReleaseNote(
+            versionName = "1.4",
+            versionCode = 5,
+            dateLabel = "Official Milestone • Build 5",
+            headline = "Direct Daily Time Notebook, Ocean Cyan Default + White/Black Backgrounds & Selective Release Control",
+            highlights = listOf(
+                "📓 Direct Daily Time Notebook Launch: Tapping 'Daily Time Notebook' now opens your Daily Time Notebook directly, bypassing the 'Welcome Back!' popup.",
+                "🌊 Ocean Cyan Default + Pure Black & Pure White Backgrounds: Ocean Cyan is now the default color palette, plus two new background modes — True AMOLED Black (#000000) and Clean Daylight White (#F8FAFC).",
+                "🛡️ Hardened Real-Time App Blocker: Eliminated SystemUI status-bar interference and 10s UsageEvents blind spots across Hard Blocks, Focus Schedules, Deep Focus Studio, and Daily Caps.",
+                "🎯 Selective Milestone Release Control: Separate private test builds (GitHub Actions tab) from official public releases (GitHub Main Page Releases) so users only receive the milestone updates you choose."
+            )
+        ),
+        ReleaseNote(
             versionName = "1.3",
             versionCode = 4,
-            dateLabel = "Latest Release • Build 4",
+            dateLabel = "Previous Release • Build 4",
             headline = "What's New Showcase, Offline Self-Diagnostics & Privacy-Driven Feedback Studio",
             highlights = listOf(
                 "🎉 In-App 'What's New' Presentation & Notification: Automatically detects newly installed versions and showcases all new features and upgrades.",
                 "🌐 Zero-Internet GitHub Release Updater Link: Open Focus-Elite GitHub Releases via your system browser to download & install new APK versions in-place without losing data.",
                 "🩺 7-Point System Health & Error Scanner: Detects service drops, permission gaps, database state, and clock integrity with 1-Tap Auto-Repair.",
-                "💬 Privacy-Driven Feedback & Upgrade Studio: Write feature ideas, self-opinions, or bug reports with optional diagnostic snapshots and copy a clean report to paste directly into chat or GitHub."
+                "💬 Privacy-Driven Feedback & Upgrade Studio: Write feature ideas, self-opinions, or bug reports with optional diagnostic snapshots."
             )
         ),
         ReleaseNote(
             versionName = "1.2",
             versionCode = 3,
-            dateLabel = "Previous Release • Build 3",
+            dateLabel = "Release • Build 3",
             headline = "Guided 4-Step Setup (Zero Self-Lockout), System Apps Safe & 100% Offline Audit",
             highlights = listOf(
                 "✨ Guided 4-Step Setup Order: 1. Usage Access → 2. App Criteria → 3. Focus Schedule → 4. Admin & Accessibility Shield Last.",
                 "🛡️ 3-Minute Setup Grace Window: Eliminates false-positive Settings blocks while enabling Accessibility or Device Admin.",
                 "⚙️ Automatic System Apps Exclusion: Phone, SMS, Camera, Clock, Calculator, Contacts, Files, Settings, and UPI/Payments are allowed 24/7.",
                 "🔒 100% Offline Privacy Seal: Verified zero Internet permission and zero GPS/location permissions."
-            )
-        ),
-        ReleaseNote(
-            versionName = "1.1",
-            versionCode = 2,
-            dateLabel = "Foundation Release • Build 2",
-            headline = "Fortress Lock, Physical Proof-of-Effort Gate & 24h Advance Holiday Rule",
-            highlights = listOf(
-                "🏋️ Physical Proof-of-Effort Gate: Requires verified hardware steps or squats + typing challenge for emergency breaks.",
-                "📅 24-Hour Advance Calendar Holiday Rule: Prevents impulse same-day holiday bypassing during active focus windows.",
-                "🎨 Redesigned Command Hub & Single-Ring Home Dashboard with customizable neon palettes."
             )
         )
     )

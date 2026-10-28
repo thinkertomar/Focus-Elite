@@ -7,7 +7,9 @@ import android.graphics.drawable.GradientDrawable
 object UiThemePrefs {
     private const val PREFS_NAME = "focus_elite_ui_theme_prefs"
 
-    private const val KEY_THEME_ID = "theme_id"
+    // Default to "cyan" (Ocean Cyan) using v2 key so all installs default to Ocean Cyan
+    private const val KEY_THEME_ID = "theme_id_v2"
+    private const val KEY_BG_MODE = "screen_bg_mode_v1"
     private const val KEY_CARD_GLOW = "card_glow_border"
     private const val KEY_COMPACT_LIST = "compact_app_list"
     private const val KEY_SHOW_BLUE_TICK_STATUS = "show_blue_tick_status"
@@ -16,6 +18,10 @@ object UiThemePrefs {
     private const val KEY_FIRST_TIME_INSTRUCTIONS_SHOWN = "first_time_instructions_v2_shown"
     private const val KEY_COVENANT_SEALED = "architect_covenant_sealed"
     private const val KEY_COVENANT_HOURS = "architect_covenant_daily_hours"
+
+    const val BG_MODE_THEME = "theme"
+    const val BG_MODE_BLACK = "black"
+    const val BG_MODE_WHITE = "white"
 
     data class ThemePalette(
         val id: String,
@@ -38,6 +44,39 @@ object UiThemePrefs {
 
     val PALETTES: List<ThemePalette> = listOf(
         ThemePalette(
+            id = "cyan",
+            name = "Ocean Cyan",
+            subtitle = "Cryo-Focus Azure & Deep Navy (Default)",
+            accentHex = "#00B8D4",
+            secondaryHex = "#84FFFF",
+            backgroundHex = "#071018",
+            cardSurfaceHex = "#101E2B",
+            heroTopHex = "#0C354A",
+            heroBottomHex = "#101E2B"
+        ),
+        ThemePalette(
+            id = "black",
+            name = "Pure Black (AMOLED)",
+            subtitle = "True #000000 Pitch Black & Crisp Cyan",
+            accentHex = "#00B8D4",
+            secondaryHex = "#84FFFF",
+            backgroundHex = "#000000",
+            cardSurfaceHex = "#0A0E14",
+            heroTopHex = "#072230",
+            heroBottomHex = "#0A0E14"
+        ),
+        ThemePalette(
+            id = "white",
+            name = "Pure White (Daylight)",
+            subtitle = "Clean Alabaster White & Deep Navy Cards",
+            accentHex = "#00ACC1",
+            secondaryHex = "#4DD0E1",
+            backgroundHex = "#F8FAFC",
+            cardSurfaceHex = "#0F1E2E",
+            heroTopHex = "#0C354A",
+            heroBottomHex = "#0F1E2E"
+        ),
+        ThemePalette(
             id = "violet",
             name = "Electric Violet",
             subtitle = "Deep Obsidian & Signature Purple",
@@ -58,17 +97,6 @@ object UiThemePrefs {
             cardSurfaceHex = "#10211B",
             heroTopHex = "#0E3A2A",
             heroBottomHex = "#10211B"
-        ),
-        ThemePalette(
-            id = "cyan",
-            name = "Ocean Cyan",
-            subtitle = "Cryo-Focus Azure & Deep Navy",
-            accentHex = "#00B8D4",
-            secondaryHex = "#84FFFF",
-            backgroundHex = "#071018",
-            cardSurfaceHex = "#101E2B",
-            heroTopHex = "#0C354A",
-            heroBottomHex = "#101E2B"
         ),
         ThemePalette(
             id = "gold",
@@ -107,15 +135,75 @@ object UiThemePrefs {
 
     fun getSelectedPalette(context: Context): ThemePalette {
         val id = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_THEME_ID, "violet") ?: "violet"
+            .getString(KEY_THEME_ID, "cyan") ?: "cyan"
         return PALETTES.find { it.id == id } ?: PALETTES.first()
     }
 
     fun setSelectedPalette(context: Context, id: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_THEME_ID, id)
+        if (id == "black") {
+            prefs.putString(KEY_BG_MODE, BG_MODE_BLACK)
+        } else if (id == "white") {
+            prefs.putString(KEY_BG_MODE, BG_MODE_WHITE)
+        } else {
+            val currentBg = getBackgroundMode(context)
+            if (currentBg == BG_MODE_BLACK || currentBg == BG_MODE_WHITE) {
+                // Keep custom background mode only if user explicitly chose it via background bar,
+                // or reset to theme default when picking a specific color palette
+                prefs.putString(KEY_BG_MODE, BG_MODE_THEME)
+            }
+        }
+        prefs.apply()
+    }
+
+    fun getBackgroundMode(context: Context): String {
+        val palette = getSelectedPalette(context)
+        val defaultMode = when (palette.id) {
+            "black" -> BG_MODE_BLACK
+            "white" -> BG_MODE_WHITE
+            else -> BG_MODE_THEME
+        }
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_BG_MODE, defaultMode) ?: defaultMode
+    }
+
+    fun setBackgroundMode(context: Context, mode: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_THEME_ID, id)
+            .putString(KEY_BG_MODE, mode)
             .apply()
+    }
+
+    fun isWhiteBackgroundActive(context: Context): Boolean {
+        val bgMode = getBackgroundMode(context)
+        val palette = getSelectedPalette(context)
+        return bgMode == BG_MODE_WHITE || (bgMode == BG_MODE_THEME && palette.id == "white")
+    }
+
+    fun getScreenBackgroundColor(context: Context): Int {
+        val palette = getSelectedPalette(context)
+        return when (getBackgroundMode(context)) {
+            BG_MODE_BLACK -> Color.parseColor("#000000")
+            BG_MODE_WHITE -> Color.parseColor("#F8FAFC")
+            else -> palette.backgroundColor
+        }
+    }
+
+    fun getScreenHeaderTextColor(context: Context): Int {
+        return if (isWhiteBackgroundActive(context)) {
+            Color.parseColor("#0F172A")
+        } else {
+            Color.WHITE
+        }
+    }
+
+    fun getScreenSubHeaderTextColor(context: Context): Int {
+        return if (isWhiteBackgroundActive(context)) {
+            Color.parseColor("#334155")
+        } else {
+            Color.parseColor("#94A3B8")
+        }
     }
 
     fun isCardGlowEnabled(context: Context): Boolean {
@@ -255,7 +343,7 @@ object UiThemePrefs {
             }
             val strokeColor = if (glow) {
                 Color.argb(
-                    if (isHero) 150 else 80,
+                    if (isHero) 170 else 95,
                     Color.red(palette.accentColor),
                     Color.green(palette.accentColor),
                     Color.blue(palette.accentColor)
