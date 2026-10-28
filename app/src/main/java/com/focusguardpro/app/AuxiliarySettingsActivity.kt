@@ -55,6 +55,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         const val TAB_UI_COLOR = 1
         const val TAB_AUXILIARY = 2
         const val TAB_INSPIRE = 3
+        const val TAB_UPDATES_HEALTH = 4
     }
 
     private var currentTab = TAB_INSTRUCTIONS
@@ -198,6 +199,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         val palette = UiThemePrefs.getSelectedPalette(this)
         val tabs = listOf(
             TAB_INSTRUCTIONS to "📖 Guide & Tree",
+            TAB_UPDATES_HEALTH to "🛠️ Updates & Health",
             TAB_UI_COLOR to "🎨 UI & Colors",
             TAB_AUXILIARY to "⚙️ Focus & Rules",
             TAB_INSPIRE to "✨ Inspire Me"
@@ -247,9 +249,21 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         when (currentTab) {
             TAB_INSTRUCTIONS -> buildInstructionsTab()
+            TAB_UPDATES_HEALTH -> buildUpdatesHealthAndFeedbackTab()
             TAB_UI_COLOR -> buildUiAndColorTab()
             TAB_AUXILIARY -> buildAuxiliarySettingsTab()
             TAB_INSPIRE -> buildInspireMeTab()
+        }
+    }
+
+    private fun buildUpdatesHealthAndFeedbackTab() {
+        val palette = UiThemePrefs.getSelectedPalette(this)
+        UpdatesHealthAndFeedbackSectionBuilder.populateFullTab(
+            activity = this,
+            container = contentContainer,
+            palette = palette
+        ) {
+            renderActiveTab()
         }
     }
 
@@ -518,6 +532,18 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         // 2. 100% OFFLINE & ZERO-INTERNET PRIVACY AUDIT CARD
         buildPrivacyAuditCard(palette)
+
+        // 2B. WHAT'S NEW SHOWCASE, OFFLINE ERROR SCANNER & FEEDBACK STUDIO BANNER
+        contentContainer.addView(
+            UpdatesHealthAndFeedbackSectionBuilder.buildCompactBannerCard(
+                activity = this,
+                palette = palette
+            ) {
+                currentTab = TAB_UPDATES_HEALTH
+                renderActiveTab()
+                contentScrollView.smoothScrollTo(0, 0)
+            }
+        )
 
         // 3. VISUAL SETUP TREE + READINESS BAR GRAPH CARD
         val treeCard = LinearLayout(this).apply {

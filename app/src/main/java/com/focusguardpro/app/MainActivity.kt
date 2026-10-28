@@ -82,12 +82,26 @@ class MainActivity : AppCompatActivity() {
         // First-time open redirect to Instruction Tab inside Gear Icon Hub
         if (!UiThemePrefs.hasSeenFirstTimeInstructions(this)) {
             UiThemePrefs.markFirstTimeInstructionsSeen(this)
+            SystemDiagnosticsAndUpdatesManager.markCurrentVersionSeen(this)
             startActivity(
                 Intent(this, AuxiliarySettingsActivity::class.java).apply {
                     putExtra(AuxiliarySettingsActivity.EXTRA_INITIAL_TAB, AuxiliarySettingsActivity.TAB_INSTRUCTIONS)
                     putExtra(AuxiliarySettingsActivity.EXTRA_FIRST_TIME_WELCOME, true)
                 }
             )
+        } else if (SystemDiagnosticsAndUpdatesManager.hasUnseenVersionUpdate(this)) {
+            SystemDiagnosticsAndUpdatesManager.postUpdateNotificationIfNeeded(this)
+            val palette = UiThemePrefs.getSelectedPalette(this)
+            UpdatesHealthAndFeedbackSectionBuilder.showWhatsNewDialog(
+                activity = this,
+                palette = palette
+            ) {
+                startActivity(
+                    Intent(this, AuxiliarySettingsActivity::class.java).apply {
+                        putExtra(AuxiliarySettingsActivity.EXTRA_INITIAL_TAB, AuxiliarySettingsActivity.TAB_UPDATES_HEALTH)
+                    }
+                )
+            }
         }
     }
 

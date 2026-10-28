@@ -12,6 +12,7 @@ class FocusGuardApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        SystemDiagnosticsAndUpdatesManager.installGlobalExceptionLogger(this)
         ensureRoomMainThreadQueries(this)
         try {
             AppCategoryPrefs.getStudyApps(this)

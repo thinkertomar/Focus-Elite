@@ -7,11 +7,11 @@ TOKEN="${GITHUB_PAT:-$1}"
 echo "=== Focus Elite GitHub Sync ==="
 
 # Stage and commit any pending changes
-git add -A .gitignore metadata.json settings.gradle.kts build.gradle.kts gradle.properties gradle/ gradlew gradlew.bat app/ .github/
+git add -A README.md .gitignore metadata.json settings.gradle.kts build.gradle.kts gradle.properties gradle/ gradlew gradlew.bat app/ .github/
 if git diff-index --quiet HEAD --; then
     echo "All current changes are already committed on branch main."
 else
-    git commit -m "Focus Elite: Latest update with dark icon and calisthenics engine"
+    git commit -m "Focus Elite v1.3: What's New showcase, offline health scanner, feedback studio & README"
     echo "Committed latest changes to local main."
 fi
 
