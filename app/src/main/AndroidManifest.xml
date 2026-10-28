@@ -3,7 +3,6 @@
     android:versionCode="4"
     android:versionName="1.3">
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"/>
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
@@ -12,11 +11,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.health.READ_STEPS"/>
     <uses-permission android:name="android.permission.health.READ_DISTANCE"/>
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED"/>
-    <uses-permission android:name="android.permission.READ_CALENDAR"/>
     <queries>
         <package android:name="com.google.android.apps.healthdata"/>
         <intent>
@@ -28,12 +25,11 @@
         android:protectionLevel="signature"/>
     <uses-permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>
     <application
-        android:name="com.focusguardpro.app.FocusEliteApp"
+        android:name="com.focuselite.app.FocusEliteApp"
         android:theme="@style/Theme.FocusGuardPro"
-        android:label="@string/app_name"
+        android:label="Focus Elite"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:debuggable="true"
         android:allowBackup="true"
         android:largeHeap="true"
         android:extractNativeLibs="false"
@@ -42,7 +38,7 @@
         android:hasFragileUserData="true">
         <activity
             android:name="com.focusguardpro.app.OnboardingActivity"
-            android:label="@string/app_name"
+            android:label="Focus Elite"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
             android:exported="true">
@@ -53,10 +49,10 @@
         </activity>
         <activity
             android:name="com.focusguardpro.app.MainActivity"
-            android:label="@string/app_name"
+            android:label="Focus Elite"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
-            android:exported="false"/>
+            android:exported="true"/>
         <activity
             android:name="com.focusguardpro.app.FocusSessionActivity"
             android:exported="false"/>
@@ -144,7 +140,7 @@
             android:launchMode="singleTask"/>
         <service
             android:name="com.focusguardpro.app.BlockerAccessibilityService"
-            android:label="@string/app_name"
+            android:label="Focus Elite"
             android:icon="@mipmap/ic_launcher"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="false">
@@ -183,7 +179,7 @@
         </receiver>
         <receiver
             android:name="com.focusguardpro.app.MyAdminReceiver"
-            android:label="@string/app_name"
+            android:label="Focus Elite"
             android:description="@string/accessibility_service_description"
             android:icon="@mipmap/ic_launcher"
             android:permission="android.permission.BIND_DEVICE_ADMIN"

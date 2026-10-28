@@ -1,15 +1,9 @@
 package com.focusguardpro.app
 
-import android.content.ContentUris
 import android.content.Context
-import android.content.pm.PackageManager
-import android.database.Cursor
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.provider.CalendarContract
 import android.widget.Toast
-import androidx.core.content.ContextCompat
 import com.focusguardpro.app.db.AppDatabase
 import com.focusguardpro.app.db.SystemState
 import java.text.SimpleDateFormat
@@ -455,12 +449,6 @@ object FocusLayerManager {
             prefs(context).edit().remove("$KEY_HOLIDAY_FIRST_SEEN_PREFIX$tKey").apply()
         }
 
-        // 4. Check Android Device Calendar Events if permission is available
-        val deviceCalendarEvent = checkDeviceCalendarEvents(context, nowMs)
-        if (deviceCalendarEvent != null && verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
-            return deviceCalendarEvent
-        }
-
         return CalendarExemption.None
     }
 
@@ -471,63 +459,6 @@ object FocusLayerManager {
             entry?.isHoliday ?: false
         } catch (_: Throwable) {
             false
-        }
-    }
-
-    private fun checkDeviceCalendarEvents(context: Context, nowMs: Long): CalendarExemption? {
-        val hasCalPermission = ContextCompat.checkSelfPermission(
-            context,
-            "android.permission.READ_CALENDAR"
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (!hasCalPermission) return null
-
-        var cursor: Cursor? = null
-        return try {
-            val builder = CalendarContract.Instances.CONTENT_URI.buildUpon()
-            ContentUris.appendId(builder, nowMs - 60_000L)
-            ContentUris.appendId(builder, nowMs + 60_000L)
-            val uri: Uri = builder.build()
-
-            val projection = arrayOf(
-                CalendarContract.Instances.TITLE,
-                CalendarContract.Instances.ALL_DAY,
-                CalendarContract.Instances.BEGIN,
-                CalendarContract.Instances.END
-            )
-
-            cursor = context.contentResolver.query(
-                uri,
-                projection,
-                null,
-                null,
-                null
-            )
-
-            if (cursor != null && cursor.moveToFirst()) {
-                val titleIdx = cursor.getColumnIndex(CalendarContract.Instances.TITLE)
-                val allDayIdx = cursor.getColumnIndex(CalendarContract.Instances.ALL_DAY)
-
-                while (!cursor.isAfterLast) {
-                    val title = if (titleIdx >= 0) cursor.getString(titleIdx) ?: "" else ""
-                    val isAllDay = if (allDayIdx >= 0) cursor.getInt(allDayIdx) == 1 else false
-                    val titleLower = title.lowercase()
-
-                    for (kw in HOLIDAY_EVENT_KEYWORDS) {
-                        if (titleLower.contains(kw) || isAllDay) {
-                            return CalendarExemption.CalendarEvent(title.ifBlank { "Calendar Holiday" })
-                        }
-                    }
-                    cursor.moveToNext()
-                }
-            }
-            null
-        } catch (_: Throwable) {
-            null
-        } finally {
-            try {
-                cursor?.close()
-            } catch (_: Throwable) {}
         }
     }
 
@@ -725,14 +656,24 @@ object FocusLayerManager {
         if (SystemExclusions.isExcludedPackage(context, packageName)) {
             return true
         }
+        if (HardBlockManager.isHardBlocked(context, packageName) && !HardBlockManager.isEmergencyActive(context, packageName)) {
+            return false
+        }
         if (AppCategoryPrefs.getStudyApps(context).contains(packageName) ||
             AppCategoryPrefs.getImprovementApps(context).contains(packageName)
         ) {
+            val customLimit = TimeLimitManager.getLimitMinutes(context, packageName)
+            if (customLimit > 0) {
+                val usedMinutes = UsageStatsHelper.getTodayScreenTimeForPackage(context, packageName) / 60000
+                return usedMinutes < customLimit
+            }
             return true
         }
         if (AppCategoryPrefs.getIgnoredApps(context).contains(packageName)) {
+            val customLimit = TimeLimitManager.getLimitMinutes(context, packageName)
+            val cap = if (customLimit in 1..29) customLimit else 30
             val usedMinutes = UsageStatsHelper.getTodayScreenTimeForPackage(context, packageName) / 60000
-            return usedMinutes < 30
+            return usedMinutes < cap
         }
         return false
     }

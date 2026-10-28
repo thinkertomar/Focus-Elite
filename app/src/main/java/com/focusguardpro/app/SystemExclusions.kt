@@ -201,6 +201,7 @@ object SystemExclusions {
     fun isSystemOrCoreUtilityApp(context: Context, packageName: String): Boolean {
         if (packageName.isBlank()) return false
         if (packageName == context.packageName ||
+            packageName == "com.focuselite.app" ||
             packageName == "com.focusguardpro.elite" ||
             packageName == "com.focusguardpro.app"
         ) {

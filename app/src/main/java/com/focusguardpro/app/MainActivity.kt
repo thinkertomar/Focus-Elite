@@ -135,49 +135,49 @@ class MainActivity : AppCompatActivity() {
 
         val palette = UiThemePrefs.getSelectedPalette(this)
 
-        val gearContainer = LinearLayout(this).apply {
+        val existingGear = findViewById<LinearLayout>(R.id.btnHeaderHubGuide)
+        val gearContainer = existingGear ?: LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(20f).toFloat()
-                setColor(palette.cardSurfaceColor)
-                setStroke(dp(1.5f), palette.accentColor)
-            }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 marginStart = dp(8f)
             }
-            setOnClickListener {
-                startActivity(
-                    Intent(this@MainActivity, AuxiliarySettingsActivity::class.java).apply {
-                        putExtra(AuxiliarySettingsActivity.EXTRA_INITIAL_TAB, AuxiliarySettingsActivity.TAB_INSTRUCTIONS)
-                    }
-                )
+            val gearIcon = ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_settings_gear)
+                setColorFilter(palette.secondaryColor)
+                layoutParams = LinearLayout.LayoutParams(dp(20f), dp(20f)).apply {
+                    marginEnd = dp(6f)
+                }
+                contentDescription = "Auxiliary Settings and Instructions"
             }
-        }
-
-        val gearIcon = ImageView(this).apply {
-            setImageResource(R.drawable.ic_settings_gear)
-            setColorFilter(palette.secondaryColor)
-            layoutParams = LinearLayout.LayoutParams(dp(20f), dp(20f)).apply {
-                marginEnd = dp(6f)
+            val gearLabel = TextView(this@MainActivity).apply {
+                text = "Hub & Guide"
+                textSize = 12f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
             }
-            contentDescription = "Auxiliary Settings and Instructions"
+            addView(gearIcon)
+            addView(gearLabel)
+            headerRow.addView(this)
         }
 
-        val gearLabel = TextView(this).apply {
-            text = "Hub & Guide"
-            textSize = 12f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+        gearContainer.background = GradientDrawable().apply {
+            cornerRadius = dp(20f).toFloat()
+            setColor(palette.cardSurfaceColor)
+            setStroke(dp(1.5f), palette.accentColor)
         }
-
-        gearContainer.addView(gearIcon)
-        gearContainer.addView(gearLabel)
-        headerRow.addView(gearContainer)
+        (gearContainer.getChildAt(0) as? ImageView)?.setColorFilter(palette.secondaryColor)
+        gearContainer.setOnClickListener {
+            startActivity(
+                Intent(this@MainActivity, AuxiliarySettingsActivity::class.java).apply {
+                    putExtra(AuxiliarySettingsActivity.EXTRA_INITIAL_TAB, AuxiliarySettingsActivity.TAB_INSTRUCTIONS)
+                }
+            )
+        }
         headerGearButton = gearContainer
 
         // Optional Covenant Badge right below header
@@ -866,6 +866,9 @@ class MainActivity : AppCompatActivity() {
                         reasonPrompt = "Increasing or clearing a daily cap during active Fortress Lock requires Physical Proof-of-Effort."
                     ) {
                         TimeLimitManager.setLimitMinutes(this, app.packageName, minutes)
+                        if (minutes > 0 && usedMinutesToday < minutes) {
+                            HardBlockManager.setHardBlocked(this, app.packageName, false)
+                        }
                         Toast.makeText(
                             this,
                             if (minutes > 0) "🔓 ${app.appName} limit updated to ${minutes}m/day" else "🔓 Custom limit cleared for ${app.appName}",
@@ -877,6 +880,8 @@ class MainActivity : AppCompatActivity() {
                     TimeLimitManager.setLimitMinutes(this, app.packageName, minutes)
                     if (minutes > 0 && usedMinutesToday >= minutes) {
                         HardBlockManager.setHardBlocked(this, app.packageName, true)
+                    } else if (minutes > 0 && usedMinutesToday < minutes) {
+                        HardBlockManager.setHardBlocked(this, app.packageName, false)
                     }
                     Toast.makeText(
                         this,

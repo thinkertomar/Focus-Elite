@@ -11,9 +11,17 @@ object BlockPolicyEngine {
             return BlockDecision.Allowed
         }
 
-        // Never block FocusGuard Pro or any system/keyboard exclusion
+        // Never block Focus Elite or any system/keyboard exclusion
         if (SystemExclusions.isExcludedPackage(context, packageName)) {
             return BlockDecision.Allowed
+        }
+
+        // Hard Block check (explicitly blocked apps are always blocked unless emergency access is active)
+        if (HardBlockManager.isHardBlocked(context, packageName)) {
+            if (HardBlockManager.isEmergencyActive(context, packageName)) {
+                return BlockDecision.Allowed
+            }
+            return BlockDecision.Blocked(BlockReason.HARD_BLOCK, packageName)
         }
 
         // Check Focus Layer (respects custom hours, active days criteria, and Calendar Holiday lock)
@@ -25,12 +33,11 @@ object BlockPolicyEngine {
             return BlockDecision.Blocked(BlockReason.FOCUS_LAYER_MANUAL, packageName)
         }
 
-        // Hard Block check
-        if (HardBlockManager.isHardBlocked(context, packageName)) {
-            if (HardBlockManager.isEmergencyActive(context, packageName)) {
-                return BlockDecision.Allowed
-            }
-            return BlockDecision.Blocked(BlockReason.HARD_BLOCK, packageName)
+        // Check active Deep Focus Studio session (Pomodoro / FocusSessionManager)
+        if (FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING &&
+            !FocusLayerManager.isAllowedDuringFocus(context, packageName)
+        ) {
+            return BlockDecision.Blocked(BlockReason.FOCUS_LAYER_MANUAL, packageName, "Active Deep Focus Session")
         }
 
         // Active temporary bypass

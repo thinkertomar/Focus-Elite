@@ -284,7 +284,9 @@ object SettingsTamperGuard {
 
         val mentionsOurApp = combined.contains("focus elite") ||
             combined.contains("focusguard") ||
-            combined.contains("com.focusguardpro")
+            combined.contains("com.focuselite") ||
+            combined.contains("com.focusguardpro") ||
+            combined.contains(service.packageName.lowercase())
 
         // 1. Package Uninstaller or App Info (Force Stop / Uninstall / Clear Data) for Focus Elite
         val isAppInfoOrUninstallTamper = mentionsOurApp && (

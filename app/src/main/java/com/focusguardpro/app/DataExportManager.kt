@@ -32,7 +32,7 @@ object DataExportManager {
                 ExportFormat.CSV -> generateCsvExport(context)
             }
 
-            if (file != null && file.exists()) {
+            if (file.exists()) {
                 val mimeType = if (format == ExportFormat.JSON) "application/json" else "text/csv"
                 shareFile(context, file, mimeType)
             } else {

@@ -27,7 +27,8 @@ import kotlinx.coroutines.launch
 
 /**
  * High-reliability foreground monitor service that inspects foreground app activity
- * and aggressively blocks distraction packages during the 9 to 6 focus window.
+ * and aggressively blocks distraction packages during focus windows, deep focus sessions,
+ * blackout windows, hard blocks, and daily time limits.
  */
 class FocusForegroundMonitorService : Service() {
 
@@ -35,7 +36,7 @@ class FocusForegroundMonitorService : Service() {
         const val CHANNEL_ID = "focusguard_focus_monitor"
         const val NOTIFICATION_ID = 1002
         private const val FAST_POLL_MS = 1000L
-        private const val IDLE_POLL_MS = 3500L
+        private const val IDLE_POLL_MS = 2500L
         private const val ALARM_INTERVAL_MS = 300000L // 5 minutes keep-alive alarm
 
         fun start(context: Context) {
@@ -60,6 +61,8 @@ class FocusForegroundMonitorService : Service() {
     private var isScreenOn = true
     private var lastBlockedPkg: String? = null
     private var lastBlockedTimeMs: Long = 0L
+    @Volatile
+    private var lastResolvedUsagesPkg: String? = null
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -68,6 +71,7 @@ class FocusForegroundMonitorService : Service() {
                     isScreenOn = false
                     ForegroundTracker.currentPackage = null
                     ForegroundTracker.currentPackageSince = 0L
+                    lastResolvedUsagesPkg = null
                     stopMonitoringLoop()
                 }
                 Intent.ACTION_SCREEN_ON -> {
@@ -157,7 +161,8 @@ class FocusForegroundMonitorService : Service() {
                 val delayTime = try {
                     if (isScreenOn && !isKeyguardLocked()) {
                         evaluateAndBlockForeground()
-                        val focusActive = FocusLayerManager.isActiveNow(this@FocusForegroundMonitorService)
+                        val focusActive = FocusLayerManager.isActiveNow(this@FocusForegroundMonitorService) ||
+                            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
                         if (focusActive) FAST_POLL_MS else IDLE_POLL_MS
                     } else {
                         IDLE_POLL_MS
@@ -185,16 +190,24 @@ class FocusForegroundMonitorService : Service() {
         }
     }
 
+    private fun isSelfPackage(pkg: String?): Boolean {
+        if (pkg.isNullOrBlank()) return false
+        return pkg == packageName ||
+            pkg == "com.focuselite.app" ||
+            pkg == "com.focusguardpro.elite" ||
+            pkg == "com.focusguardpro.app"
+    }
+
     private fun evaluateAndBlockForeground() {
         val shieldPrefs = getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
         if (!shieldPrefs.getBoolean("shield_active", true)) return
+        if (AppLifecycleCoordinator.isRestoreInProgress) return
 
         val fgPkg = getActiveForegroundPackage() ?: return
         if (fgPkg.isBlank()) return
 
-        // 1. Never block FocusGuard Pro or critical system processes
-        val myPkg = packageName
-        if (fgPkg == myPkg || fgPkg == "com.focusguardpro.elite" || fgPkg == "com.focusguardpro.app") {
+        // 1. Never block Focus Elite or critical system processes
+        if (isSelfPackage(fgPkg)) {
             ForegroundTracker.currentPackage = fgPkg
             return
         }
@@ -207,25 +220,7 @@ class FocusForegroundMonitorService : Service() {
 
         val nowMs = FocusLayerManager.verifiedNowMs(this)
 
-        // 3. 9:00 AM to 6:00 PM Focus Layer enforcement
-        val isFocusActive = FocusLayerManager.isActiveNow(this)
-        if (isFocusActive) {
-            val isAllowed = FocusLayerManager.isAllowedDuringFocus(this, fgPkg)
-            if (!isAllowed) {
-                triggerEnforcement(fgPkg, BlockReason.FOCUS_LAYER_SCHEDULED.wireKey, nowMs)
-                return
-            }
-        }
-
-        // 4. Hard Blocked apps
-        if (HardBlockManager.isHardBlocked(this, fgPkg)) {
-            if (!HardBlockManager.isEmergencyActive(this, fgPkg)) {
-                triggerEnforcement(fgPkg, BlockReason.HARD_BLOCK.wireKey, nowMs)
-                return
-            }
-        }
-
-        // 5. Daily limit / Blackout window checks
+        // 3. Authoritative policy evaluation (HardBlock, Scheduled/Manual Focus Layer, Deep Focus Session, Blackout, Daily Limit)
         val decision = BlockPolicyEngine.evaluateApp(this, fgPkg, nowMs)
         if (decision is BlockDecision.Blocked) {
             triggerEnforcement(decision.target, decision.reason.wireKey, nowMs)
@@ -233,8 +228,8 @@ class FocusForegroundMonitorService : Service() {
     }
 
     private fun triggerEnforcement(pkg: String, reason: String, nowMs: Long) {
-        // Debounce repeated blocks of the same package within 1.5 seconds
-        if (pkg == lastBlockedPkg && nowMs - lastBlockedTimeMs < 1500L) {
+        // Debounce repeated blocks of the same package within 1.2 seconds
+        if (pkg == lastBlockedPkg && nowMs - lastBlockedTimeMs < 1200L) {
             return
         }
         lastBlockedPkg = pkg
@@ -243,6 +238,7 @@ class FocusForegroundMonitorService : Service() {
         // Clear tracker package to reset state
         ForegroundTracker.currentPackage = null
         ForegroundTracker.currentPackageSince = 0L
+        lastResolvedUsagesPkg = null
 
         // Enhanced mode: force stop package via Shizuku/Porter
         if (PorterBridge.isEnhancedModeActive()) {
@@ -265,34 +261,73 @@ class FocusForegroundMonitorService : Service() {
     }
 
     private fun getActiveForegroundPackage(): String? {
-        // Fast path: check package reported by accessibility service
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+        val now = System.currentTimeMillis()
+
+        // 1. Query recent UsageEvents (last 15 seconds) first to catch the freshest app transition
+        if (usm != null) {
+            try {
+                val recentEvents = usm.queryEvents(now - 15_000L, now)
+                if (recentEvents != null) {
+                    val event = UsageEvents.Event()
+                    var recentPkg: String? = null
+                    var recentTs = 0L
+                    while (recentEvents.hasNextEvent()) {
+                        recentEvents.getNextEvent(event)
+                        if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == 1) {
+                            val pkg = event.packageName
+                            if (!pkg.isNullOrBlank() && pkg != "com.android.systemui" && event.timeStamp >= recentTs) {
+                                recentTs = event.timeStamp
+                                recentPkg = pkg
+                            }
+                        }
+                    }
+                    if (!recentPkg.isNullOrBlank()) {
+                        lastResolvedUsagesPkg = recentPkg
+                        return recentPkg
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Check package reported by BlockerAccessibilityService
         val direct = ForegroundTracker.currentPackage
-        if (!direct.isNullOrBlank() && !SystemExclusions.isExcludedPackage(this, direct)) {
+        if (!direct.isNullOrBlank() && direct != "com.android.systemui") {
             return direct
         }
 
-        // Real-time UsageStats fallback
-        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return direct
-        val now = System.currentTimeMillis()
-        return try {
-            val events = usm.queryEvents(now - 10000L, now) ?: return direct
-            val event = UsageEvents.Event()
-            var topPkg: String? = null
-            var topTs = 0L
+        // 3. Cached foreground package from earlier UsageEvents if user has stayed in the same app >15s
+        val cached = lastResolvedUsagesPkg
+        if (!cached.isNullOrBlank()) {
+            return cached
+        }
 
-            while (events.hasNextEvent()) {
-                events.getNextEvent(event)
-                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == 1) {
-                    if (event.timeStamp >= topTs) {
-                        topTs = event.timeStamp
-                        topPkg = event.packageName
+        // 4. Deep fallback: scan last 30 minutes of UsageEvents if service just started while an app was already open
+        if (usm != null) {
+            try {
+                val events = usm.queryEvents(now - 1800_000L, now) ?: return direct
+                val event = UsageEvents.Event()
+                var topPkg: String? = null
+                var topTs = 0L
+
+                while (events.hasNextEvent()) {
+                    events.getNextEvent(event)
+                    if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == 1) {
+                        val pkg = event.packageName
+                        if (!pkg.isNullOrBlank() && pkg != "com.android.systemui" && event.timeStamp >= topTs) {
+                            topTs = event.timeStamp
+                            topPkg = pkg
+                        }
                     }
                 }
-            }
-            topPkg ?: direct
-        } catch (_: Exception) {
-            direct
+                if (!topPkg.isNullOrBlank()) {
+                    lastResolvedUsagesPkg = topPkg
+                    return topPkg
+                }
+            } catch (_: Exception) {}
         }
+
+        return direct
     }
 
     private fun isKeyguardLocked(): Boolean {
@@ -301,7 +336,8 @@ class FocusForegroundMonitorService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val isFocus = FocusLayerManager.isActiveNow(this)
+        val isFocus = FocusLayerManager.isActiveNow(this) ||
+            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
         val summary = FocusLayerManager.formatWindowSummary(this)
         val contentText = if (isFocus) {
             "Focus Mode Active ($summary) · Distractions blocked"
