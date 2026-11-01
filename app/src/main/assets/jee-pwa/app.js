@@ -411,7 +411,7 @@ function buildQuestionCard(q, num, subject) {
       }
       optsHtml += `<div class="opt-item ${cls}" onclick="selectOpt('${q.id}','${opt.id}','${q.correct}','${subject}','${esc(chName)}')">
         <span class="opt-key">${OPT_LABELS[oi]}</span>
-        <span class="opt-text">${opt.text}</span>
+        <span class="opt-text" data-raw-tex="${esc(opt.text || '')}">${prepareQuestionHtml(opt.text || '')}</span>
       </div>`;
     });
     optsHtml += '</div>';
@@ -434,7 +434,7 @@ function buildQuestionCard(q, num, subject) {
       correctText = co ? co.text : String(q.ans);
     }
     flashHtml = `<div class="result-flash ${ans.correct ? 'show-correct' : 'show-wrong'}">
-      ${ans.correct ? '✓ Correct!' : `✗ Wrong — Answer: ${correctText}`}
+      ${ans.correct ? '✓ Correct!' : `✗ Wrong — Answer: ${prepareQuestionHtml(correctText)}`}
     </div>`;
   } else {
     flashHtml = `<div class="result-flash" id="flash-${q.id}"></div>`;
@@ -448,7 +448,7 @@ function buildQuestionCard(q, num, subject) {
       <button class="q-bookmark-btn${isBookmarked?' bookmarked':''}" onclick="toggleBookmark('${q.id}')">${isBookmarked?'★':'☆'}</button>
     </div>
     <div class="q-body">
-      <div class="q-text">${q.html}</div>
+      <div class="q-text" data-raw-tex="${esc(q.html || '')}">${prepareQuestionHtml(q.html || '')}</div>
       ${optsHtml}
     </div>
     ${flashHtml}
@@ -457,7 +457,7 @@ function buildQuestionCard(q, num, subject) {
     </div>
     <div class="sol-box${ans?' open':''}" id="sol-${q.id}">
       <div class="sol-label">✦ Solution</div>
-      <div class="sol-text">${q.sol || 'Solution not available.'}</div>
+      <div class="sol-text" data-raw-tex="${esc(q.sol || 'Solution not available.')}">${prepareQuestionHtml(q.sol || 'Solution not available.')}</div>
     </div>
   </div>`;
 }
@@ -529,7 +529,8 @@ function showFlash(card, isCorrect, correctText) {
   const f = card.querySelector('.result-flash');
   if (!f) return;
   f.className = 'result-flash ' + (isCorrect ? 'show-correct' : 'show-wrong');
-  f.innerHTML = isCorrect ? '✓ Correct!' : `✗ Wrong — Answer: ${correctText}`;
+  f.innerHTML = isCorrect ? '✓ Correct!' : `✗ Wrong — Answer: ${prepareQuestionHtml(correctText)}`;
+  typesetMath(f);
 }
 
 function openSol(qid) {
@@ -689,7 +690,7 @@ function renderSearch() {
     <div class="search-header">${results.length === 0 ? 'No results' : `${results.length}${results.length===60?'+':''} results for "<strong>${state.searchQuery}</strong>"`}</div>`;
 
   results.forEach(r => {
-    const preview = r.q.html.replace(/<[^>]*>/g,'').substring(0, 130);
+    const preview = stripLatexPreview(r.q.html).substring(0, 130);
     const ans = state.answers[r.q.id];
     html += `<div class="sr-item" onclick="gotoResult('${r.sub}','${r.chName.replace(/'/g,"&#39;")}','${r.q.id}')">
       <div class="sr-q">${ans?(ans.correct?'✓ ':'✗ '):''}${preview}${preview.length===130?'…':''}</div>
@@ -961,8 +962,284 @@ function openSidebar()  { document.getElementById('sidebar').classList.add('open
 function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('visible'); }
 function toggleSidebar(){ document.getElementById('sidebar').classList.contains('open') ? closeSidebar() : openSidebar(); }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-function typesetMath(el) { if (window.MathJax?.typesetPromise) MathJax.typesetPromise([el]).catch(()=>{}); }
+// ─── HELPERS & BUILT-IN OFFLINE/ONLINE LATEX + DIAGRAM ENGINE ─────────────────
+const LATEX_SYMBOLS = {
+  '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ', '\\delta': 'δ', '\\epsilon': 'ϵ',
+  '\\varepsilon': 'ε', '\\zeta': 'ζ', '\\eta': 'η', '\\theta': 'θ', '\\vartheta': 'ϑ',
+  '\\iota': 'ι', '\\kappa': 'κ', '\\lambda': 'λ', '\\mu': 'μ', '\\nu': 'ν',
+  '\\xi': 'ξ', '\\pi': 'π', '\\rho': 'ρ', '\\sigma': 'σ', '\\tau': 'τ',
+  '\\upsilon': 'υ', '\\phi': 'φ', '\\varphi': 'ϕ', '\\chi': 'χ', '\\psi': 'ψ',
+  '\\omega': 'ω', '\\Gamma': 'Γ', '\\Delta': 'Δ', '\\Theta': 'Θ', '\\Lambda': 'Λ',
+  '\\Xi': 'Ξ', '\\Pi': 'Π', '\\Sigma': 'Σ', '\\Upsilon': 'Υ', '\\Phi': 'Φ',
+  '\\Psi': 'Ψ', '\\Omega': 'Ω',
+  '\\times': ' × ', '\\cdot': ' · ', '\\div': ' ÷ ', '\\pm': ' ± ', '\\mp': ' ∓ ',
+  '\\leq': ' ≤ ', '\\le': ' ≤ ', '\\geq': ' ≥ ', '\\ge': ' ≥ ',
+  '\\neq': ' ≠ ', '\\ne': ' ≠ ', '\\approx': ' ≈ ', '\\equiv': ' ≡ ',
+  '\\sim': ' ∼ ', '\\simeq': ' ≃ ', '\\propto': ' ∝ ', '\\ll': ' ≪ ', '\\gg': ' ≫ ',
+  '\\Rightarrow': ' ⇒ ', '\\Leftarrow': ' ⇐ ', '\\Leftrightarrow': ' ⇔ ',
+  '\\rightarrow': ' → ', '\\to': ' → ', '\\leftarrow': ' ← ',
+  '\\longrightarrow': ' ⟶ ', '\\longleftarrow': ' ⟵ ',
+  '\\rightleftharpoons': ' ⇌ ', '\\uparrow': '↑', '\\downarrow': '↓',
+  '\\therefore': ' ∴ ', '\\because': ' ∵ ', '\\forall': '∀', '\\exists': '∃',
+  '\\in': ' ∈ ', '\\notin': ' ∉ ', '\\subset': ' ⊂ ', '\\subseteq': ' ⊆ ',
+  '\\cup': ' ∪ ', '\\cap': ' ∩ ', '\\emptyset': '∅',
+  '\\infty': '∞', '\\partial': '∂', '\\nabla': '∇',
+  '\\int': '∫', '\\oint': '∮', '\\sum': '∑', '\\prod': '∏',
+  '\\circ': '°', '\\prime': '′', '\\dots': '…', '\\ldots': '…', '\\cdots': '⋯',
+  '\\triangle': '△', '\\angle': '∠', '\\perp': '⊥', '\\parallel': '∥',
+  '\\ell': 'ℓ', '\\hbar': 'ℏ', '\\AA': 'Å',
+  '\\quad': '  ', '\\qquad': '    ', '\\,': ' ', '\\;': ' ', '\\:': ' ', '\\!': '',
+  '\\sin': '<span class="m-rm">sin</span> ',
+  '\\cos': '<span class="m-rm">cos</span> ',
+  '\\tan': '<span class="m-rm">tan</span> ',
+  '\\cot': '<span class="m-rm">cot</span> ',
+  '\\sec': '<span class="m-rm">sec</span> ',
+  '\\csc': '<span class="m-rm">csc</span> ',
+  '\\cosec': '<span class="m-rm">cosec</span> ',
+  '\\log': '<span class="m-rm">log</span> ',
+  '\\ln': '<span class="m-rm">ln</span> ',
+  '\\lim': '<span class="m-rm">lim</span> ',
+  '\\max': '<span class="m-rm">max</span>',
+  '\\min': '<span class="m-rm">min</span>',
+  '\\det': '<span class="m-rm">det</span> '
+};
+
+function extractBracedArg(str, startIdx) {
+  let i = startIdx;
+  while (i < str.length && /\s/.test(str[i])) i++;
+  if (str[i] !== '{') return null;
+  let depth = 0;
+  let contentStart = i + 1;
+  for (; i < str.length; i++) {
+    if (str[i] === '\\') { i++; continue; }
+    if (str[i] === '{') depth++;
+    else if (str[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        return { content: str.slice(contentStart, i), endIdx: i + 1 };
+      }
+    }
+  }
+  return { content: str.slice(contentStart), endIdx: str.length };
+}
+
+function replaceLatexCommand1Arg(s, cmd, replacer) {
+  let out = '';
+  let idx = 0;
+  while (idx < s.length) {
+    const pos = s.indexOf(cmd, idx);
+    if (pos === -1) { out += s.slice(idx); break; }
+    // Ensure full command match
+    const afterCmd = pos + cmd.length;
+    if (/[a-zA-Z]/.test(s[afterCmd] || '')) {
+      out += s.slice(idx, afterCmd);
+      idx = afterCmd;
+      continue;
+    }
+    out += s.slice(idx, pos);
+    let scan = afterCmd;
+    // Optional bracket argument e.g. \sqrt[3]{x}
+    let optArg = null;
+    while (scan < s.length && /\s/.test(s[scan])) scan++;
+    if (s[scan] === '[') {
+      const closeBr = s.indexOf(']', scan);
+      if (closeBr !== -1) {
+        optArg = s.slice(scan + 1, closeBr);
+        scan = closeBr + 1;
+      }
+    }
+    const arg1 = extractBracedArg(s, scan);
+    if (arg1) {
+      out += replacer(formatInnerMath(arg1.content), optArg ? formatInnerMath(optArg) : null);
+      idx = arg1.endIdx;
+    } else {
+      out += cmd;
+      idx = afterCmd;
+    }
+  }
+  return out;
+}
+
+function replaceLatexCommand2Args(s, cmd, replacer) {
+  let out = '';
+  let idx = 0;
+  while (idx < s.length) {
+    const pos = s.indexOf(cmd, idx);
+    if (pos === -1) { out += s.slice(idx); break; }
+    const afterCmd = pos + cmd.length;
+    if (/[a-zA-Z]/.test(s[afterCmd] || '')) {
+      out += s.slice(idx, afterCmd);
+      idx = afterCmd;
+      continue;
+    }
+    out += s.slice(idx, pos);
+    const arg1 = extractBracedArg(s, afterCmd);
+    if (arg1) {
+      const arg2 = extractBracedArg(s, arg1.endIdx);
+      if (arg2) {
+        out += replacer(formatInnerMath(arg1.content), formatInnerMath(arg2.content));
+        idx = arg2.endIdx;
+        continue;
+      }
+    }
+    out += cmd;
+    idx = afterCmd;
+  }
+  return out;
+}
+
+function formatInnerMath(tex) {
+  if (!tex) return '';
+  let s = tex;
+
+  // Handle environments: aligned, gathered, array, cases
+  s = s.replace(/\\begin\{(aligned|gathered|cases)\}([\s\S]*?)\\end\{\1\}/g, (_, env, body) => {
+    const lines = body.split(/\\\\/).map(line => line.replace(/&/g, ' ').trim()).filter(Boolean);
+    return `<span class="m-aligned">${lines.map(l => formatInnerMath(l)).join('<br>')}</span>`;
+  });
+  s = s.replace(/\\begin\{array\}(?:\{[^}]*\})?([\s\S]*?)\\end\{array\}/g, (_, body) => {
+    const clean = body.replace(/\\hline/g, '');
+    const lines = clean.split(/\\\\/).map(line => line.replace(/&/g, ' &nbsp; ').trim()).filter(Boolean);
+    return `<span class="m-aligned">${lines.map(l => formatInnerMath(l)).join('<br>')}</span>`;
+  });
+
+  // Remove \left and \right sizing prefixes
+  s = s.replace(/\\left\s*(\.|[()[\]|\\{}])/g, (_, d) => d === '.' ? '' : d);
+  s = s.replace(/\\right\s*(\.|[()[\]|\\{}])/g, (_, d) => d === '.' ? '' : d);
+  s = s.replace(/\\left/g, '').replace(/\\right/g, '');
+
+  // 2-argument commands: \frac, \dfrac, \tfrac, \stackrel, \underset, \overset
+  for (let pass = 0; pass < 3; pass++) {
+    s = replaceLatexCommand2Args(s, '\\frac', (n, d) => `<span class="m-frac"><span class="m-num">${n}</span><span class="m-den">${d}</span></span>`);
+    s = replaceLatexCommand2Args(s, '\\dfrac', (n, d) => `<span class="m-frac"><span class="m-num">${n}</span><span class="m-den">${d}</span></span>`);
+    s = replaceLatexCommand2Args(s, '\\tfrac', (n, d) => `<span class="m-frac"><span class="m-num">${n}</span><span class="m-den">${d}</span></span>`);
+    s = replaceLatexCommand2Args(s, '\\stackrel', (t, b) => `${b}<sup>${t}</sup>`);
+    s = replaceLatexCommand2Args(s, '\\overset', (t, b) => `${b}<sup>${t}</sup>`);
+    s = replaceLatexCommand2Args(s, '\\underset', (b, m) => `${m}<sub>${b}</sub>`);
+  }
+
+  // 1-argument commands: \sqrt, \mathrm, \text, \mathbf, \overrightarrow, \vec, \hat, \bar, \overline
+  for (let pass = 0; pass < 3; pass++) {
+    s = replaceLatexCommand1Arg(s, '\\sqrt', (rad, root) =>
+      `${root ? `<sup>${root}</sup>` : ''}<span class="m-sqrt"><span class="m-sqrt-sym">√</span><span class="m-rad">${rad}</span></span>`
+    );
+    s = replaceLatexCommand1Arg(s, '\\mathrm', c => `<span class="m-rm">${c}</span>`);
+    s = replaceLatexCommand1Arg(s, '\\text', c => `<span class="m-rm">${c}</span>`);
+    s = replaceLatexCommand1Arg(s, '\\textbf', c => `<strong class="m-rm">${c}</strong>`);
+    s = replaceLatexCommand1Arg(s, '\\mathbf', c => `<strong class="m-rm">${c}</strong>`);
+    s = replaceLatexCommand1Arg(s, '\\mathcal', c => `<span>${c}</span>`);
+    s = replaceLatexCommand1Arg(s, '\\operatorname', c => `<span class="m-rm">${c}</span>`);
+    s = replaceLatexCommand1Arg(s, '\\overrightarrow', c => `<span class="m-vec">${c}⃗</span>`);
+    s = replaceLatexCommand1Arg(s, '\\vec', c => `${c}⃗`);
+    s = replaceLatexCommand1Arg(s, '\\hat', c => `${c}̂`);
+    s = replaceLatexCommand1Arg(s, '\\bar', c => `<span class="m-vec">${c}</span>`);
+    s = replaceLatexCommand1Arg(s, '\\overline', c => `<span class="m-vec">${c}</span>`);
+    s = replaceLatexCommand1Arg(s, '\\underline', c => `<u>${c}</u>`);
+  }
+
+  // Braced superscripts and subscripts: ^{...} and _{...}
+  for (let pass = 0; pass < 2; pass++) {
+    s = replaceLatexCommand1Arg(s, '^', c => `<sup>${c}</sup>`);
+    s = replaceLatexCommand1Arg(s, '_', c => `<sub>${c}</sub>`);
+  }
+  // Single-token superscripts and subscripts: ^2, _0, ^\prime
+  s = s.replace(/\^(\\prime|\\circ|[a-zA-Z0-9+-])/g, (_, tok) => `<sup>${LATEX_SYMBOLS[tok] || tok}</sup>`);
+  s = s.replace(/_([a-zA-Z0-9+-])/g, '<sub>$1</sub>');
+
+  // Escaped braces
+  s = s.replace(/\\\{/g, '{').replace(/\\\}/g, '}').replace(/\\_/g, '_');
+
+  // Replace known symbols (longest first so \longrightarrow matches before \to, \varepsilon before \epsilon)
+  const sortedKeys = Object.keys(LATEX_SYMBOLS).sort((a, b) => b.length - a.length);
+  for (const k of sortedKeys) {
+    if (s.includes(k)) {
+      s = s.split(k).join(LATEX_SYMBOLS[k]);
+    }
+  }
+
+  // Line breaks inside math
+  s = s.replace(/\\\\/g, '<br>');
+  // Clean remaining stray braces
+  s = s.replace(/[{}]/g, '');
+  return s;
+}
+
+function prepareQuestionHtml(raw) {
+  if (!raw) return '';
+  let html = String(raw);
+
+  // 1. Enhance <img> tags with no-referrer, lazy load, and offline fallback handler
+  html = html.replace(/<img\s+([^>]*?)src=(["'])([^"']+)\2([^>]*)>/gi, (match, pre, q, src, post) => {
+    const cleanSrc = src.trim();
+    return `<img ${pre} src="${cleanSrc}" referrerpolicy="no-referrer" crossorigin="anonymous" onerror="handleImgError(this)" ${post}>`;
+  });
+
+  // 2. Convert display math $$...$$ and \[...\]
+  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (_, m) => `<span class="m-math m-block">${formatInnerMath(m)}</span>`);
+  html = html.replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => `<span class="m-math m-block">${formatInnerMath(m)}</span>`);
+
+  // 3. Convert inline math \(...\) and $...$
+  html = html.replace(/\\\(([\s\S]*?)\\\)/g, (_, m) => `<span class="m-math">${formatInnerMath(m)}</span>`);
+  html = html.replace(/\$([^$]+?)\$/g, (_, m) => `<span class="m-math">${formatInnerMath(m)}</span>`);
+
+  // 4. If raw standalone LaTeX commands remain outside delimiters, format them too
+  if (/\\(frac|sqrt|mathrm|begin|Rightarrow|times|alpha|beta|theta|pi|Omega)/.test(html)) {
+    html = formatInnerMath(html);
+  }
+
+  // Convert literal \r\n or \n into <br> where appropriate
+  html = html.replace(/\r?\n/g, '<br>');
+  return html;
+}
+
+function stripLatexPreview(raw) {
+  if (!raw) return '';
+  return prepareQuestionHtml(raw)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function handleImgError(imgEl) {
+  if (!imgEl || imgEl.dataset.fallbackApplied) return;
+  imgEl.dataset.fallbackApplied = '1';
+  const src = imgEl.getAttribute('src') || '';
+  const wrapper = document.createElement('div');
+  wrapper.className = 'img-offline-fallback';
+  wrapper.innerHTML = `<span>🖼️ Question Diagram (Connect to Internet &amp; tap Retry)</span>
+    <button class="btn btn-xs btn-primary" onclick="retryLoadImg(this, '${src.replace(/'/g, "\\'")}')">↻ Retry</button>`;
+  imgEl.replaceWith(wrapper);
+}
+
+function retryLoadImg(btnEl, src) {
+  const wrapper = btnEl.closest('.img-offline-fallback');
+  if (!wrapper) return;
+  const img = document.createElement('img');
+  img.src = src + (src.includes('?') ? '&' : '?') + 't=' + Date.now();
+  img.setAttribute('referrerpolicy', 'no-referrer');
+  img.onerror = function() { handleImgError(this); };
+  wrapper.replaceWith(img);
+}
+
+function exitPracticeSession() {
+  if (window.FocusEliteBridge && typeof window.FocusEliteBridge.exitPractice === 'function') {
+    window.FocusEliteBridge.exitPractice();
+  } else {
+    window.history.back();
+  }
+}
+
+window.onMathJaxLoaded = function() {
+  const main = document.getElementById('main-panel');
+  if (main) typesetMath(main);
+};
+
+function typesetMath(el) {
+  if (!el) return;
+  if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+    MathJax.typesetPromise([el]).catch(() => {});
+  }
+}
 
 function fmtTime(s) {
   if (!s || s<=0) return '—';

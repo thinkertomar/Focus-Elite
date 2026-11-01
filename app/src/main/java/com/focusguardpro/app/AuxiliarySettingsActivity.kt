@@ -122,14 +122,16 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         val backBtn = TextView(this).apply {
             text = "← Home"
             textSize = 13.5f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
-            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(20f).toFloat()
                 setColor(Color.parseColor("#1E2438"))
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             setOnClickListener { finish() }
         }
         topBar.addView(backBtn)
@@ -219,9 +221,10 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             val pill = TextView(this).apply {
                 text = label
                 textSize = 12.5f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
                 setTextColor(if (selected) Color.WHITE else Color.parseColor("#94A3B8"))
-                setPadding(dp(14f), dp(9f), dp(14f), dp(9f))
                 background = GradientDrawable().apply {
                     cornerRadius = dp(20f).toFloat()
                     if (selected) {
@@ -231,6 +234,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         setStroke(dp(1f), Color.parseColor("#2A324B"))
                     }
                 }
+                setPadding(dp(14f), dp(9f), dp(14f), dp(9f))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -509,6 +513,8 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             }
             textSize = 12.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             minHeight = dp(46f)
@@ -521,6 +527,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     setColor(palette.accentColor)
                 }
             }
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
             setOnClickListener {
                 // Mark Steps 2 & 3 seen if user jumps straight to Step 4 so they aren't stuck
                 UiThemePrefs.markSetupCategoriesConfigured(this@AuxiliarySettingsActivity)
@@ -697,13 +704,15 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         val stepBadge = TextView(this).apply {
             text = if (isDone) "✓ STEP $stepNum" else "STEP $stepNum"
             textSize = 10.5f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
-            setPadding(dp(8f), dp(4f), dp(8f), dp(4f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(8f).toFloat()
                 setColor(if (isDone) Color.parseColor("#15803D") else palette.accentColor)
             }
+            setPadding(dp(8f), dp(4f), dp(8f), dp(4f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -740,8 +749,10 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = secondaryButtonText
                 textSize = 11.5f
                 isAllCaps = false
+                gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTextColor(Color.WHITE)
-                minHeight = dp(40f)
+                minHeight = dp(42f)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(8f)
                 }
@@ -750,6 +761,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     setColor(Color.parseColor("#14532D"))
                     setStroke(dp(1f), Color.parseColor("#22C55E"))
                 }
+                setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
                 setOnClickListener { onSecondaryClick() }
             }
             actionRow.addView(secBtn)
@@ -759,8 +771,10 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             text = buttonText
             textSize = 11.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
-            minHeight = dp(40f)
+            minHeight = dp(42f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
@@ -771,6 +785,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     setColor(palette.accentColor)
                 }
             }
+            setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
             setOnClickListener { onClick() }
         }
         actionRow.addView(mainBtn)
@@ -780,14 +795,6 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
     }
 
     private fun buildPrivacyAuditCard(palette: UiThemePrefs.ThemePalette) {
-        val hasInternetPerm = try {
-            val pkgInfo = packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
-            val perms = pkgInfo.requestedPermissions?.toList() ?: emptyList()
-            perms.contains("android.permission.INTERNET")
-        } catch (_: Throwable) {
-            false
-        }
-
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
@@ -805,18 +812,14 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
 
         card.addView(TextView(this).apply {
-            text = if (!hasInternetPerm) {
-                "🔒 PRIVACY AUDIT VERIFIED: ZERO INTERNET PERMISSION (100% OFFLINE)"
-            } else {
-                "🔒 PRIVACY & PERMISSIONS AUDIT"
-            }
+            text = "🔒 PRIVACY & DATA SOVEREIGNTY AUDIT (100% ON-DEVICE SQLITE)"
             textSize = 11.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#34D399"))
         })
 
         card.addView(TextView(this).apply {
-            text = "Does Focus Elite have Internet Permission? NO!"
+            text = "Zero Telemetry • 100% Local On-Device Storage"
             textSize = 16f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
@@ -824,11 +827,11 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         })
 
         card.addView(TextView(this).apply {
-            text = "• Zero Network Access: Focus Elite does NOT request 'android.permission.INTERNET' in its AndroidManifest. The Android OS kernel blocks any app without this permission from opening network sockets. Zero bytes of your data can ever leave your phone.\n" +
+            text = "• Zero Cloud Sync or Tracking: All screen time, schedules, app categories, and notebook logs are stored 100% locally in your phone's private SQLite database. Network access inside Practice Mode is used strictly to load JEE question diagrams.\n" +
                 "• Zero Location / GPS Tracking: No location permissions are requested or used.\n" +
-                "• Why Local Permissions Are Used (100% On-Device SQLite):\n" +
-                "  1. Usage Access: Calculates your daily screen time and 30m app limits locally.\n" +
-                "  2. Accessibility Service: Detects when a blocked distraction app or blocked browser URL opens so it can show the local Focus Shield.\n" +
+                "• Why Local Permissions Are Used (100% On-Device):\n" +
+                "  1. Usage Access: Calculates your daily screen time, browser study vs. non-study quota, and 30m app limits locally.\n" +
+                "  2. Accessibility Service: Detects when a blocked distraction app or non-study browser URL opens so it can show the local Focus Shield.\n" +
                 "  3. Device Admin: Prevents impulse uninstallation during active focus hours.\n" +
                 "  4. Physical Activity Sensor: Counts hardware steps & squats locally for your fitness stats and Proof-of-Effort gate."
             textSize = 12f
@@ -849,9 +852,10 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             text = label
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(46f)
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(12f).toFloat()
@@ -863,6 +867,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                     setStroke(dp(1f), palette.accentColor)
                 }
             }
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             setOnClickListener { onClick() }
         }
     }
@@ -1011,6 +1016,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = if (selected) "✓ $label" else label
                 textSize = 11.5f
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTypeface(typeface, if (selected) Typeface.BOLD else Typeface.NORMAL)
                 setTextColor(
                     when {
@@ -1019,7 +1025,6 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         else -> Color.parseColor("#CBD5E1")
                     }
                 )
-                setPadding(dp(8f), dp(10f), dp(8f), dp(10f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     if (idx < bgOptions.lastIndex) marginEnd = dp(6f)
                 }
@@ -1043,6 +1048,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         }
                     }
                 }
+                setPadding(dp(8f), dp(10f), dp(8f), dp(10f))
                 setOnClickListener {
                     UiThemePrefs.setBackgroundMode(this@AuxiliarySettingsActivity, modeKey)
                     renderActiveTab()
@@ -1124,9 +1130,10 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             val statusBadge = TextView(this).apply {
                 text = if (isSelected) "✓ ACTIVE" else "Apply"
                 textSize = 12f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(if (isSelected) Color.WHITE else palette.secondaryColor)
-                setPadding(dp(12f), dp(6f), dp(12f), dp(6f))
                 background = GradientDrawable().apply {
                     cornerRadius = dp(16f).toFloat()
                     if (isSelected) {
@@ -1136,6 +1143,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         setStroke(dp(1f), palette.accentColor)
                     }
                 }
+                setPadding(dp(12f), dp(6f), dp(12f), dp(6f))
             }
             row.addView(statusBadge)
 
@@ -1228,15 +1236,17 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             text = if (auditPopupEnabled) "⏸️ Pause Auto Popup" else "🔔 Enable Auto Popup"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(46f)
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8f) }
             background = GradientDrawable().apply {
                 cornerRadius = dp(12f).toFloat()
                 setColor(if (auditPopupEnabled) Color.parseColor("#B91C1C") else Color.parseColor("#1E293B"))
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             setOnClickListener {
                 if (auditPopupEnabled) {
                     AwayTimeTracker.setAutoAuditPopupEnabled(this@AuxiliarySettingsActivity, false)
@@ -1253,14 +1263,16 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             text = "📓 Open Notebook"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(46f)
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(12f).toFloat()
                 setColor(palette.accentColor)
             }
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             setOnClickListener {
                 startActivity(Intent(this@AuxiliarySettingsActivity, AuditActivity::class.java))
             }
@@ -1319,9 +1331,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = "${mins}m"
                 textSize = 13f
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(if (selected) Color.WHITE else Color.parseColor("#CBD5E1"))
-                setPadding(0, dp(8f), 0, dp(8f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(6f)
                 }
@@ -1334,6 +1346,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         setStroke(dp(1f), Color.parseColor("#334155"))
                     }
                 }
+                setPadding(dp(8f), dp(9f), dp(8f), dp(9f))
                 setOnClickListener {
                     UiThemePrefs.setDefaultSuggestionLimitMinutes(this@AuxiliarySettingsActivity, mins)
                     renderActiveTab()
@@ -1710,11 +1723,11 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = "${p.title}\n${p.range}"
                 textSize = 11f
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 setLineSpacing(0f, 1.15f)
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(if (selected) Color.WHITE else Color.parseColor("#CBD5E1"))
                 minHeight = dp(48f)
-                setPadding(dp(6f), dp(8f), dp(6f), dp(8f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(6f)
                 }
@@ -1727,6 +1740,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         setStroke(dp(1f), Color.parseColor("#334155"))
                     }
                 }
+                setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
                 setOnClickListener {
                     runWithFortressGateIfLocked(actionTitle = "Change Preset to ${p.title}") {
                         FocusLayerManager.updateFocusScheduleCriteria(
@@ -1777,15 +1791,17 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             text = "⏰ Start: ${FocusLayerManager.formatMinutesOfDay(startMins)}"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(44f)
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6f) }
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             setOnClickListener {
                 runWithFortressGateIfLocked(actionTitle = "Edit Focus Start Time") {
                     TimePickerDialog(
@@ -1814,15 +1830,17 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             text = "⏰ End: ${FocusLayerManager.formatMinutesOfDay(endMins)}"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(44f)
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             setOnClickListener {
                 runWithFortressGateIfLocked(actionTitle = "Edit Focus End Time") {
                     TimePickerDialog(
@@ -1877,9 +1895,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = modeLabel
                 textSize = 11.5f
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(if (selected) Color.WHITE else Color.parseColor("#CBD5E1"))
-                setPadding(dp(6f), dp(8f), dp(6f), dp(8f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(6f)
                 }
@@ -1892,6 +1910,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         setStroke(dp(1f), Color.parseColor("#334155"))
                     }
                 }
+                setPadding(dp(8f), dp(9f), dp(8f), dp(9f))
                 setOnClickListener {
                     runWithFortressGateIfLocked(actionTitle = "Change Active Days to $modeLabel") {
                         FocusLayerManager.updateFocusScheduleCriteria(
@@ -1940,9 +1959,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = dayName
                 textSize = 11f
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(if (isDayActive) Color.WHITE else Color.parseColor("#64748B"))
-                setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(4f)
                 }
@@ -1955,6 +1974,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                         setStroke(dp(1f), Color.parseColor("#1F2937"))
                     }
                 }
+                setPadding(dp(4f), dp(7f), dp(4f), dp(7f))
                 setOnClickListener {
                     runWithFortressGateIfLocked(actionTitle = "Toggle $dayName Schedule") {
                         val toggled = FocusLayerManager.toggleCustomDay(this@AuxiliarySettingsActivity, calDay)
@@ -2043,15 +2063,17 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = "☕ Break ($breakRemaining m) • Resume"
                 textSize = 12f
                 isAllCaps = false
+                gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTextColor(Color.WHITE)
                 minHeight = dp(44f)
-                setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6f) }
                 background = GradientDrawable().apply {
                     cornerRadius = dp(10f).toFloat()
                     setColor(Color.parseColor("#0369A1"))
                     setStroke(dp(1f), Color.parseColor("#38BDF8"))
                 }
+                setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
                 setOnClickListener {
                     FocusLayerManager.cancelAdaptiveBreak(this@AuxiliarySettingsActivity)
                     Toast.makeText(this@AuxiliarySettingsActivity, "Adaptive break ended. Focus Layer resumed.", Toast.LENGTH_SHORT).show()
@@ -2064,15 +2086,17 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 text = if (isLockedNow) "🏋️ 15m Break (Proof)" else "☕ Take 15m Break"
                 textSize = 12f
                 isAllCaps = false
+                gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTextColor(Color.WHITE)
                 minHeight = dp(44f)
-                setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6f) }
                 background = GradientDrawable().apply {
                     cornerRadius = dp(10f).toFloat()
                     setColor(Color.parseColor("#1E293B"))
                     setStroke(dp(1f), palette.accentColor)
                 }
+                setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
                 setOnClickListener {
                     runWithFortressGateIfLocked(actionTitle = "Unlock 15-Minute Adaptive Break") {
                         FocusLayerManager.grantAdaptiveBreak(this@AuxiliarySettingsActivity, 15)
@@ -2088,15 +2112,17 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             text = if (isHolidayToday) "📅 Edit in Calendar" else "📅 Plan Holiday (≥24h)"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(44f)
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#0F172A"))
                 setStroke(dp(1f), statusColor)
             }
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             setOnClickListener {
                 openTodayInCalendarEditor()
             }
@@ -2384,15 +2410,20 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             } else {
                 "⚡ Seal My 'Architect of Time' Covenant (Adds Home Screen Badge)"
             }
+            textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
+            minHeight = dp(48f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(12f).toFloat()
                 setColor(palette.accentColor)
             }
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(46f)
+                ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(12f) }
             setOnClickListener {
                 UiThemePrefs.setCovenantSealed(this@AuxiliarySettingsActivity, true, reclaimedHoursPerDay)
@@ -2438,16 +2469,21 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         val breathBtn = Button(this).apply {
             text = "Start Neuro-Reset Breathing Pulse"
+            textSize = 12.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
+            minHeight = dp(46f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(12f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(44f)
+                ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8f) }
             setOnClickListener {
                 if (breathAnimator?.isRunning == true) {

@@ -358,8 +358,8 @@ object BlockPolicyEngine {
 
     /**
      * Records active foreground time on a browser URL.
-     * - Study websites and neutral search pages NEVER increment non-study time.
-     * - Non-study websites increment both [BrowserFairTimeTracker] and the precision millisecond counter.
+     * - Study websites and neutral search pages NEVER increment non-study time; they increment verified study time.
+     * - Non-study websites increment per-browser and global non-study millisecond counters.
      */
     fun recordBrowserWebsiteSample(
         context: Context,
@@ -377,32 +377,44 @@ object BlockPolicyEngine {
             prefs.edit().clear().putString("day_key", dayKey).apply()
         }
 
-        // Remember current active host for this browser package
-        prefs.edit()
+        val isStudy = isStudyWebsite(context, host)
+        val isNeutral = isNeutralNavigationWebsite(context, host)
+
+        val lastTick = prefs.getLong("last_browser_tick_ms_$browserPackage", 0L)
+        val deltaMs = if (lastTick > 0L && nowMs > lastTick) {
+            (nowMs - lastTick).coerceAtMost(15_000L)
+        } else {
+            1_000L
+        }
+
+        val editor = prefs.edit()
             .putString("active_host_$browserPackage", host)
             .putLong("active_host_ts_$browserPackage", nowMs)
-            .apply()
+            .putBoolean("active_is_study_$browserPackage", isStudy || isNeutral)
+            .putLong("last_browser_tick_ms_$browserPackage", nowMs)
 
-        if (isStudyWebsite(context, host) || isNeutralNavigationWebsite(context, host)) {
-            // Reset non-study sample timestamp so study time is never counted as distraction time
-            prefs.edit().putLong("last_non_study_tick_ms", 0L).apply()
+        if (isStudy || isNeutral) {
+            // Study website or neutral navigation: credit to study/exempt browser time so Usage Access reconciliation never penalizes study time!
+            val prevStudyPkgMs = prefs.getLong("study_ms_${browserPackage}_$dayKey", 0L)
+            val prevStudyAllMs = prefs.getLong("study_ms_all_$dayKey", 0L)
+            editor
+                .putLong("study_ms_${browserPackage}_$dayKey", prevStudyPkgMs + deltaMs)
+                .putLong("study_ms_all_$dayKey", prevStudyAllMs + deltaMs)
+                .putLong("last_non_study_tick_ms", 0L)
+                .apply()
             try {
                 BrowserFairTimeTracker.sample(context, host)
             } catch (_: Throwable) {}
             return
         }
 
-        // Non-study website: accumulate elapsed time since last tick (capped at 15s per sample)
-        val lastTick = prefs.getLong("last_non_study_tick_ms", 0L)
-        val deltaMs = if (lastTick > 0L && nowMs > lastTick) {
-            (nowMs - lastTick).coerceAtMost(15_000L)
-        } else {
-            1_000L
-        }
-        val totalMs = prefs.getLong("non_study_ms_$dayKey", 0L) + deltaMs
-        prefs.edit()
+        // Non-study website: accumulate elapsed time for both this browser package and global non-study counter
+        val prevNonStudyPkgMs = prefs.getLong("non_study_ms_${browserPackage}_$dayKey", 0L)
+        val prevNonStudyAllMs = prefs.getLong("non_study_ms_$dayKey", 0L)
+        editor
             .putLong("last_non_study_tick_ms", nowMs)
-            .putLong("non_study_ms_$dayKey", totalMs)
+            .putLong("non_study_ms_${browserPackage}_$dayKey", prevNonStudyPkgMs + deltaMs)
+            .putLong("non_study_ms_$dayKey", prevNonStudyAllMs + deltaMs)
             .apply()
 
         try {
@@ -421,15 +433,63 @@ object BlockPolicyEngine {
     fun getLastActiveBrowserHost(context: Context, browserPackage: String, nowMs: Long = System.currentTimeMillis()): String? {
         val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
         val ts = prefs.getLong("active_host_ts_$browserPackage", 0L)
-        // Valid if observed within the last 10 minutes while staying inside the browser
-        if (nowMs - ts > 600_000L) return null
+        // Valid for up to 2 hours while staying inside the browser (e.g. long lecture or reading with hidden toolbar)
+        if (nowMs - ts > 7_200_000L) return null
         return prefs.getString("active_host_$browserPackage", null)
+    }
+
+    fun isLastActiveBrowserHostStudy(context: Context, browserPackage: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val host = getLastActiveBrowserHost(context, browserPackage, nowMs) ?: return false
+        return isStudyWebsite(context, host) || isNeutralNavigationWebsite(context, host)
+    }
+
+    /**
+     * Computes today's Non-Study Browser usage minutes for a specific [browserPackage],
+     * reconciling sampled URL ticks with Android Usage Access foreground time minus verified Study Website time.
+     */
+    fun getNonStudyBrowserMinutesForPackage(
+        context: Context,
+        browserPackage: String,
+        nowMs: Long = System.currentTimeMillis()
+    ): Long {
+        val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
+        val dayKey = todayDateKey(nowMs)
+        val isToday = prefs.getString("day_key", null) == dayKey
+
+        val sampledPkgNonStudyMs = if (isToday) {
+            prefs.getLong("non_study_ms_${browserPackage}_$dayKey", 0L)
+        } else {
+            0L
+        }
+        val verifiedPkgStudyMs = if (isToday) {
+            prefs.getLong("study_ms_${browserPackage}_$dayKey", 0L)
+        } else {
+            0L
+        }
+
+        // Reconcile with real Android Usage Access foreground time for this browser package
+        val usageAccessBrowserMs = try {
+            UsageStatsHelper.getTodayScreenTimeForPackage(context, browserPackage)
+        } catch (_: Throwable) {
+            0L
+        }
+
+        // If user is currently on a verified Study Website in this browser, don't count unsampled current session delta as non-study
+        val currentlyOnStudy = isLastActiveBrowserHostStudy(context, browserPackage, nowMs)
+        val reconciledMs = if (currentlyOnStudy && verifiedPkgStudyMs > 0L) {
+            sampledPkgNonStudyMs
+        } else {
+            maxOf(sampledPkgNonStudyMs, (usageAccessBrowserMs - verifiedPkgStudyMs).coerceAtLeast(0L))
+        }
+
+        return reconciledMs / 60_000L
     }
 
     fun getNonStudyBrowserMinutesToday(context: Context, nowMs: Long = System.currentTimeMillis()): Long {
         val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
         val dayKey = todayDateKey(nowMs)
-        val localMinutes = if (prefs.getString("day_key", null) == dayKey) {
+        val isToday = prefs.getString("day_key", null) == dayKey
+        val localMinutes = if (isToday) {
             prefs.getLong("non_study_ms_$dayKey", 0L) / 60_000L
         } else {
             0L
@@ -439,7 +499,18 @@ object BlockPolicyEngine {
         } catch (_: Throwable) {
             0L
         }
-        return maxOf(localMinutes, roomMinutes)
+        var maxBrowserPkgMinutes = 0L
+        for (pkg in EXTRA_BROWSER_PACKAGES) {
+            val pkgMins = try {
+                getNonStudyBrowserMinutesForPackage(context, pkg, nowMs)
+            } catch (_: Throwable) {
+                0L
+            }
+            if (pkgMins > maxBrowserPkgMinutes) {
+                maxBrowserPkgMinutes = pkgMins
+            }
+        }
+        return maxOf(localMinutes, roomMinutes, maxBrowserPkgMinutes)
     }
 
     /**
@@ -512,9 +583,17 @@ object BlockPolicyEngine {
         val customLimit = TimeLimitManager.getLimitMinutes(context, browserPackage)
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
         val effectiveLimit = if (customLimit > 0) customLimit else defaultCap
-        val nonStudyUsedMinutes = getNonStudyBrowserMinutesToday(context, nowMs)
+        val nonStudyUsedMinutes = maxOf(
+            getNonStudyBrowserMinutesForPackage(context, browserPackage, nowMs),
+            getNonStudyBrowserMinutesToday(context, nowMs)
+        )
 
-        if (effectiveLimit > 0 && nonStudyUsedMinutes >= effectiveLimit) {
+        if (effectiveLimit > 0 && nonStudyUsedMinutes >= effectiveLimit && !isUnblockedForToday(context, browserPackage, nowMs)) {
+            if (customLimit <= 0) {
+                try {
+                    TimeLimitManager.setLimitMinutes(context, browserPackage, effectiveLimit)
+                } catch (_: Exception) {}
+            }
             return BlockDecision.Blocked(
                 BlockReason.DAILY_LIMIT,
                 host,
@@ -626,11 +705,13 @@ object BlockPolicyEngine {
     fun isAppBlocked(context: Context, packageName: String): Boolean {
         if (isBrowserPackage(packageName)) {
             val nowMs = FocusLayerManager.verifiedNowMs(context)
+            if (isUnblockedForToday(context, packageName, nowMs)) return false
             val customLimit = TimeLimitManager.getLimitMinutes(context, packageName)
             val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
             val effectiveLimit = if (customLimit > 0) customLimit else defaultCap
+            val pkgNonStudyMins = getNonStudyBrowserMinutesForPackage(context, packageName, nowMs)
             return HardBlockManager.isHardBlocked(context, packageName) ||
-                getNonStudyBrowserMinutesToday(context, nowMs) >= effectiveLimit
+                pkgNonStudyMins >= effectiveLimit
         }
         return evaluateApp(context, packageName) is BlockDecision.Blocked
     }

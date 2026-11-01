@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#0a0b0f">
 <title>JEE Practice Session</title>
 <link rel="stylesheet" href="styles.css">
@@ -14,7 +15,16 @@ window.MathJax = {
     processEscapes: true
   },
   svg: { fontCache: 'global' },
-  startup: { typeset: false }
+  startup: {
+    typeset: false,
+    pageReady: () => {
+      return MathJax.startup.defaultPageReady().then(() => {
+        if (typeof window.onMathJaxLoaded === 'function') {
+          window.onMathJaxLoaded();
+        }
+      });
+    }
+  }
 };
 </script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
@@ -55,6 +65,7 @@ window.MathJax = {
       </svg>
     </button>
     <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">☀</button>
+    <button class="btn btn-sm" onclick="exitPracticeSession()" title="Back to Focus Elite">← Exit</button>
   </div>
 </header>
 

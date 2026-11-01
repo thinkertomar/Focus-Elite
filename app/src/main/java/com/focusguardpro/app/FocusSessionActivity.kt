@@ -64,14 +64,16 @@ class FocusSessionActivity : AppCompatActivity() {
         val backBtn = TextView(this).apply {
             text = "← Home"
             textSize = 13.5f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(20f).toFloat()
                 setColor(palette.cardSurfaceColor)
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             setOnClickListener { finish() }
         }
         header.addView(backBtn)
@@ -89,14 +91,16 @@ class FocusSessionActivity : AppCompatActivity() {
         val exportBtn = TextView(this).apply {
             text = "Export ↗"
             textSize = 12.5f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(palette.secondaryColor)
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(16f).toFloat()
                 setColor(palette.cardSurfaceColor)
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
             setOnClickListener {
                 showExportDialog()
             }
@@ -255,12 +259,16 @@ class FocusSessionActivity : AppCompatActivity() {
         startStopButton = Button(this).apply {
             text = "⚡ START DEEP FOCUS"
             textSize = 15f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.BLACK)
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 cornerRadius = dp(16f).toFloat()
                 setColor(Color.parseColor("#38BDF8")) // Sky blue neon
             }
+            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(54f)

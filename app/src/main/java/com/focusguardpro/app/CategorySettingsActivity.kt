@@ -155,15 +155,17 @@ class CategorySettingsActivity : AppCompatActivity() {
             text = "🏋️ Unlock Category Promotions (Proof-of-Effort)"
             textSize = 11.5f
             isAllCaps = false
+            gravity = android.view.Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
-            minHeight = dp(40f)
-            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
+            minHeight = dp(42f)
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#DC2626"))
                 setStroke(dp(1f), Color.parseColor("#FCA5A5"))
             }
+            setPadding(dp(14f), dp(9f), dp(14f), dp(9f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT

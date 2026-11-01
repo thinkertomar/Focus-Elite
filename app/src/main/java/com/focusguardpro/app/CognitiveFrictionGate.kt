@@ -97,14 +97,16 @@ object CognitiveFrictionGate {
         val badgeView = TextView(context).apply {
             text = "🛡️ ZERO-ESCAPE FORTRESS GATE"
             textSize = 10.5f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.parseColor("#FCA5A5"))
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(8f).toFloat()
                 setColor(Color.parseColor("#450A0A"))
                 setStroke(dp(1f), Color.parseColor("#EF4444"))
             }
+            setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -189,6 +191,7 @@ object CognitiveFrictionGate {
                     setColor(Color.parseColor("#27272A"))
                 }
             }
+            btnModeSteps.setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
 
             btnModeSquats.setTextColor(if (!stepsSelected) Color.WHITE else Color.parseColor("#94A3B8"))
             btnModeSquats.background = GradientDrawable().apply {
@@ -199,6 +202,7 @@ object CognitiveFrictionGate {
                     setColor(Color.parseColor("#27272A"))
                 }
             }
+            btnModeSquats.setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
         }
 
         fun updateAllGateVisuals() {
@@ -245,6 +249,7 @@ object CognitiveFrictionGate {
                     setColor(Color.parseColor("#DC2626"))
                     setStroke(dp(1.5f), Color.parseColor("#FCA5A5"))
                 }
+                btnBypass.setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             } else {
                 btnBypass.text = if (!isPhysicalComplete) {
                     "🔒 Complete ${target - clamped} More ${if (currentMode == EffortMode.STEPS) "Steps" else "Squats"}"
@@ -258,6 +263,7 @@ object CognitiveFrictionGate {
                     setColor(Color.parseColor("#27272A"))
                     setStroke(dp(1f), Color.parseColor("#3F3F46"))
                 }
+                btnBypass.setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             }
         }
 
@@ -340,14 +346,16 @@ object CognitiveFrictionGate {
             text = "⚡ Hardware Cadence Pulse (Tap in 1-Second Rhythm)"
             textSize = 11f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.parseColor("#E2E8F0"))
             minHeight = dp(38f)
-            setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(8f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(1f), Color.parseColor("#38BDF8"))
             }
+            setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -411,12 +419,12 @@ object CognitiveFrictionGate {
             textSize = 12.5f
             setTextColor(Color.parseColor("#F8FAFC"))
             typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
-            setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(8f).toFloat()
                 setColor(Color.parseColor("#09090B"))
                 setStroke(dp(1f), Color.parseColor("#3F3F46"))
             }
+            setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -442,12 +450,12 @@ object CognitiveFrictionGate {
             customInsertionActionModeCallback = disablePasteCallback
             isLongClickable = false
             setOnLongClickListener { true }
-            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f).toFloat()
                 setColor(Color.parseColor("#09090B"))
                 setStroke(dp(1f), Color.parseColor("#27272A"))
             }
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT

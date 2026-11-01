@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     android:versionCode="5"
     android:versionName="1.4">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
@@ -33,7 +35,7 @@
         android:allowBackup="true"
         android:largeHeap="true"
         android:extractNativeLibs="false"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:hasFragileUserData="true">
         <activity

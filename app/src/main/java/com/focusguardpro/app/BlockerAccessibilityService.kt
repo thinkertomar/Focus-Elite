@@ -1,9 +1,11 @@
 package com.focusguardpro.app
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -17,12 +19,17 @@ class BlockerAccessibilityService : AccessibilityService() {
             "url_bar",
             "url_bar_title",
             "location_bar_edit_text",
+            "location_bar",
             "omnibox_url_text",
             "mozac_browser_toolbar_url_view",
+            "mozac_browser_toolbar_origin_view",
             "search_box_text",
             "editUrl",
             "bro_common_omnibox_edit_text",
-            "address_bar_edit_text"
+            "address_bar_edit_text",
+            "custom_tab_toolbar",
+            "url_text",
+            "sbrowser_url_bar"
         )
 
         private val DOMAIN_REGEX = Regex("""(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+\.(?:[a-zA-Z]{2,})(?:\.[a-zA-Z]{2,})?)(?:[/?#:]|$)""")
@@ -37,11 +44,28 @@ class BlockerAccessibilityService : AccessibilityService() {
     private var lastContentEvalPkg: String? = null
     private var lastBrowserEvalAtMs: Long = 0L
 
+    /**
+     * Continuous 1-second live window watchdog running directly inside [BlockerAccessibilityService].
+     * Guarantees that if an app (e.g. Instagram) crosses its 30-minute daily cap while already open
+     * on screen, or if a browser hides its toolbar after 30 minutes of non-study browsing, it is
+     * immediately locked with full AccessibilityService window privileges.
+     */
+    private val liveWatchdogRunnable = object : Runnable {
+        override fun run() {
+            try {
+                runLiveWindowCheck()
+            } catch (_: Throwable) {}
+            mainHandler.postDelayed(this, 1000L)
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         SettingsTamperGuard.recordAccessibilityJustConnected(this)
         SettingsTamperGuard.recordVerifiedHeartbeat(this)
+        mainHandler.removeCallbacks(liveWatchdogRunnable)
+        mainHandler.post(liveWatchdogRunnable)
         try {
             WatchdogService.start(this)
             FocusForegroundMonitorService.start(this)
@@ -50,6 +74,7 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(liveWatchdogRunnable)
         if (instance === this) {
             instance = null
         }
@@ -62,6 +87,96 @@ class BlockerAccessibilityService : AccessibilityService() {
             pkg == "com.focuselite.app" ||
             pkg == "com.focusguardpro.elite" ||
             pkg == "com.focusguardpro.app"
+    }
+
+    /**
+     * Returns the live foreground window package directly from the Accessibility window manager,
+     * skipping SystemUI status bar overlays and input method keyboards.
+     */
+    fun getLiveForegroundPackage(): String? {
+        try {
+            val rootPkg = rootInActiveWindow?.packageName?.toString()
+            if (!rootPkg.isNullOrBlank() &&
+                rootPkg != "com.android.systemui" &&
+                !SystemExclusions.isInputMethod(this, rootPkg)
+            ) {
+                return rootPkg
+            }
+        } catch (_: Throwable) {}
+
+        try {
+            val winList = windows
+            if (winList != null) {
+                for (win in winList) {
+                    val pkg = win.root?.packageName?.toString() ?: continue
+                    if (pkg.isNotBlank() &&
+                        pkg != "com.android.systemui" &&
+                        !SystemExclusions.isInputMethod(this, pkg)
+                    ) {
+                        return pkg
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        return null
+    }
+
+    private fun runLiveWindowCheck() {
+        val shieldPrefs = getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
+        if (!shieldPrefs.getBoolean("shield_active", true)) return
+        if (AppLifecycleCoordinator.isRestoreInProgress) return
+
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        if (pm != null && !pm.isInteractive) return
+
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (km?.isKeyguardLocked == true) return
+
+        val livePkg = getLiveForegroundPackage() ?: return
+        if (isSelfPackage(livePkg)) {
+            ForegroundTracker.currentPackage = livePkg
+            return
+        }
+        if (SystemExclusions.isInputMethod(this, livePkg)) return
+
+        if (SettingsTamperGuard.isSettingsOrInstallerPackage(livePkg)) {
+            val rootNode = try {
+                rootInActiveWindow
+            } catch (_: Exception) {
+                null
+            }
+            if (SettingsTamperGuard.inspectAndBlockSettingsTamper(this, livePkg, rootNode)) {
+                return
+            }
+        }
+
+        if (SystemExclusions.isExcludedPackage(this, livePkg)) {
+            ForegroundTracker.currentPackage = livePkg
+            return
+        }
+
+        ForegroundTracker.currentPackage = livePkg
+        val now = FocusLayerManager.verifiedNowMs(this)
+
+        if (BlockPolicyEngine.isBrowserPackage(livePkg)) {
+            checkBrowserUrl(livePkg, forceSample = true)
+            return
+        }
+
+        val decision = BlockPolicyEngine.evaluateApp(this, livePkg, now)
+        if (decision is BlockDecision.Blocked) {
+            if (livePkg != lastBlockedAppPkg || (now - lastBlockedAppAtMs) >= 900L) {
+                lastBlockedAppPkg = livePkg
+                lastBlockedAppAtMs = now
+                enforceBlockNow(
+                    target = decision.target,
+                    reasonWireKey = decision.reason.wireKey,
+                    isWebsite = false,
+                    blockedPackageName = livePkg
+                )
+            }
+        }
     }
 
     /**
@@ -103,10 +218,10 @@ class BlockerAccessibilityService : AccessibilityService() {
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
 
-                // 2. Verify after 260ms that the blocked app is no longer on top; if it is, force Home eviction + re-launch
+                // 2. Verify after 240ms that the blocked app is no longer on top; if it is, force Home eviction + re-launch
                 mainHandler.postDelayed({
                     try {
-                        val currentWindowPkg = rootInActiveWindow?.packageName?.toString()
+                        val currentWindowPkg = getLiveForegroundPackage()
                         if (currentWindowPkg == blockedPackageName) {
                             performGlobalAction(GLOBAL_ACTION_BACK)
                             performGlobalAction(GLOBAL_ACTION_HOME)
@@ -114,10 +229,10 @@ class BlockerAccessibilityService : AccessibilityService() {
                                 try {
                                     TimeLimitManager(this@BlockerAccessibilityService).triggerBlock(target, reasonWireKey)
                                 } catch (_: Exception) {}
-                            }, 150L)
+                            }, 140L)
                         }
                     } catch (_: Exception) {}
-                }, 260L)
+                }, 240L)
             } catch (_: Exception) {}
         }
     }
@@ -153,11 +268,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         }
 
         val rawEventPkg = event?.packageName?.toString()
-        val topWindowPkg = try {
-            rootInActiveWindow?.packageName?.toString()
-        } catch (_: Exception) {
-            null
-        }
+        val topWindowPkg = getLiveForegroundPackage()
 
         // Prefer the actual top active window package when SystemUI emits background status bar ticks
         val activePkg = when {
@@ -208,7 +319,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         }
 
         // Do not trigger app blocking while the device is locked (lockscreen/keyguard active)
-        val km = getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         if (km?.isKeyguardLocked == true) {
             return
         }
@@ -219,7 +330,7 @@ class BlockerAccessibilityService : AccessibilityService() {
             return
         }
 
-        val now = System.currentTimeMillis()
+        val now = FocusLayerManager.verifiedNowMs(this)
         val isWindowTransition = eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             activePkg != ForegroundTracker.currentPackage
 
@@ -284,7 +395,7 @@ class BlockerAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     private fun checkBrowserUrl(browserPackage: String, forceSample: Boolean) {
-        val now = System.currentTimeMillis()
+        val now = FocusLayerManager.verifiedNowMs(this)
         val root = try {
             rootInActiveWindow
         } catch (_: Exception) {
@@ -302,32 +413,56 @@ class BlockerAccessibilityService : AccessibilityService() {
             null
         }
 
-        val host = detectedHost ?: if (forceSample) {
-            BlockPolicyEngine.getLastActiveBrowserHost(this, browserPackage, now)
-        } else {
-            null
-        } ?: return
+        val lastHost = BlockPolicyEngine.getLastActiveBrowserHost(this, browserPackage, now)
+        val host = detectedHost ?: lastHost
 
-        // Record sample (Study websites never count toward the 30m non-study limit; Non-study websites do)
-        BlockPolicyEngine.recordBrowserWebsiteSample(this, browserPackage, host, now)
+        if (!host.isNullOrBlank()) {
+            // Record sample (Study websites never count toward the 30m non-study limit; Non-study websites do)
+            BlockPolicyEngine.recordBrowserWebsiteSample(this, browserPackage, host, now)
 
-        val decision = BlockPolicyEngine.evaluateBrowserUrl(this, browserPackage, host, now)
-        if (decision is BlockDecision.Blocked) {
-            if (host != lastBlockedHost || (now - lastBlockedAtMs) > 1500L) {
-                lastBlockedHost = host
-                lastBlockedAtMs = now
-                enforceBlockNow(
-                    target = decision.target,
-                    reasonWireKey = decision.reason.wireKey,
-                    isWebsite = true,
-                    blockedPackageName = browserPackage
-                )
+            val decision = BlockPolicyEngine.evaluateBrowserUrl(this, browserPackage, host, now)
+            if (decision is BlockDecision.Blocked) {
+                if (host != lastBlockedHost || (now - lastBlockedAtMs) > 1400L) {
+                    lastBlockedHost = host
+                    lastBlockedAtMs = now
+                    enforceBlockNow(
+                        target = decision.target,
+                        reasonWireKey = decision.reason.wireKey,
+                        isWebsite = true,
+                        blockedPackageName = browserPackage
+                    )
+                }
+            }
+            return
+        }
+
+        // Fallback when toolbar is hidden/collapsed and no active Study host was detected:
+        // Reconcile with Android Usage Access so non-study browsing cannot bypass the 30m cap by hiding the toolbar
+        if (forceSample && !BlockPolicyEngine.isLastActiveBrowserHostStudy(this, browserPackage, now)) {
+            val customLimit = TimeLimitManager.getLimitMinutes(this, browserPackage)
+            val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
+            val effectiveLimit = if (customLimit > 0) customLimit else defaultCap
+            val usedNonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, browserPackage, now)
+            if (effectiveLimit > 0 && usedNonStudyMins >= effectiveLimit && !BlockPolicyEngine.isUnblockedForToday(this, browserPackage, now)) {
+                val fallbackDecision = BlockPolicyEngine.evaluateBrowserUrl(this, browserPackage, "non-study-browsing.local", now)
+                if (fallbackDecision is BlockDecision.Blocked) {
+                    if ("non-study-browsing.local" != lastBlockedHost || (now - lastBlockedAtMs) > 1800L) {
+                        lastBlockedHost = "non-study-browsing.local"
+                        lastBlockedAtMs = now
+                        enforceBlockNow(
+                            target = browserPackage,
+                            reasonWireKey = fallbackDecision.reason.wireKey,
+                            isWebsite = true,
+                            blockedPackageName = browserPackage
+                        )
+                    }
+                }
             }
         }
     }
 
     private fun isUrlBarFocusedForTyping(root: AccessibilityNodeInfo, browserPackage: String): Boolean {
-        val candidatePackages = listOf(browserPackage, "com.android.chrome", "com.brave.browser").distinct()
+        val candidatePackages = listOf(browserPackage, "com.android.chrome", "com.brave.browser", "org.mozilla.firefox").distinct()
         for (pkg in candidatePackages) {
             for (viewId in DIRECT_URL_VIEW_IDS) {
                 val nodes = try {
@@ -376,8 +511,8 @@ class BlockerAccessibilityService : AccessibilityService() {
             return BlockPolicyEngine.normalizeHost(fromLegacy)
         }
 
-        // 3. Deep 200-node tree scan for any URL bar suffix or visible domain string
-        val budget = intArrayOf(200)
+        // 3. Deep 240-node tree scan for any URL bar suffix or visible domain string
+        val budget = intArrayOf(240)
         return scanTreeForHost(root, budget)
     }
 
@@ -392,11 +527,14 @@ class BlockerAccessibilityService : AccessibilityService() {
         }
 
         val isUrlNode = DIRECT_URL_VIEW_IDS.any { suffix ->
-            viewIdRes.endsWith(":id/$suffix") || viewIdRes.contains("url", ignoreCase = true) || viewIdRes.contains("omnibox", ignoreCase = true)
+            viewIdRes.endsWith(":id/$suffix") ||
+                viewIdRes.contains("url", ignoreCase = true) ||
+                viewIdRes.contains("omnibox", ignoreCase = true) ||
+                viewIdRes.contains("location_bar", ignoreCase = true)
         }
 
         if (isUrlNode && !(node.isFocused && node.isEditable)) {
-            val text = node.text?.toString()?.trim()
+            val text = node.text?.toString()?.trim() ?: node.contentDescription?.toString()?.trim()
             val host = parseHostFromText(text)
             if (!host.isNullOrBlank()) return host
         }
@@ -419,7 +557,6 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (rawText.isNullOrBlank()) return null
         val trimmed = rawText.trim()
         if (trimmed.contains(' ') && !trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-            // Might be "https://en.m.wikipedia.org/..." or "wikipedia.org/wiki/..." without spaces
             val match = DOMAIN_REGEX.find(trimmed) ?: return null
             val candidate = BlockPolicyEngine.normalizeHost(match.groupValues[1])
             return if (candidate.contains('.')) candidate else null

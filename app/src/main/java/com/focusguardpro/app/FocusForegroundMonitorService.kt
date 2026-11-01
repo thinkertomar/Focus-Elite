@@ -298,48 +298,64 @@ class FocusForegroundMonitorService : Service() {
     }
 
     private fun getActiveForegroundPackage(): String? {
+        // 1. Live Accessibility Window check (most authoritative real-time source when Accessibility is connected)
+        val liveA11yPkg = try {
+            BlockerAccessibilityService.instance?.getLiveForegroundPackage()
+        } catch (_: Throwable) {
+            null
+        }
+        if (!liveA11yPkg.isNullOrBlank() && liveA11yPkg != "com.android.systemui") {
+            lastResolvedUsagesPkg = liveA11yPkg
+            return liveA11yPkg
+        }
+
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
         val now = System.currentTimeMillis()
 
-        // 1. Query recent UsageEvents (last 15 seconds) first to catch the freshest app transition
+        // 2. Query recent UsageEvents (last 60 seconds) tracking both RESUMED and PAUSED/STOPPED
         if (usm != null) {
             try {
-                val recentEvents = usm.queryEvents(now - 15_000L, now)
+                val recentEvents = usm.queryEvents(now - 60_000L, now)
                 if (recentEvents != null) {
                     val event = UsageEvents.Event()
-                    var recentPkg: String? = null
-                    var recentTs = 0L
+                    var activePkg: String? = null
                     while (recentEvents.hasNextEvent()) {
                         recentEvents.getNextEvent(event)
-                        if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == 1) {
-                            val pkg = event.packageName
-                            if (!pkg.isNullOrBlank() && pkg != "com.android.systemui" && event.timeStamp >= recentTs) {
-                                recentTs = event.timeStamp
-                                recentPkg = pkg
+                        val pkg = event.packageName ?: continue
+                        if (pkg == "com.android.systemui" || SystemExclusions.isInputMethod(this, pkg)) continue
+                        when (event.eventType) {
+                            UsageEvents.Event.ACTIVITY_RESUMED, 1 -> {
+                                activePkg = pkg
+                            }
+                            UsageEvents.Event.ACTIVITY_PAUSED,
+                            UsageEvents.Event.ACTIVITY_STOPPED, 2, 23 -> {
+                                if (activePkg == pkg) {
+                                    activePkg = null
+                                }
                             }
                         }
                     }
-                    if (!recentPkg.isNullOrBlank()) {
-                        lastResolvedUsagesPkg = recentPkg
-                        return recentPkg
+                    if (!activePkg.isNullOrBlank()) {
+                        lastResolvedUsagesPkg = activePkg
+                        return activePkg
                     }
                 }
             } catch (_: Exception) {}
         }
 
-        // 2. Check package reported by BlockerAccessibilityService
-        val direct = ForegroundTracker.currentPackage
-        if (!direct.isNullOrBlank() && direct != "com.android.systemui") {
-            return direct
-        }
-
-        // 3. Cached foreground package from earlier UsageEvents if user has stayed in the same app >15s
+        // 3. Cached foreground package from earlier UsageEvents if user has stayed in the same app >60s
         val cached = lastResolvedUsagesPkg
-        if (!cached.isNullOrBlank()) {
+        if (!cached.isNullOrBlank() && !isSelfPackage(cached)) {
             return cached
         }
 
-        // 4. Deep fallback: scan last 30 minutes of UsageEvents if service just started while an app was already open
+        // 4. Check package reported by BlockerAccessibilityService
+        val direct = ForegroundTracker.currentPackage
+        if (!direct.isNullOrBlank() && direct != "com.android.systemui" && !isSelfPackage(direct)) {
+            return direct
+        }
+
+        // 5. Deep fallback: scan last 30 minutes of UsageEvents if service just started while an app was already open
         if (usm != null) {
             try {
                 val events = usm.queryEvents(now - 1800_000L, now) ?: return direct

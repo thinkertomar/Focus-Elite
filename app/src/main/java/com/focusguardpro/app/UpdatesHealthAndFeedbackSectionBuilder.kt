@@ -166,6 +166,8 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "🎉 What's New"
             textSize = 11.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(activity, 42f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -176,6 +178,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(activity, 1f), palette.secondaryColor)
             }
+            setPadding(dp(activity, 10f), dp(activity, 9f), dp(activity, 10f), dp(activity, 9f))
             setOnClickListener {
                 showWhatsNewDialog(activity, palette, onOpenUpdatesHealthTab)
             }
@@ -185,6 +188,8 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "🛠️ Updates, Health & Feedback →"
             textSize = 11.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(activity, 42f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.3f)
@@ -192,6 +197,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 cornerRadius = dp(activity, 10f).toFloat()
                 setColor(palette.accentColor)
             }
+            setPadding(dp(activity, 10f), dp(activity, 9f), dp(activity, 10f), dp(activity, 9f))
             setOnClickListener { onOpenUpdatesHealthTab() }
         }
 
@@ -262,6 +268,8 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "🎉 Present 'What's New' Popup"
             textSize = 11.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(activity, 44f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -271,6 +279,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 cornerRadius = dp(activity, 12f).toFloat()
                 setColor(palette.accentColor)
             }
+            setPadding(dp(activity, 10f), dp(activity, 9f), dp(activity, 10f), dp(activity, 9f))
             setOnClickListener {
                 SystemDiagnosticsAndUpdatesManager.postUpdateNotificationIfNeeded(activity)
                 showWhatsNewDialog(activity, palette, null)
@@ -281,6 +290,8 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "🌐 Download Official Release"
             textSize = 11.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(activity, 44f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -289,6 +300,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 setColor(Color.parseColor("#14532D"))
                 setStroke(dp(activity, 1f), Color.parseColor("#22C55E"))
             }
+            setPadding(dp(activity, 10f), dp(activity, 9f), dp(activity, 10f), dp(activity, 9f))
             setOnClickListener {
                 SystemDiagnosticsAndUpdatesManager.openGitHubReleasesInBrowser(activity)
             }
@@ -301,8 +313,10 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "🎯 Copy Termux Command: Publish Official Release v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME}"
             textSize = 11.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
-            minHeight = dp(activity, 42f)
+            minHeight = dp(activity, 44f)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -312,6 +326,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(activity, 1f), palette.secondaryColor)
             }
+            setPadding(dp(activity, 12f), dp(activity, 9f), dp(activity, 12f), dp(activity, 9f))
             setOnClickListener {
                 val cmd = "git tag -f v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME} && git push origin v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME} --force"
                 SystemDiagnosticsAndUpdatesManager.copyReportToClipboard(activity, cmd)
@@ -401,6 +416,8 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "🔧 Run 1-Tap Auto-Repair & Rebind All Focus Services"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(activity, 44f)
             background = GradientDrawable().apply {
@@ -408,6 +425,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 setColor(Color.parseColor("#1E3A8A"))
                 setStroke(dp(activity, 1f), Color.parseColor("#38BDF8"))
             }
+            setPadding(dp(activity, 12f), dp(activity, 10f), dp(activity, 12f), dp(activity, 10f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -478,13 +496,15 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                     text = item.actionLabel
                     textSize = 11f
                     isAllCaps = false
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
                     setTextColor(Color.WHITE)
                     minHeight = dp(activity, 36f)
-                    setPadding(dp(activity, 10f), dp(activity, 4f), dp(activity, 10f), dp(activity, 4f))
                     background = GradientDrawable().apply {
                         cornerRadius = dp(activity, 10f).toFloat()
                         setColor(palette.accentColor)
                     }
+                    setPadding(dp(activity, 12f), dp(activity, 6f), dp(activity, 12f), dp(activity, 6f))
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
@@ -633,6 +653,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                         setStroke(dp(activity, 1f), Color.parseColor("#334155"))
                     }
                 }
+                tv.setPadding(dp(activity, 8f), dp(activity, 8f), dp(activity, 8f), dp(activity, 8f))
             }
         }
 
@@ -641,6 +662,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 text = catLabel
                 textSize = 10.5f
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 setPadding(dp(activity, 8f), dp(activity, 8f), dp(activity, 8f), dp(activity, 8f))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(activity, 4f)
@@ -661,12 +683,12 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             setHintTextColor(Color.parseColor("#64748B"))
             setTextColor(Color.WHITE)
             textSize = 13f
-            setPadding(dp(activity, 12f), dp(activity, 10f), dp(activity, 12f), dp(activity, 10f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(activity, 10f).toFloat()
                 setColor(Color.parseColor("#0F172A"))
                 setStroke(dp(activity, 1f), Color.parseColor("#334155"))
             }
+            setPadding(dp(activity, 12f), dp(activity, 10f), dp(activity, 12f), dp(activity, 10f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -681,12 +703,12 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             textSize = 13f
             minLines = 4
             gravity = Gravity.TOP or Gravity.START
-            setPadding(dp(activity, 12f), dp(activity, 10f), dp(activity, 12f), dp(activity, 10f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(activity, 10f).toFloat()
                 setColor(Color.parseColor("#0F172A"))
                 setStroke(dp(activity, 1f), Color.parseColor("#334155"))
             }
+            setPadding(dp(activity, 12f), dp(activity, 10f), dp(activity, 12f), dp(activity, 10f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -714,6 +736,8 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "📋 Copy Report (Paste Here)"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(activity, 46f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f).apply {
@@ -723,6 +747,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 cornerRadius = dp(activity, 12f).toFloat()
                 setColor(palette.accentColor)
             }
+            setPadding(dp(activity, 12f), dp(activity, 10f), dp(activity, 12f), dp(activity, 10f))
             setOnClickListener {
                 val sub = SystemDiagnosticsAndUpdatesManager.saveAndFormatFeedbackReport(
                     context = activity,
@@ -742,6 +767,8 @@ object UpdatesHealthAndFeedbackSectionBuilder {
             text = "📤 Share Report"
             textSize = 12f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             minHeight = dp(activity, 46f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.8f)
@@ -750,6 +777,7 @@ object UpdatesHealthAndFeedbackSectionBuilder {
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(activity, 1f), palette.secondaryColor)
             }
+            setPadding(dp(activity, 12f), dp(activity, 10f), dp(activity, 12f), dp(activity, 10f))
             setOnClickListener {
                 val sub = SystemDiagnosticsAndUpdatesManager.saveAndFormatFeedbackReport(
                     context = activity,

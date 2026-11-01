@@ -84,14 +84,16 @@ class WidgetStudioActivity : AppCompatActivity() {
         val backBtn = TextView(this).apply {
             text = "← Home"
             textSize = 13.5f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(20f).toFloat()
                 setColor(palette.cardSurfaceColor)
                 setStroke(dp(1f), palette.accentColor)
             }
+            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             setOnClickListener { finish() }
         }
         header.addView(backBtn)
@@ -179,14 +181,16 @@ class WidgetStudioActivity : AppCompatActivity() {
             text = "📌 Pin Command Deck Widget"
             textSize = 13f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.parseColor("#09090B"))
             typeface = Typeface.DEFAULT_BOLD
             minHeight = dp(48f)
-            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(14f).toFloat()
                 setColor(Color.parseColor("#38BDF8"))
             }
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginEnd = dp(8f)
             }
@@ -200,16 +204,18 @@ class WidgetStudioActivity : AppCompatActivity() {
             text = "🔄 Sync"
             textSize = 12.5f
             isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             minHeight = dp(48f)
-            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
             background = GradientDrawable().apply {
                 cornerRadius = dp(14f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(1f), Color.parseColor("#38BDF8"))
             }
-            layoutParams = LinearLayout.LayoutParams(dp(86f), dp(48f))
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            layoutParams = LinearLayout.LayoutParams(dp(92f), dp(48f))
             setOnClickListener {
                 FocusWidgetService.syncTelemetryNow(this@WidgetStudioActivity)
                 dualNeonRingsView.refreshTelemetryAndSyncHealthConnect(animate = true)
@@ -462,6 +468,7 @@ class WidgetStudioActivity : AppCompatActivity() {
             setColor(Color.parseColor("#18181B"))
             setStroke(dp(1f), if (isPinned) Color.parseColor("#10B981") else Color.parseColor("#38BDF8"))
         }
+        statusBadgeView.setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
     }
 
     private fun renderSkinChips() {

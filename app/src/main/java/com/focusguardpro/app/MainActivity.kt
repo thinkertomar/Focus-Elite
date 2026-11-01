@@ -780,7 +780,7 @@ class MainActivity : AppCompatActivity() {
         val deactivateLink = findViewById<TextView>(R.id.deactivateShieldLink)
         if (hasUsage && hasAccess && hasBattery && hasAdmin) {
             allSetText.visibility = View.VISIBLE
-            allSetText.text = "✓ All System Shields & Sensors Active (100% Offline • Zero Internet)"
+            allSetText.text = "✓ All System Shields & Sensors Active (100% On-Device SQLite)"
             deactivateLink?.visibility = View.VISIBLE
         } else {
             allSetText.visibility = View.VISIBLE
@@ -886,11 +886,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             val usedMinsMap = HashMap<String, Int>()
+            val totalBrowserMinsMap = HashMap<String, Int>()
             val launchesMap = HashMap<String, Int>()
             val studyApps = AppCategoryPrefs.getStudyApps(this@MainActivity)
             val improveApps = AppCategoryPrefs.getImprovementApps(this@MainActivity)
             val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
-            val nonStudyBrowserMins = BlockPolicyEngine.getNonStudyBrowserMinutesToday(this@MainActivity).toInt()
 
             val appModels = resolveInfos.mapNotNull { ri ->
                 val pkg = ri.activityInfo.packageName
@@ -901,12 +901,14 @@ class MainActivity : AppCompatActivity() {
                 val icon = ri.loadIcon(pm)
                 val isBrowser = BlockPolicyEngine.isBrowserPackage(pkg)
                 val stat = snapshot?.perAppStats?.get(pkg)
+                val rawPkgMins = ((stat?.durationMs ?: 0L) / 60_000L).toInt()
                 val usedMins = if (isBrowser) {
-                    nonStudyBrowserMins
+                    BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this@MainActivity, pkg).toInt()
                 } else {
-                    ((stat?.durationMs ?: 0L) / 60_000L).toInt()
+                    rawPkgMins
                 }
                 usedMinsMap[pkg] = usedMins
+                totalBrowserMinsMap[pkg] = rawPkgMins
                 launchesMap[pkg] = stat?.launchCount ?: 0
 
                 val limitMins = TimeLimitManager.getLimitMinutes(this@MainActivity, pkg)
@@ -939,6 +941,7 @@ class MainActivity : AppCompatActivity() {
                     apps = appModels,
                     usedMinutesByPkg = usedMinsMap,
                     launchCountByPkg = launchesMap,
+                    totalBrowserMinutesByPkg = totalBrowserMinsMap,
                     onLimitClick = { app -> showLimitDialog(app, usedMinsMap[app.packageName] ?: 0) },
                     onToggle = { app, isChecked ->
                         val cap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)

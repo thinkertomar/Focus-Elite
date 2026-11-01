@@ -2,10 +2,13 @@ package com.focusguardpro.app
 
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +22,7 @@ class AppAdapter(
     private val apps: List<AppModel>,
     private val usedMinutesByPkg: Map<String, Int> = emptyMap(),
     private val launchCountByPkg: Map<String, Int> = emptyMap(),
+    private val totalBrowserMinutesByPkg: Map<String, Int> = emptyMap(),
     private val onLimitClick: (AppModel) -> Unit,
     private val onToggle: (AppModel, Boolean) -> Unit
 ) : RecyclerView.Adapter<AppAdapter.ViewHolder>() {
@@ -45,7 +49,7 @@ class AppAdapter(
         // Apply theme card background and compact padding if enabled
         holder.itemView.background = UiThemePrefs.createCardBackground(context, cornerDp = 14f, isHero = false)
         val vertPad = if (UiThemePrefs.isCompactListEnabled(context)) {
-            (8f * density).toInt()
+            (9f * density).toInt()
         } else {
             (12f * density).toInt()
         }
@@ -55,6 +59,8 @@ class AppAdapter(
         holder.icon.setImageDrawable(app.icon)
 
         val usedMinutesToday = usedMinutesByPkg[app.packageName] ?: 0
+        val totalBrowserMins = totalBrowserMinutesByPkg[app.packageName] ?: usedMinutesToday
+        val studyBrowserMins = (totalBrowserMins - usedMinutesToday).coerceAtLeast(0)
         val launchesToday = launchCountByPkg[app.packageName] ?: 0
         val limitMins = TimeLimitManager.getLimitMinutes(context, app.packageName)
         val hardBlocked = HardBlockManager.isHardBlocked(context, app.packageName)
@@ -79,6 +85,7 @@ class AppAdapter(
         val showBadgeDetails = UiThemePrefs.isShowBlueTickStatusEnabled(context)
         val blueTickColor = Color.parseColor("#38BDF8") // Vibrant sky-blue tick badge
         val opensSuffix = if (launchesToday > 0) " • $launchesToday opens" else ""
+        val browserStudySuffix = if (isBrowser && studyBrowserMins > 0) " · Study ${studyBrowserMins}m" else ""
         val quotaBar = buildInlineQuotaBar(usedMinutesToday, effectiveLimit, isWhitelisted)
 
         if (showBlueTick && showBadgeDetails) {
@@ -95,9 +102,9 @@ class AppAdapter(
 
             val statusLine = when {
                 isBrowser && isLimitReached ->
-                    "\n$quotaBar ✓ Study 24/7 • Non-Study Limit (${usedMinutesToday}m / ${effectiveLimit}m)$opensSuffix"
+                    "\n$quotaBar ✓ Study 24/7 • Non-Study Limit (${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix)$opensSuffix"
                 isBrowser ->
-                    "\n$quotaBar ✓ Study 24/7 • Non-Study Cap: ${effectiveLimit}m (${usedMinutesToday}m today)$opensSuffix"
+                    "\n$quotaBar ✓ Study 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix$opensSuffix"
                 isLimitReached ->
                     "\n$quotaBar ✓ Auto-Blocked • Limit reached (${usedMinutesToday}m / ${effectiveLimit}m)$opensSuffix"
                 hardBlocked && limitMins > 0 ->
@@ -124,13 +131,13 @@ class AppAdapter(
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
             holder.name.text = sb
-        } else if ((usedMinutesToday > 0 || launchesToday > 0 || isBrowser || isStudy || isImprove) && showBadgeDetails) {
+        } else if ((usedMinutesToday > 0 || totalBrowserMins > 0 || launchesToday > 0 || isBrowser || isStudy || isImprove) && showBadgeDetails) {
             val sb = SpannableStringBuilder()
             sb.append(app.appName)
             val subStart = sb.length
             val subText = when {
                 isBrowser ->
-                    "\n$quotaBar Study Sites 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$opensSuffix"
+                    "\n$quotaBar Study Sites 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix$opensSuffix"
                 isStudy ->
                     "\n🟢 Study 24/7 • ${usedMinutesToday}m today$opensSuffix"
                 isImprove ->
@@ -162,7 +169,22 @@ class AppAdapter(
             holder.name.text = app.appName
         }
 
-        // Format limit button with blue tick when capped/blocked
+        // Format limit button as a crisp pill badge with proper padding inside its box
+        val pillStrokeColor = if (showBlueTick) blueTickColor else palette.accentColor
+        val pillBgColor = if (showBlueTick) Color.parseColor("#13233A") else Color.parseColor("#182032")
+        holder.limitButton.background = GradientDrawable().apply {
+            cornerRadius = 10f * density
+            setColor(pillBgColor)
+            setStroke((1f * density).roundToInt(), pillStrokeColor)
+        }
+        val padH = (10f * density).roundToInt()
+        val padV = (5f * density).roundToInt()
+        holder.limitButton.setPadding(padH, padV, padH, padV)
+        holder.limitButton.gravity = Gravity.CENTER
+        holder.limitButton.includeFontPadding = false
+        holder.limitButton.typeface = Typeface.DEFAULT_BOLD
+        holder.limitButton.textSize = 12.5f
+
         when {
             showBlueTick && limitMins > 0 -> {
                 holder.limitButton.text = "✓ ${limitMins}m"
@@ -177,7 +199,7 @@ class AppAdapter(
                 holder.limitButton.setTextColor(palette.accentColor)
             }
             else -> {
-                holder.limitButton.text = context.getString(R.string.limits_gear)
+                holder.limitButton.text = "⚙ Cap"
                 holder.limitButton.setTextColor(palette.accentColor)
             }
         }
