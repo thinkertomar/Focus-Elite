@@ -129,13 +129,18 @@ class DualNeonRingsView @JvmOverloads constructor(
         viewScope.coroutineContext.cancelChildren()
     }
 
+    var unlockCountToday: Int = 0
+        private set
+
     fun loadCachedTelemetry() {
-        val screenMs = try {
-            UsageStatsHelper.getTodayScreenTimeMillis(context)
+        val snap = try {
+            UsageStatsHelper.getTodayWellbeingSnapshot(context)
         } catch (_: Throwable) {
-            0L
+            null
         }
+        val screenMs = snap?.totalScreenTimeMs ?: 0L
         screenUsedMinutes = (screenMs / 60000L).toInt().coerceAtLeast(0)
+        unlockCountToday = snap?.unlockCount ?: 0
         screenBudgetMinutes = CommandDeckWidgetPrefs.getScreenTimeBudgetMinutes(context).coerceAtLeast(15)
         dailySteps = try {
             StepPrefs.getDailySteps(context).toInt().coerceAtLeast(0)
@@ -369,8 +374,9 @@ class DualNeonRingsView @JvmOverloads constructor(
         val screenPct = (rawScreenRatio * 100f).roundToInt()
 
         textPaint.color = Color.WHITE
-        textPaint.textSize = 13f * density
-        canvas.drawText("$usedStr / $budStr ($screenPct%)", rightX + (14f * density), row1Y + (15.5f * density), textPaint)
+        textPaint.textSize = 12.5f * density
+        val unlockNote = if (unlockCountToday > 0) " • ${unlockCountToday}🔓" else ""
+        canvas.drawText("$usedStr / $budStr ($screenPct%)$unlockNote", rightX + (14f * density), row1Y + (15.5f * density), textPaint)
 
         // Inner Ring Legend (Daily Steps vs Target via Health Connect)
         val row2Y = row1Y + (35f * density)

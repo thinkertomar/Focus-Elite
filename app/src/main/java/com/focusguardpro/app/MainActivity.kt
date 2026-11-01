@@ -56,6 +56,16 @@ class MainActivity : AppCompatActivity() {
     private var focusLayerStatusSubtitle: TextView? = null
     private var focusStudioCardView: LinearLayout? = null
 
+    // Digital Wellbeing Hero Card Telemetry Views
+    private var heroDeltaBadge: TextView? = null
+    private var heroSegStudy: View? = null
+    private var heroSegImprove: View? = null
+    private var heroSegDistract: View? = null
+    private var heroSegUtility: View? = null
+    private var heroKpiUnlocks: TextView? = null
+    private var heroKpiLaunches: TextView? = null
+    private var heroKpiPeakHour: TextView? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FocusGuardApp.ensureRoomMainThreadQueries(this)
@@ -354,6 +364,113 @@ class MainActivity : AppCompatActivity() {
 
         mainColumn.addView(focusStudioCard, (screenTimeIdx + 2).coerceAtMost(mainColumn.childCount))
         focusStudioCardView = focusStudioCard
+
+        // Inject Digital Wellbeing Structural Telemetry Strip inside screenTimeCard
+        val heroCardGroup = screenTimeCard as? LinearLayout
+        if (heroCardGroup != null && heroDeltaBadge == null) {
+            val deltaBadge = TextView(this).apply {
+                text = "✓ Digital Wellbeing Engine"
+                textSize = 11f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.parseColor("#38BDF8"))
+                setPadding(0, dp(4f), 0, dp(8f))
+            }
+            heroDeltaBadge = deltaBadge
+            heroCardGroup.addView(deltaBadge)
+
+            // Multi-segment Category Proportion Bar (Study / Improve / Distract / Utility)
+            val segRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(7f)
+                ).apply {
+                    bottomMargin = dp(12f)
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(4f).toFloat()
+                    setColor(Color.parseColor("#1E293B"))
+                }
+                clipToOutline = true
+            }
+            val sBar = View(this).apply {
+                setBackgroundColor(Color.parseColor("#10B981"))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            }
+            val iBar = View(this).apply {
+                setBackgroundColor(Color.parseColor("#38BDF8"))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            }
+            val dBar = View(this).apply {
+                setBackgroundColor(Color.parseColor("#F43F5E"))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            }
+            val uBar = View(this).apply {
+                setBackgroundColor(Color.parseColor("#64748B"))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            }
+            heroSegStudy = sBar
+            heroSegImprove = iBar
+            heroSegDistract = dBar
+            heroSegUtility = uBar
+            segRow.addView(sBar)
+            segRow.addView(iBar)
+            segRow.addView(dBar)
+            segRow.addView(uBar)
+            heroCardGroup.addView(segRow)
+
+            // 3-Column KPI Strip: Unlocks, App Opens, Peak Hour
+            val kpiStrip = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+            fun makeKpiPill(label: String, color: Int): Pair<LinearLayout, TextView> {
+                val cell = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(6f), dp(7f), dp(6f), dp(7f))
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = dp(3f)
+                        marginStart = dp(3f)
+                    }
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(10f).toFloat()
+                        setColor(Color.parseColor("#151E2E"))
+                        setStroke(dp(1f), Color.parseColor("#26354D"))
+                    }
+                }
+                val vTv = TextView(this).apply {
+                    text = "0"
+                    textSize = 14f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(color)
+                }
+                val lTv = TextView(this).apply {
+                    text = label
+                    textSize = 9.5f
+                    setTextColor(Color.parseColor("#94A3B8"))
+                }
+                cell.addView(vTv)
+                cell.addView(lTv)
+                return cell to vTv
+            }
+
+            val (uCell, uTv) = makeKpiPill("UNLOCKS", Color.parseColor("#38BDF8"))
+            val (oCell, oTv) = makeKpiPill("APP OPENS", Color.parseColor("#A78BFA"))
+            val (pCell, pTv) = makeKpiPill("PEAK HOUR", Color.parseColor("#34D399"))
+            heroKpiUnlocks = uTv
+            heroKpiLaunches = oTv
+            heroKpiPeakHour = pTv
+            kpiStrip.addView(uCell)
+            kpiStrip.addView(oCell)
+            kpiStrip.addView(pCell)
+            heroCardGroup.addView(kpiStrip)
+        }
     }
 
     private fun applyDynamicThemeToHome() {
@@ -700,10 +817,59 @@ class MainActivity : AppCompatActivity() {
         val screenTimeText = findViewById<TextView>(R.id.screenTimeText) ?: return
         if (!hasUsageStatsPermission()) {
             screenTimeText.text = "Grant Permission"
+            heroDeltaBadge?.text = "Step 1: Grant Usage Access to unlock exact Digital Wellbeing tracking"
+            heroKpiUnlocks?.text = "—"
+            heroKpiLaunches?.text = "—"
+            heroKpiPeakHour?.text = "—"
             return
         }
-        val totalMs = UsageStatsHelper.getTodayScreenTimeMillis(this)
-        screenTimeText.text = UsageStatsHelper.formatDuration(totalMs)
+        val snapshot = UsageStatsHelper.getTodayWellbeingSnapshot(this)
+        screenTimeText.text = UsageStatsHelper.formatPreciseDuration(snapshot.totalScreenTimeMs)
+
+        heroKpiUnlocks?.text = snapshot.unlockCount.toString()
+        heroKpiLaunches?.text = snapshot.totalAppLaunches.toString()
+        heroKpiPeakHour?.text = if (snapshot.peakHourMinutes > 0) {
+            UsageStatsHelper.formatHourLabel(snapshot.peakHourIndex)
+        } else {
+            "—"
+        }
+
+        val diffMs = snapshot.totalScreenTimeMs - snapshot.yesterdayScreenTimeMs
+        val absDiffStr = UsageStatsHelper.formatDuration(kotlin.math.abs(diffMs))
+        val studyMins = snapshot.studyMs / 60_000L
+        val distractMins = snapshot.distractMs / 60_000L
+        when {
+            snapshot.yesterdayScreenTimeMs <= 0L -> {
+                heroDeltaBadge?.text = "✓ Digital Wellbeing Exact • Study ${studyMins}m · Distract ${distractMins}m"
+                heroDeltaBadge?.setTextColor(Color.parseColor("#38BDF8"))
+            }
+            diffMs < -60_000L -> {
+                heroDeltaBadge?.text = "▼ $absDiffStr vs yesterday • Study ${studyMins}m · Distract ${distractMins}m"
+                heroDeltaBadge?.setTextColor(Color.parseColor("#34D399"))
+            }
+            diffMs > 60_000L -> {
+                heroDeltaBadge?.text = "▲ $absDiffStr vs yesterday • Study ${studyMins}m · Distract ${distractMins}m"
+                heroDeltaBadge?.setTextColor(Color.parseColor("#F59E0B"))
+            }
+            else -> {
+                heroDeltaBadge?.text = "≈ Same pace as yesterday • Study ${studyMins}m · Distract ${distractMins}m"
+                heroDeltaBadge?.setTextColor(Color.parseColor("#38BDF8"))
+            }
+        }
+
+        val totalCatMs = kotlin.math.max(1L, snapshot.studyMs + snapshot.improveMs + snapshot.distractMs + snapshot.utilityMs).toFloat()
+        (heroSegStudy?.layoutParams as? LinearLayout.LayoutParams)?.weight =
+            (snapshot.studyMs / totalCatMs).coerceAtLeast(if (snapshot.studyMs > 0L) 0.06f else 0f)
+        (heroSegImprove?.layoutParams as? LinearLayout.LayoutParams)?.weight =
+            (snapshot.improveMs / totalCatMs).coerceAtLeast(if (snapshot.improveMs > 0L) 0.06f else 0f)
+        (heroSegDistract?.layoutParams as? LinearLayout.LayoutParams)?.weight =
+            (snapshot.distractMs / totalCatMs).coerceAtLeast(if (snapshot.distractMs > 0L) 0.06f else 0f)
+        (heroSegUtility?.layoutParams as? LinearLayout.LayoutParams)?.weight =
+            (snapshot.utilityMs / totalCatMs).coerceAtLeast(if (snapshot.utilityMs > 0L) 0.06f else 0f)
+        if (snapshot.totalScreenTimeMs <= 0L) {
+            (heroSegStudy?.layoutParams as? LinearLayout.LayoutParams)?.weight = 1f
+        }
+        heroSegStudy?.parent?.requestLayout()
     }
 
     private fun loadAppList() {
@@ -713,14 +879,14 @@ class MainActivity : AppCompatActivity() {
                 addCategory(Intent.CATEGORY_LAUNCHER)
             }
             val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
-            val usageMsMap: Map<String, Long> = if (hasUsageStatsPermission()) {
-                val (start, end) = UsageStatsHelper.todayRange()
-                UsageStatsHelper.getPerAppUsage(this@MainActivity, start, end)
+            val snapshot = if (hasUsageStatsPermission()) {
+                UsageStatsHelper.getTodayWellbeingSnapshot(this@MainActivity)
             } else {
-                emptyMap()
+                null
             }
 
             val usedMinsMap = HashMap<String, Int>()
+            val launchesMap = HashMap<String, Int>()
             val studyApps = AppCategoryPrefs.getStudyApps(this@MainActivity)
             val improveApps = AppCategoryPrefs.getImprovementApps(this@MainActivity)
             val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
@@ -734,12 +900,14 @@ class MainActivity : AppCompatActivity() {
                 val name = ri.loadLabel(pm).toString()
                 val icon = ri.loadIcon(pm)
                 val isBrowser = BlockPolicyEngine.isBrowserPackage(pkg)
+                val stat = snapshot?.perAppStats?.get(pkg)
                 val usedMins = if (isBrowser) {
                     nonStudyBrowserMins
                 } else {
-                    ((usageMsMap[pkg] ?: 0L) / 60000L).toInt()
+                    ((stat?.durationMs ?: 0L) / 60_000L).toInt()
                 }
                 usedMinsMap[pkg] = usedMins
+                launchesMap[pkg] = stat?.launchCount ?: 0
 
                 val limitMins = TimeLimitManager.getLimitMinutes(this@MainActivity, pkg)
                 val hardBlocked = HardBlockManager.isHardBlocked(this@MainActivity, pkg)
@@ -770,6 +938,7 @@ class MainActivity : AppCompatActivity() {
                 appListView.adapter = AppAdapter(
                     apps = appModels,
                     usedMinutesByPkg = usedMinsMap,
+                    launchCountByPkg = launchesMap,
                     onLimitClick = { app -> showLimitDialog(app, usedMinsMap[app.packageName] ?: 0) },
                     onToggle = { app, isChecked ->
                         val cap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
@@ -896,26 +1065,79 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLimitDialog(app: AppModel, usedMinutesToday: Int) {
         val currentLimit = TimeLimitManager.getLimitMinutes(this, app.packageName)
+        val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
         val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            hint = "Minutes per day (default 30)"
-            if (currentLimit > 0) {
-                setText(currentLimit.toString())
-            }
-            setPadding(48, 32, 48, 32)
+        val stat = UsageStatsHelper.getTodayWellbeingSnapshot(this).perAppStats[app.packageName]
+        val exactTimeStr = UsageStatsHelper.formatPreciseDuration(stat?.durationMs ?: (usedMinutesToday * 60_000L))
+        val opensCount = stat?.launchCount ?: 0
+        val longestStr = UsageStatsHelper.formatDuration(stat?.longestSessionMs ?: 0L)
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(12f), dp(20f), dp(8f))
         }
 
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "Minutes per day (default $defaultCap)"
+            setText((if (currentLimit > 0) currentLimit else defaultCap).toString())
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+        }
+
+        // Quick Preset Chips (15m, 30m, 45m, 60m)
+        val presetRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(10f)
+            }
+        }
+        listOf(15, 30, 45, 60).forEach { presetMins ->
+            val chip = TextView(this).apply {
+                text = "${presetMins}m"
+                textSize = 12f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.parseColor("#38BDF8"))
+                gravity = Gravity.CENTER
+                setPadding(dp(12f), dp(6f), dp(12f), dp(6f))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(3f)
+                    marginEnd = dp(3f)
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(14f).toFloat()
+                    setColor(Color.parseColor("#1E293B"))
+                    setStroke(dp(1f), Color.parseColor("#38BDF8"))
+                }
+                setOnClickListener {
+                    input.setText(presetMins.toString())
+                    input.setSelection(input.text.length)
+                }
+            }
+            presetRow.addView(chip)
+        }
+        container.addView(presetRow)
+        container.addView(input)
+
         val dialogMessage = if (isBrowser) {
-            "Non-Study Website time today: $usedMinutesToday min\n(Study Websites always work 24/7 with no limit)\n\nSet daily cap for Non-Study Websites in minutes (e.g. 30):"
+            "Digital Wellbeing Telemetry Today:\n" +
+                "• Non-Study Web Time: $usedMinutesToday min\n" +
+                "• Total Browser Time: $exactTimeStr ($opensCount opens)\n" +
+                "• Study Websites: Allowed 24/7 with no limit\n\n" +
+                "Select a preset or enter daily Non-Study Website cap (minutes):"
         } else {
-            "Used today: $usedMinutesToday min\nSet a daily cap in minutes (e.g. 30):"
+            "Digital Wellbeing Telemetry Today:\n" +
+                "• Screen Time: $exactTimeStr ($opensCount opens · longest $longestStr)\n\n" +
+                "Select a preset or enter daily cap in minutes:"
         }
 
         AlertDialog.Builder(this)
             .setTitle("Daily Time Limit — ${app.appName}")
             .setMessage(dialogMessage)
-            .setView(input)
+            .setView(container)
             .setPositiveButton("Save & Apply ✓") { _, _ ->
                 val minutes = input.text.toString().toIntOrNull() ?: 0
                 val isLooseningLimit = (currentLimit > 0 && (minutes == 0 || minutes > currentLimit))

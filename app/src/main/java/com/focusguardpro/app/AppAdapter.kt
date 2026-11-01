@@ -13,10 +13,12 @@ import android.widget.ImageView
 import android.widget.Switch
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import kotlin.math.roundToInt
 
 class AppAdapter(
     private val apps: List<AppModel>,
     private val usedMinutesByPkg: Map<String, Int> = emptyMap(),
+    private val launchCountByPkg: Map<String, Int> = emptyMap(),
     private val onLimitClick: (AppModel) -> Unit,
     private val onToggle: (AppModel, Boolean) -> Unit
 ) : RecyclerView.Adapter<AppAdapter.ViewHolder>() {
@@ -53,12 +55,13 @@ class AppAdapter(
         holder.icon.setImageDrawable(app.icon)
 
         val usedMinutesToday = usedMinutesByPkg[app.packageName] ?: 0
+        val launchesToday = launchCountByPkg[app.packageName] ?: 0
         val limitMins = TimeLimitManager.getLimitMinutes(context, app.packageName)
         val hardBlocked = HardBlockManager.isHardBlocked(context, app.packageName)
         val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
-        val isWhitelisted = AppCategoryPrefs.getStudyApps(context).contains(app.packageName) ||
-            AppCategoryPrefs.getImprovementApps(context).contains(app.packageName) ||
-            BlockPolicyEngine.isUnblockedForToday(context, app.packageName)
+        val isStudy = AppCategoryPrefs.getStudyApps(context).contains(app.packageName)
+        val isImprove = AppCategoryPrefs.getImprovementApps(context).contains(app.packageName)
+        val isWhitelisted = isStudy || isImprove || BlockPolicyEngine.isUnblockedForToday(context, app.packageName)
 
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
         val effectiveLimit = if (limitMins > 0) limitMins else defaultCap
@@ -75,6 +78,8 @@ class AppAdapter(
 
         val showBadgeDetails = UiThemePrefs.isShowBlueTickStatusEnabled(context)
         val blueTickColor = Color.parseColor("#38BDF8") // Vibrant sky-blue tick badge
+        val opensSuffix = if (launchesToday > 0) " • $launchesToday opens" else ""
+        val quotaBar = buildInlineQuotaBar(usedMinutesToday, effectiveLimit, isWhitelisted)
 
         if (showBlueTick && showBadgeDetails) {
             val sb = SpannableStringBuilder()
@@ -90,19 +95,19 @@ class AppAdapter(
 
             val statusLine = when {
                 isBrowser && isLimitReached ->
-                    "\n✓ Study Sites 24/7 • Non-Study Limit (${usedMinutesToday}m / ${effectiveLimit}m)"
+                    "\n$quotaBar ✓ Study 24/7 • Non-Study Limit (${usedMinutesToday}m / ${effectiveLimit}m)$opensSuffix"
                 isBrowser ->
-                    "\n✓ Study Sites 24/7 • Non-Study Cap: ${effectiveLimit}m (${usedMinutesToday}m today)"
+                    "\n$quotaBar ✓ Study 24/7 • Non-Study Cap: ${effectiveLimit}m (${usedMinutesToday}m today)$opensSuffix"
                 isLimitReached ->
-                    "\n✓ Auto-Blocked • Limit reached (${usedMinutesToday}m / ${effectiveLimit}m)"
+                    "\n$quotaBar ✓ Auto-Blocked • Limit reached (${usedMinutesToday}m / ${effectiveLimit}m)$opensSuffix"
                 hardBlocked && limitMins > 0 ->
-                    "\n✓ Blocked • ${limitMins}m cap (${usedMinutesToday}m today)"
+                    "\n$quotaBar ✓ Blocked • ${limitMins}m cap (${usedMinutesToday}m today)$opensSuffix"
                 hardBlocked ->
-                    "\n✓ Hard Blocked (${usedMinutesToday}m today)"
+                    "\n$quotaBar ✓ Hard Blocked (${usedMinutesToday}m today)$opensSuffix"
                 limitMins > 0 ->
-                    "\n✓ Active Cap: ${limitMins}m (${usedMinutesToday}m used)"
+                    "\n$quotaBar ✓ Active Cap: ${limitMins}m (${usedMinutesToday}m used)$opensSuffix"
                 else ->
-                    "\n✓ Blocked (${usedMinutesToday}m today)"
+                    "\n$quotaBar ✓ Blocked (${usedMinutesToday}m today)$opensSuffix"
             }
             val subStart = sb.length
             sb.append(statusLine)
@@ -113,24 +118,35 @@ class AppAdapter(
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
             sb.setSpan(
-                RelativeSizeSpan(0.80f),
+                RelativeSizeSpan(0.79f),
                 subStart,
                 sb.length,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
             holder.name.text = sb
-        } else if ((usedMinutesToday > 0 || isBrowser) && showBadgeDetails) {
+        } else if ((usedMinutesToday > 0 || launchesToday > 0 || isBrowser || isStudy || isImprove) && showBadgeDetails) {
             val sb = SpannableStringBuilder()
             sb.append(app.appName)
             val subStart = sb.length
-            val subText = if (isBrowser) {
-                "\nStudy Sites 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m"
-            } else {
-                "\n${usedMinutesToday}m / ${effectiveLimit}m used today"
+            val subText = when {
+                isBrowser ->
+                    "\n$quotaBar Study Sites 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$opensSuffix"
+                isStudy ->
+                    "\n🟢 Study 24/7 • ${usedMinutesToday}m today$opensSuffix"
+                isImprove ->
+                    "\n🔵 Improve 24/7 • ${usedMinutesToday}m today$opensSuffix"
+                else ->
+                    "\n$quotaBar ${usedMinutesToday}m / ${effectiveLimit}m today$opensSuffix"
             }
             sb.append(subText)
+            val subColor = when {
+                isStudy -> Color.parseColor("#34D399")
+                isImprove -> Color.parseColor("#38BDF8")
+                usedMinutesToday >= (effectiveLimit * 0.8f).roundToInt() -> Color.parseColor("#F59E0B")
+                else -> Color.parseColor("#94A3B8")
+            }
             sb.setSpan(
-                ForegroundColorSpan(Color.parseColor("#94A3B8")),
+                ForegroundColorSpan(subColor),
                 subStart,
                 sb.length,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -197,6 +213,14 @@ class AppAdapter(
                 }
             }
         }
+    }
+
+    private fun buildInlineQuotaBar(usedMins: Int, limitMins: Int, isWhitelisted: Boolean): String {
+        if (isWhitelisted || limitMins <= 0) return ""
+        val ratio = (usedMins.toFloat() / limitMins.toFloat()).coerceIn(0f, 1f)
+        val filled = (ratio * 5f).roundToInt().coerceIn(0, 5)
+        val empty = 5 - filled
+        return "[" + "▰".repeat(filled) + "▱".repeat(empty) + "]"
     }
 
     override fun getItemCount(): Int = apps.size

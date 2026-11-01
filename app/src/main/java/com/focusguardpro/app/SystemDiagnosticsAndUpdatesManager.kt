@@ -80,12 +80,13 @@ object SystemDiagnosticsAndUpdatesManager {
             versionName = "1.4",
             versionCode = 5,
             dateLabel = "Official Milestone • Build 5",
-            headline = "Direct Daily Time Notebook, Ocean Cyan Default + White/Black Backgrounds & Selective Release Control",
+            headline = "Digital Wellbeing Exact Engine, 30m Cap & Study Web 24/7, Ocean Cyan + AMOLED/Light Modes",
             highlights = listOf(
-                "📓 Direct Daily Time Notebook Launch: Tapping 'Daily Time Notebook' now opens your Daily Time Notebook directly, bypassing the 'Welcome Back!' popup.",
-                "🌊 Ocean Cyan Default + Pure Black & Pure White Backgrounds: Ocean Cyan is now the default color palette, plus two new background modes — True AMOLED Black (#000000) and Clean Daylight White (#F8FAFC).",
-                "🛡️ Hardened Real-Time App Blocker: Eliminated SystemUI status-bar interference and 10s UsageEvents blind spots across Hard Blocks, Focus Schedules, Deep Focus Studio, and Daily Caps.",
-                "🎯 Selective Milestone Release Control: Separate private test builds (GitHub Actions tab) from official public releases (GitHub Main Page Releases) so users only receive the milestone updates you choose."
+                "📊 Digital Wellbeing Exact Foreground Engine: Full activity lifecycle state machine (RESUMED, PAUSED, STOPPED, KEYGUARD, SHUTDOWN) with cross-midnight clamping, launcher/SystemUI/keyboard exclusion, unlock & launch counters, and 24-hour hourly timeline.",
+                "🛡️ Instant 30m App Cap & Study Website 24/7 Engine: Enforces the 30-minute daily cap across non-study apps and non-study websites while keeping Study Websites unlocked 24/7.",
+                "📓 Direct Daily Time Notebook Launch: Tapping 'Daily Time Notebook' opens your Daily Time Notebook directly, bypassing the 'Welcome Back!' popup.",
+                "🌊 Ocean Cyan Default + Pure Black & Pure White Backgrounds: Ocean Cyan default palette plus True AMOLED Black (#000000) and Clean Daylight White (#F8FAFC).",
+                "🎯 Selective Milestone Release Control: Separate private test builds (GitHub Actions tab) from official public releases (GitHub Main Page Releases)."
             )
         ),
         ReleaseNote(
