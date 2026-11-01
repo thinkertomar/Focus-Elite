@@ -161,9 +161,7 @@ class FocusForegroundMonitorService : Service() {
                 val delayTime = try {
                     if (isScreenOn && !isKeyguardLocked()) {
                         evaluateAndBlockForeground()
-                        val focusActive = FocusLayerManager.isActiveNow(this@FocusForegroundMonitorService) ||
-                            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
-                        if (focusActive) FAST_POLL_MS else IDLE_POLL_MS
+                        FAST_POLL_MS
                     } else {
                         IDLE_POLL_MS
                     }
@@ -220,44 +218,83 @@ class FocusForegroundMonitorService : Service() {
 
         val nowMs = FocusLayerManager.verifiedNowMs(this)
 
-        // 3. Authoritative policy evaluation (HardBlock, Scheduled/Manual Focus Layer, Deep Focus Session, Blackout, Daily Limit)
+        // 3. Browser packages: evaluate per-website (Study websites work 24/7; Non-study websites respect 30m cap & Focus Layer)
+        if (BlockPolicyEngine.isBrowserPackage(fgPkg)) {
+            val a11y = BlockerAccessibilityService.instance
+            if (a11y != null) {
+                a11y.evaluateActiveBrowserFromMonitor(fgPkg)
+            } else {
+                val lastHost = BlockPolicyEngine.getLastActiveBrowserHost(this, fgPkg, nowMs)
+                if (!lastHost.isNullOrBlank()) {
+                    BlockPolicyEngine.recordBrowserWebsiteSample(this, fgPkg, lastHost, nowMs)
+                    val urlDecision = BlockPolicyEngine.evaluateBrowserUrl(this, fgPkg, lastHost, nowMs)
+                    if (urlDecision is BlockDecision.Blocked) {
+                        triggerEnforcement(urlDecision.target, urlDecision.reason.wireKey, nowMs, isWebsite = true, blockedPkgName = fgPkg)
+                    }
+                }
+            }
+            return
+        }
+
+        // 4. Authoritative policy evaluation for Non-Browser Apps (HardBlock, Focus Layer, Deep Focus, Blackout, 30m Daily Limit)
         val decision = BlockPolicyEngine.evaluateApp(this, fgPkg, nowMs)
         if (decision is BlockDecision.Blocked) {
-            triggerEnforcement(decision.target, decision.reason.wireKey, nowMs)
+            triggerEnforcement(decision.target, decision.reason.wireKey, nowMs, isWebsite = false, blockedPkgName = fgPkg)
         }
     }
 
-    private fun triggerEnforcement(pkg: String, reason: String, nowMs: Long) {
-        // Debounce repeated blocks of the same package within 1.2 seconds
-        if (pkg == lastBlockedPkg && nowMs - lastBlockedTimeMs < 1200L) {
+    private fun triggerEnforcement(
+        target: String,
+        reason: String,
+        nowMs: Long,
+        isWebsite: Boolean = false,
+        blockedPkgName: String = target
+    ) {
+        // Debounce repeated blocks of the same target within 1.0 second
+        if (target == lastBlockedPkg && nowMs - lastBlockedTimeMs < 1000L) {
             return
         }
-        lastBlockedPkg = pkg
+        lastBlockedPkg = target
         lastBlockedTimeMs = nowMs
 
         // Clear tracker package to reset state
-        ForegroundTracker.currentPackage = null
-        ForegroundTracker.currentPackageSince = 0L
-        lastResolvedUsagesPkg = null
+        if (!isWebsite) {
+            ForegroundTracker.currentPackage = null
+            ForegroundTracker.currentPackageSince = 0L
+            lastResolvedUsagesPkg = null
+        }
 
-        // Enhanced mode: force stop package via Shizuku/Porter
-        if (PorterBridge.isEnhancedModeActive()) {
+        // Delegate to BlockerAccessibilityService first so enforcement runs with Accessibility window privileges on Android 10-15
+        val a11y = BlockerAccessibilityService.instance
+        if (a11y != null) {
+            a11y.enforceBlockNow(
+                target = target,
+                reasonWireKey = reason,
+                isWebsite = isWebsite,
+                blockedPackageName = blockedPkgName
+            )
+            return
+        }
+
+        // Enhanced mode fallback: force stop package via Shizuku/Porter
+        if (!isWebsite && PorterBridge.isEnhancedModeActive()) {
             try {
-                PorterBridge.forceStopPackage(pkg)
+                PorterBridge.forceStopPackage(blockedPkgName)
             } catch (_: Exception) {}
         }
 
-        // Minimise distracting app immediately by routing to home
+        // Launch full-screen BlockActivity explaining why the app/website is blocked
         try {
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(homeIntent)
-        } catch (_: Exception) {}
-
-        // Launch full-screen BlockActivity explaining why the app is blocked
-        timeLimitManager.triggerBlock(pkg, reason)
+            timeLimitManager.triggerBlock(target, reason)
+        } catch (_: Exception) {
+            try {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(homeIntent)
+            } catch (_: Exception) {}
+        }
     }
 
     private fun getActiveForegroundPackage(): String? {

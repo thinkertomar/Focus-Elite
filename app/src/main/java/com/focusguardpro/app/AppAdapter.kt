@@ -55,8 +55,10 @@ class AppAdapter(
         val usedMinutesToday = usedMinutesByPkg[app.packageName] ?: 0
         val limitMins = TimeLimitManager.getLimitMinutes(context, app.packageName)
         val hardBlocked = HardBlockManager.isHardBlocked(context, app.packageName)
+        val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
         val isWhitelisted = AppCategoryPrefs.getStudyApps(context).contains(app.packageName) ||
-            AppCategoryPrefs.getImprovementApps(context).contains(app.packageName)
+            AppCategoryPrefs.getImprovementApps(context).contains(app.packageName) ||
+            BlockPolicyEngine.isUnblockedForToday(context, app.packageName)
 
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
         val effectiveLimit = if (limitMins > 0) limitMins else defaultCap
@@ -87,11 +89,20 @@ class AppAdapter(
             )
 
             val statusLine = when {
-                hardBlocked && limitMins > 0 -> "\n✓ Blocked • ${limitMins}m cap (${usedMinutesToday}m today)"
-                hardBlocked -> "\n✓ Hard Blocked (${usedMinutesToday}m today)"
-                isLimitReached -> "\n✓ Auto-Blocked • Limit reached (${usedMinutesToday}m / ${effectiveLimit}m)"
-                limitMins > 0 -> "\n✓ Active Cap: ${limitMins}m (${usedMinutesToday}m used)"
-                else -> "\n✓ Blocked (${usedMinutesToday}m today)"
+                isBrowser && isLimitReached ->
+                    "\n✓ Study Sites 24/7 • Non-Study Limit (${usedMinutesToday}m / ${effectiveLimit}m)"
+                isBrowser ->
+                    "\n✓ Study Sites 24/7 • Non-Study Cap: ${effectiveLimit}m (${usedMinutesToday}m today)"
+                isLimitReached ->
+                    "\n✓ Auto-Blocked • Limit reached (${usedMinutesToday}m / ${effectiveLimit}m)"
+                hardBlocked && limitMins > 0 ->
+                    "\n✓ Blocked • ${limitMins}m cap (${usedMinutesToday}m today)"
+                hardBlocked ->
+                    "\n✓ Hard Blocked (${usedMinutesToday}m today)"
+                limitMins > 0 ->
+                    "\n✓ Active Cap: ${limitMins}m (${usedMinutesToday}m used)"
+                else ->
+                    "\n✓ Blocked (${usedMinutesToday}m today)"
             }
             val subStart = sb.length
             sb.append(statusLine)
@@ -108,11 +119,16 @@ class AppAdapter(
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
             holder.name.text = sb
-        } else if (usedMinutesToday > 0 && showBadgeDetails) {
+        } else if ((usedMinutesToday > 0 || isBrowser) && showBadgeDetails) {
             val sb = SpannableStringBuilder()
             sb.append(app.appName)
             val subStart = sb.length
-            sb.append("\n${usedMinutesToday}m used today")
+            val subText = if (isBrowser) {
+                "\nStudy Sites 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m"
+            } else {
+                "\n${usedMinutesToday}m / ${effectiveLimit}m used today"
+            }
+            sb.append(subText)
             sb.setSpan(
                 ForegroundColorSpan(Color.parseColor("#94A3B8")),
                 subStart,

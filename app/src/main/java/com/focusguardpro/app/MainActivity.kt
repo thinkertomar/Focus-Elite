@@ -724,6 +724,7 @@ class MainActivity : AppCompatActivity() {
             val studyApps = AppCategoryPrefs.getStudyApps(this@MainActivity)
             val improveApps = AppCategoryPrefs.getImprovementApps(this@MainActivity)
             val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
+            val nonStudyBrowserMins = BlockPolicyEngine.getNonStudyBrowserMinutesToday(this@MainActivity).toInt()
 
             val appModels = resolveInfos.mapNotNull { ri ->
                 val pkg = ri.activityInfo.packageName
@@ -732,14 +733,28 @@ class MainActivity : AppCompatActivity() {
                 if (SystemExclusions.isExcludedPackage(this@MainActivity, pkg)) return@mapNotNull null
                 val name = ri.loadLabel(pm).toString()
                 val icon = ri.loadIcon(pm)
-                val usedMins = ((usageMsMap[pkg] ?: 0L) / 60000L).toInt()
+                val isBrowser = BlockPolicyEngine.isBrowserPackage(pkg)
+                val usedMins = if (isBrowser) {
+                    nonStudyBrowserMins
+                } else {
+                    ((usageMsMap[pkg] ?: 0L) / 60000L).toInt()
+                }
                 usedMinsMap[pkg] = usedMins
 
                 val limitMins = TimeLimitManager.getLimitMinutes(this@MainActivity, pkg)
                 val hardBlocked = HardBlockManager.isHardBlocked(this@MainActivity, pkg)
-                val isWhitelisted = studyApps.contains(pkg) || improveApps.contains(pkg)
+                val isWhitelisted = studyApps.contains(pkg) ||
+                    improveApps.contains(pkg) ||
+                    BlockPolicyEngine.isUnblockedForToday(this@MainActivity, pkg)
                 val effectiveCap = if (limitMins > 0) limitMins else defaultCap
                 val reachedCap = usedMins >= effectiveCap && !isWhitelisted
+
+                // Ensure the 30m default cap is persisted in TimeLimitManager once reached
+                if (reachedCap && limitMins <= 0) {
+                    try {
+                        TimeLimitManager.setLimitMinutes(this@MainActivity, pkg, effectiveCap)
+                    } catch (_: Exception) {}
+                }
 
                 val isBlockedNow = hardBlocked || reachedCap
                 AppModel(name, pkg, icon, isBlockedNow)
@@ -758,6 +773,7 @@ class MainActivity : AppCompatActivity() {
                     onLimitClick = { app -> showLimitDialog(app, usedMinsMap[app.packageName] ?: 0) },
                     onToggle = { app, isChecked ->
                         val cap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
+                        val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
                         if (!isChecked && FocusLayerManager.isLockedUntilCalendarHoliday(this@MainActivity)) {
                             // Reverting the switch immediately until Proof-of-Effort is completed
                             loadAppList()
@@ -773,10 +789,15 @@ class MainActivity : AppCompatActivity() {
                             }
                         } else {
                             BlockPolicyEngine.setAppBlocked(this@MainActivity, app.packageName, isChecked, cap)
-                            val msg = if (isChecked) {
-                                "✓ ${app.appName} blocked (${TimeLimitManager.getLimitMinutes(this@MainActivity, app.packageName)}m cap)"
-                            } else {
-                                "${app.appName} unblocked"
+                            val msg = when {
+                                isBrowser && isChecked ->
+                                    "✓ ${app.appName}: Non-Study Websites locked (Study Websites work 24/7)"
+                                isBrowser ->
+                                    "${app.appName}: Study Websites work 24/7 • Non-Study 30m cap active"
+                                isChecked ->
+                                    "✓ ${app.appName} blocked (${TimeLimitManager.getLimitMinutes(this@MainActivity, app.packageName)}m cap)"
+                                else ->
+                                    "${app.appName} unblocked for today"
                             }
                             Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                             refreshSuggestionCard()
@@ -856,6 +877,7 @@ class MainActivity : AppCompatActivity() {
         acceptBtn.setOnClickListener {
             HardBlockManager.setHardBlocked(this, targetPkg, true)
             TimeLimitManager.setLimitMinutes(this, targetPkg, capMins)
+            BlockPolicyEngine.setUnblockedForToday(this, targetPkg, false)
             SmartSuggestionEngine.dismiss(this, targetPkg)
             Toast.makeText(
                 this,
@@ -874,18 +896,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun showLimitDialog(app: AppModel, usedMinutesToday: Int) {
         val currentLimit = TimeLimitManager.getLimitMinutes(this, app.packageName)
+        val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
-            hint = "Minutes per day (0 = no custom limit)"
+            hint = "Minutes per day (default 30)"
             if (currentLimit > 0) {
                 setText(currentLimit.toString())
             }
             setPadding(48, 32, 48, 32)
         }
 
+        val dialogMessage = if (isBrowser) {
+            "Non-Study Website time today: $usedMinutesToday min\n(Study Websites always work 24/7 with no limit)\n\nSet daily cap for Non-Study Websites in minutes (e.g. 30):"
+        } else {
+            "Used today: $usedMinutesToday min\nSet a daily cap in minutes (e.g. 30):"
+        }
+
         AlertDialog.Builder(this)
             .setTitle("Daily Time Limit — ${app.appName}")
-            .setMessage("Used today: $usedMinutesToday min\nSet a daily cap in minutes (e.g. 30):")
+            .setMessage(dialogMessage)
             .setView(input)
             .setPositiveButton("Save & Apply ✓") { _, _ ->
                 val minutes = input.text.toString().toIntOrNull() ?: 0
@@ -896,7 +925,7 @@ class MainActivity : AppCompatActivity() {
                         title = "Increase Limit — ${app.appName}",
                         reasonPrompt = "Increasing or clearing a daily cap during active Fortress Lock requires Physical Proof-of-Effort."
                     ) {
-                        TimeLimitManager.setLimitMinutes(this, app.packageName, minutes)
+                        BlockPolicyEngine.setTimeLimit(this, app.packageName, minutes)
                         if (minutes > 0 && usedMinutesToday < minutes) {
                             HardBlockManager.setHardBlocked(this, app.packageName, false)
                         }
@@ -908,8 +937,8 @@ class MainActivity : AppCompatActivity() {
                         loadAppList()
                     }
                 } else {
-                    TimeLimitManager.setLimitMinutes(this, app.packageName, minutes)
-                    if (minutes > 0 && usedMinutesToday >= minutes) {
+                    BlockPolicyEngine.setTimeLimit(this, app.packageName, minutes)
+                    if (!isBrowser && minutes > 0 && usedMinutesToday >= minutes) {
                         HardBlockManager.setHardBlocked(this, app.packageName, true)
                     } else if (minutes > 0 && usedMinutesToday < minutes) {
                         HardBlockManager.setHardBlocked(this, app.packageName, false)
@@ -931,11 +960,13 @@ class MainActivity : AppCompatActivity() {
                     ) {
                         TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
                         HardBlockManager.setHardBlocked(this, app.packageName, false)
+                        BlockPolicyEngine.setUnblockedForToday(this, app.packageName, true)
                         loadAppList()
                     }
                 } else {
                     TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
                     HardBlockManager.setHardBlocked(this, app.packageName, false)
+                    BlockPolicyEngine.setUnblockedForToday(this, app.packageName, true)
                     loadAppList()
                 }
             }
