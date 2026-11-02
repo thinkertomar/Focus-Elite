@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "PdfCraft"
+rootProject.name = "Focus Elite"
 
 include(":app")

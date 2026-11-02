@@ -1,116 +1,88 @@
-# PdfCraft for Android
+# 🛡️ Focus Elite
 
-<p align="center">
-  <strong>Fast, 100% Offline PDF Reader, Page Organizer, and Document Manipulation Studio</strong>
-</p>
+> **100% Offline Digital Wellbeing, Fortress Distraction Shield, Time Analytics & Physical Proof-of-Effort Engine for Android**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Platform-Android%207.0%2B-brightgreen" alt="Platform" />
-  <img src="https://img.shields.io/badge/Language-Kotlin-blue" alt="Language" />
-  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20%28Material%203%29-indigo" alt="UI" />
-  <img src="https://img.shields.io/badge/Engine-Apache%20PDFBox%20%2B%20PdfRenderer-crimson" alt="Engine" />
-  <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-teal" alt="Privacy" />
-</p>
+[![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-3DDC84?logo=android&logoColor=white)](https://github.com/thinkertomar/Focus-Elite)
+[![Package](https://img.shields.io/badge/Package-com.focuselite.app-6366F1)](https://github.com/thinkertomar/Focus-Elite)
+[![Language](https://img.shields.io/badge/Language-Kotlin-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Offline%20%E2%80%A2%20Zero%20Internet%20Permission-10B981)](./SECURITY.md)
+[![Version](https://img.shields.io/badge/Release-v1.3%20(Build%204)-38BDF8)](https://github.com/thinkertomar/Focus-Elite/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg)](./LICENSE)
 
 ---
 
-## Overview
+## 📖 Overview
 
-**PdfCraft for Android** is a high-speed, local-first PDF workbench inspired by the open-source Rust desktop application [PdfCraft](https://github.com/storytold/pdfcraft). Re-engineered natively for mobile with Jetpack Compose, Android's hardware-accelerated graphics pipeline, and Apache PDFBox (`pdfbox-android`), PdfCraft provides desktop-grade document manipulation right in your pocket with zero external network requests and total data privacy.
+**Focus Elite (`com.focuselite.app`)** is an open-source, high-discipline, privacy-first Android application engineered to eliminate digital distractions, reclaim deep work hours, and connect screen discipline with physical movement.
 
----
-
-## Key Features
-
-- **📖 High-Fidelity PDF Viewer**: Continuous reader with smooth pinch-to-zoom (up to 450%), thumbnail preview carousel, page scrubber, and quick jump-to-page dialog.
-- **📑 Visual Page Organizer**:
-  - Interactive grid displaying real-time rendered page thumbnails.
-  - Rearrange page order with tap-to-move controls.
-  - Rotate individual or all pages in 90°, 180°, and 270° increments.
-  - Clone/duplicate pages and delete unnecessary sheets.
-  - Direct export via Android Storage Access Framework (SAF).
-- **🛠️ Comprehensive Tool Suite**:
-  - **Merge PDFs**: Combine multiple independent documents into a single consolidated master PDF.
-  - **Split PDF**: Extract custom page ranges (e.g., `1-3`, `4,7-9`) into standalone files.
-  - **Images to PDF**: Convert camera scans, notes, receipts, and gallery photos into clean A4 vector PDFs with automatic centering.
-  - **PDF to Images**: Extract high-resolution PNG bitmaps of pages directly to your photo album.
-  - **Watermark & Page Stamping**: Stamp custom semi-transparent diagonal confidentiality notices and automated footer page badges (`Page X of Y`).
-  - **Metadata Inspector**: Read and inspect document Title, Author, Creator, Page Count, and File Size.
-- **🔒 100% Offline & Private**: Zero cloud servers, zero telemetry, zero accounts. All PDF processing happens directly in local device memory.
-- **📂 Document Hub**: Built-in 4-page interactive sample guide ready to explore immediately on first launch, plus local Room database history for recent files.
+Unlike cloud-based screen time trackers that harvest telemetry, **Focus Elite does not request `android.permission.INTERNET`**. The Android OS kernel strictly prevents the app from opening network sockets—meaning **zero bytes of your usage data, habits, or personal logs can ever leave your device**.
 
 ---
 
-## Installing & Running via GitHub
+## ✨ Core Features & Architecture
 
-### Option 1: Download Pre-Built APK (GitHub Actions / Releases)
+### 1. 🚀 Guided 4-Step First-Time Setup (Zero Self-Lockout Order)
+To ensure new users can configure their rules smoothly without triggering anti-tamper protections while inside Android Settings, Focus Elite enforces a logical **4-Step Setup Flow**:
+1. **Step 1 — Grant Usage Access (`PACKAGE_USAGE_STATS`):** Enables accurate on-device screen time and 30-minute app cap tracking.
+2. **Step 2 — Define App Criteria (`Study` • `Self-Improvement` • `Ignored`):** Whitelist productive apps and classify distractions before turning on enforcement.
+3. **Step 3 — Set Focus Schedule Window:** Customize active focus hours (default `9:00 AM – 6:00 PM`) and active days of the week.
+4. **Step 4 — Enable Final Enforcement Shields Last:** Activate **Unrestricted Battery**, **Device Admin**, and the **Accessibility Blocker Shield** last, protected by an automatic **3-minute Setup Grace Window** so Android Settings never blocks you during initial configuration.
 
-1. Open this repository on GitHub.
-2. Click on the **Actions** tab.
-3. Select the latest **Build & Package Android APK** workflow run.
-4. Scroll down to **Artifacts** and download `PdfCraft-debug-apk.zip`.
-5. Unzip and transfer `app-debug.apk` to your Android device, or install via ADB:
-   ```bash
-   adb install app-debug.apk
-   ```
+### 2. ⚙️ Automatic System Apps Exclusion (24/7 Safe Device Utilities)
+All core Android system apps and essential device utilities—including **Phone/Dialer, SMS/Messages, Camera, Clock/Alarm, Calculator, Contacts, Calendar, Files, Settings, Permission Controller, Authenticators, and UPI/Payment apps**—are automatically excluded from the blocklist and allowed 24/7 so you never experience issues with any system-provided feature. Pre-installed distraction apps (such as YouTube, Chrome, or social apps) remain fully categorizable and blockable.
 
-*(Alternatively, any Git tag push like `git tag v1.0.0 && git push origin v1.0.0` will automatically create a GitHub Release with the APK attached!)*
+### 3. 🔒 Fortress Focus Layer & Physical Proof-of-Effort Gate
+- **No-Escape Focus Schedule:** Protects your productive window with an active Accessibility Shield, Device Admin anti-uninstall lock, and monotonic clock-tamper detection.
+- **Physical Proof-of-Effort Unlock:** Emergency 15-minute breaks or rule edits during active focus hours require verified hardware movement (**25 steps** or **10 squats** via on-device sensors) plus a cognitive commitment typing challenge.
+- **24-Hour Advance Calendar Holiday Rule:** Calendar holidays must be scheduled at least **24 hours in advance**, preventing impulsive same-day holiday bypasses.
 
----
+### 4. 📊 Time Analysis Bar Graphs, Daily Time Notebook & Calisthenics
+- **Smart 30-Minute Daily Caps & Blue Tick (`✓`) Indicator:** Flags non-study apps exceeding 30 minutes of daily usage and marks enforced apps with a sky-blue tick (`✓`).
+- **24-Hour Time Splitter & Analytics:** Log offline hours in the **Daily Time Notebook** and inspect 7-day stacked bar charts and 24-hour distribution breakdowns.
+- **Physical Activity & Calisthenics Studio:** Track daily steps, kilometres, active minutes, calories burned, and structured calisthenics progressions using local hardware sensors.
 
-### Option 2: Clone & Build from Source
-
-#### Prerequisites
-- **Git**
-- **JDK 17 or higher** (`java -version`)
-- **Android SDK** with platform `android-36` (Build Tools 36) or Android Studio
-
-#### Build Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/<your-username>/pdfcraft-android.git
-   cd pdfcraft-android
-   ```
-
-2. Grant execute permission to the Gradle wrapper:
-   ```bash
-   chmod +x gradlew
-   ```
-
-3. Build the debug APK:
-   ```bash
-   ./gradlew assembleDebug
-   ```
-
-4. Install the APK onto a connected Android phone or emulator:
-   ```bash
-   adb install app/build/outputs/apk/debug/app-debug.apk
-   ```
+### 5. 🛠️ Built-In Update Showcase, 7-Point Offline Health Scanner & Feedback Studio (`v1.3`)
+Located inside **Hub & Guide → `🛠️ Updates & Health`**:
+- **🎉 What's New Presentation & GitHub Release Launcher:** Automatically notifies you when a new version is installed, presents a full visual breakdown of new features, and provides a 1-tap browser launcher to download & install updates in-place from [GitHub Releases](https://github.com/thinkertomar/Focus-Elite/releases) without losing data.
+- **🩺 7-Point Offline Error Detector & Auto-Repair:** Scans Privacy Seal, SQLite Room Database, Usage Access, App Criteria, Device Admin, Accessibility Shield, and Battery/Clock Integrity—with a **1-Tap Auto-Repair** button and local crash/anomaly log.
+- **💬 Privacy-Driven Feedback & Upgrade Studio:** Write feature requests, self-opinions, or bug reports with an optional 7-point diagnostic snapshot and copy a clean Markdown report directly to your clipboard or open GitHub Issues.
 
 ---
 
-## Tech Stack & Architecture
+## 🔒 100% Offline & Zero-Internet Privacy Guarantee
 
-- **UI Framework**: Modern declarative UI with [Jetpack Compose](https://developer.android.com/jetpack/compose) & [Material Design 3 (M3)](https://m3.material.io/).
-- **PDF Engines**:
-  - `android.graphics.pdf.PdfRenderer`: Hardware-accelerated bitmap rasterization for instant rendering and responsive zoom/pan.
-  - `android.graphics.pdf.PdfDocument`: Canvas-based page compilation, transforms, and exports.
-  - `com.tom-roush:pdfbox-android:2.0.27.0`: Apache PDFBox port for Android document manipulation, resource loading, and metadata extraction.
-- **Local Persistence**: [Room Database (SQLite)](https://developer.android.com/training/data-storage/room) for caching recent documents and quick reopen.
-- **Concurrency & State**: Kotlin Coroutines & `MutableStateFlow` following MVVM (Model-View-ViewModel) architecture.
-- **File Sharing**: Android `FileProvider` with Storage Access Framework (SAF) integration for secure, zero-permission document export.
-
----
-
-## System Requirements
-
-- **Minimum SDK**: Android 7.0 (API level 24)
-- **Target SDK**: Android 16 (API level 36)
-- **Architecture**: Supports all Android ABIs (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`).
+| Permission | Status in Focus Elite | Purpose (100% Local On-Device) |
+| :--- | :--- | :--- |
+| `android.permission.INTERNET` | ❌ **NEVER REQUESTED** | Guaranteed zero network access; no data can ever leave your phone. |
+| `ACCESS_FINE_LOCATION` / `COARSE_LOCATION` | ❌ **NEVER REQUESTED** | Zero GPS or location tracking. |
+| `PACKAGE_USAGE_STATS` | ✅ Local Only | Calculates daily screen time and 30-minute app limits on-device. |
+| `BIND_ACCESSIBILITY_SERVICE` | ✅ Local Only | Detects when a blocked app or distracting browser URL opens to display the local Focus Shield. |
+| `BIND_DEVICE_ADMIN` | ✅ Local Only | Prevents impulse uninstallation during active focus sessions. |
+| `ACTIVITY_RECOGNITION` | ✅ Local Only | Counts hardware steps and squats for fitness stats and Proof-of-Effort unlocks. |
 
 ---
 
-## License
+## 📲 Installation, Play Protect & In-Place Updates
 
-This project is licensed under the Apache 2.0 License.
+### Installing from GitHub Releases
+1. Download **`Focus-Elite-latest.apk`** from the [Latest Release](https://github.com/thinkertomar/Focus-Elite/releases).
+2. **Note on Google Play Protect (Sideloaded APKs):** Because Focus Elite is installed outside the Google Play Store and uses `AccessibilityService` + `DeviceAdmin` to block distracting apps, Android's Play Protect may display a standard precautionary prompt (*"App blocked to protect your device"*). Tap **"More details" → "Install anyway"**. (See [SECURITY.md](./SECURITY.md) for why Focus Elite is provably safe with zero internet permissions.)
+3. **Android 13+ Restricted Settings:** Before enabling the Accessibility Shield in Step 4, if Android shows *"Restricted setting"*, open **Android Settings → Apps → Focus Elite → Top-right `⋮` menu → "Allow restricted settings"**.
+
+### Updating Without Losing Data
+Once you are on `com.focuselite.app`, installing any newer release APK from [GitHub Releases](https://github.com/thinkertomar/Focus-Elite/releases) updates the app **in-place** while preserving all your schedules, categories, and history.
+
+---
+
+## 🛠️ Building from Source & Contributing
+
+```bash
+git clone https://github.com/thinkertomar/Focus-Elite.git
+cd Focus-Elite
+./gradlew assembleDebug
+```
+
+We welcome code reviews, architectural guidance, and Pull Requests! Please read:
+- [**CONTRIBUTING.md**](./CONTRIBUTING.md) — Architecture overview, coding standards, and PR workflow
+- [**SECURITY.md**](./SECURITY.md) — Zero-Internet verification and permission model
+- [**LICENSE**](./LICENSE) — MIT License

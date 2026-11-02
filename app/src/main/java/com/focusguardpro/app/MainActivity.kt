@@ -727,29 +727,35 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshDailyAuditCard() {
         val subtitle = findViewById<TextView>(R.id.tvDailyAuditSubtitle) ?: return
-        try {
-            val cal = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            val startOfDay = cal.timeInMillis
-            val now = System.currentTimeMillis()
-            val awayRecords = DaySummaryHelper.getAwayRecords(this, startOfDay, now)
-            val totalAwayMins = DaySummaryHelper.awayStudyMinutes(awayRecords) +
-                DaySummaryHelper.awayImproveMinutes(awayRecords) +
-                DaySummaryHelper.awayDistractMinutes(awayRecords) +
-                DaySummaryHelper.awayIgnoreMinutes(awayRecords) +
-                DaySummaryHelper.awaySleepMinutes(awayRecords)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val textToSet = try {
+                val cal = Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val startOfDay = cal.timeInMillis
+                val now = System.currentTimeMillis()
+                val awayRecords = DaySummaryHelper.getAwayRecords(this@MainActivity, startOfDay, now)
+                val totalAwayMins = DaySummaryHelper.awayStudyMinutes(awayRecords) +
+                    DaySummaryHelper.awayImproveMinutes(awayRecords) +
+                    DaySummaryHelper.awayDistractMinutes(awayRecords) +
+                    DaySummaryHelper.awayIgnoreMinutes(awayRecords) +
+                    DaySummaryHelper.awaySleepMinutes(awayRecords)
 
-            if (totalAwayMins > 0L) {
-                subtitle.text = "${DaySummaryHelper.formatMinutes(totalAwayMins)} logged today • Tap to open Daily Time Notebook"
-            } else {
-                subtitle.text = "Tap to open Daily Time Notebook & log activities"
+                if (totalAwayMins > 0L) {
+                    "${DaySummaryHelper.formatMinutes(totalAwayMins)} logged today • Tap to open Daily Time Notebook"
+                } else {
+                    "Tap to open Daily Time Notebook & log activities"
+                }
+            } catch (_: Throwable) {
+                "Log offline hours, track habits & reflect daily"
             }
-        } catch (_: Throwable) {
-            subtitle.text = "Log offline hours, track habits & reflect daily"
+
+            withContext(Dispatchers.Main) {
+                subtitle.text = textToSet
+            }
         }
     }
 
@@ -823,53 +829,63 @@ class MainActivity : AppCompatActivity() {
             heroKpiPeakHour?.text = "—"
             return
         }
-        val snapshot = UsageStatsHelper.getTodayWellbeingSnapshot(this)
-        screenTimeText.text = UsageStatsHelper.formatPreciseDuration(snapshot.totalScreenTimeMs)
 
-        heroKpiUnlocks?.text = snapshot.unlockCount.toString()
-        heroKpiLaunches?.text = snapshot.totalAppLaunches.toString()
-        heroKpiPeakHour?.text = if (snapshot.peakHourMinutes > 0) {
-            UsageStatsHelper.formatHourLabel(snapshot.peakHourIndex)
-        } else {
-            "—"
-        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val snapshot = UsageStatsHelper.getTodayWellbeingSnapshot(this@MainActivity)
+            val timeText = UsageStatsHelper.formatPreciseDuration(snapshot.totalScreenTimeMs)
+            val unlocksText = snapshot.unlockCount.toString()
+            val launchesText = snapshot.totalAppLaunches.toString()
+            val peakHourText = if (snapshot.peakHourMinutes > 0) {
+                UsageStatsHelper.formatHourLabel(snapshot.peakHourIndex)
+            } else {
+                "—"
+            }
 
-        val diffMs = snapshot.totalScreenTimeMs - snapshot.yesterdayScreenTimeMs
-        val absDiffStr = UsageStatsHelper.formatDuration(kotlin.math.abs(diffMs))
-        val studyMins = snapshot.studyMs / 60_000L
-        val distractMins = snapshot.distractMs / 60_000L
-        when {
-            snapshot.yesterdayScreenTimeMs <= 0L -> {
-                heroDeltaBadge?.text = "✓ Digital Wellbeing Exact • Study ${studyMins}m · Distract ${distractMins}m"
-                heroDeltaBadge?.setTextColor(Color.parseColor("#38BDF8"))
-            }
-            diffMs < -60_000L -> {
-                heroDeltaBadge?.text = "▼ $absDiffStr vs yesterday • Study ${studyMins}m · Distract ${distractMins}m"
-                heroDeltaBadge?.setTextColor(Color.parseColor("#34D399"))
-            }
-            diffMs > 60_000L -> {
-                heroDeltaBadge?.text = "▲ $absDiffStr vs yesterday • Study ${studyMins}m · Distract ${distractMins}m"
-                heroDeltaBadge?.setTextColor(Color.parseColor("#F59E0B"))
-            }
-            else -> {
-                heroDeltaBadge?.text = "≈ Same pace as yesterday • Study ${studyMins}m · Distract ${distractMins}m"
-                heroDeltaBadge?.setTextColor(Color.parseColor("#38BDF8"))
-            }
-        }
+            val diffMs = snapshot.totalScreenTimeMs - snapshot.yesterdayScreenTimeMs
+            val absDiffStr = UsageStatsHelper.formatDuration(kotlin.math.abs(diffMs))
+            val studyMins = snapshot.studyMs / 60_000L
+            val distractMins = snapshot.distractMs / 60_000L
 
-        val totalCatMs = kotlin.math.max(1L, snapshot.studyMs + snapshot.improveMs + snapshot.distractMs + snapshot.utilityMs).toFloat()
-        (heroSegStudy?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.studyMs / totalCatMs).coerceAtLeast(if (snapshot.studyMs > 0L) 0.06f else 0f)
-        (heroSegImprove?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.improveMs / totalCatMs).coerceAtLeast(if (snapshot.improveMs > 0L) 0.06f else 0f)
-        (heroSegDistract?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.distractMs / totalCatMs).coerceAtLeast(if (snapshot.distractMs > 0L) 0.06f else 0f)
-        (heroSegUtility?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.utilityMs / totalCatMs).coerceAtLeast(if (snapshot.utilityMs > 0L) 0.06f else 0f)
-        if (snapshot.totalScreenTimeMs <= 0L) {
-            (heroSegStudy?.layoutParams as? LinearLayout.LayoutParams)?.weight = 1f
+            val (badgeText, badgeColor) = when {
+                snapshot.yesterdayScreenTimeMs <= 0L -> {
+                    "✓ Digital Wellbeing Exact • Study ${studyMins}m · Distract ${distractMins}m" to Color.parseColor("#38BDF8")
+                }
+                diffMs < -60_000L -> {
+                    "▼ $absDiffStr vs yesterday • Study ${studyMins}m · Distract ${distractMins}m" to Color.parseColor("#34D399")
+                }
+                diffMs > 60_000L -> {
+                    "▲ $absDiffStr vs yesterday • Study ${studyMins}m · Distract ${distractMins}m" to Color.parseColor("#F59E0B")
+                }
+                else -> {
+                    "≈ Same pace as yesterday • Study ${studyMins}m · Distract ${distractMins}m" to Color.parseColor("#38BDF8")
+                }
+            }
+
+            val totalCatMs = kotlin.math.max(1L, snapshot.studyMs + snapshot.improveMs + snapshot.distractMs + snapshot.utilityMs).toFloat()
+            val weightStudy = (snapshot.studyMs / totalCatMs).coerceAtLeast(if (snapshot.studyMs > 0L) 0.06f else 0f)
+            val weightImprove = (snapshot.improveMs / totalCatMs).coerceAtLeast(if (snapshot.improveMs > 0L) 0.06f else 0f)
+            val weightDistract = (snapshot.distractMs / totalCatMs).coerceAtLeast(if (snapshot.distractMs > 0L) 0.06f else 0f)
+            val weightUtility = (snapshot.utilityMs / totalCatMs).coerceAtLeast(if (snapshot.utilityMs > 0L) 0.06f else 0f)
+
+            withContext(Dispatchers.Main) {
+                screenTimeText.text = timeText
+                heroKpiUnlocks?.text = unlocksText
+                heroKpiLaunches?.text = launchesText
+                heroKpiPeakHour?.text = peakHourText
+
+                heroDeltaBadge?.text = badgeText
+                heroDeltaBadge?.setTextColor(badgeColor)
+
+                (heroSegStudy?.layoutParams as? LinearLayout.LayoutParams)?.weight = weightStudy
+                (heroSegImprove?.layoutParams as? LinearLayout.LayoutParams)?.weight = weightImprove
+                (heroSegDistract?.layoutParams as? LinearLayout.LayoutParams)?.weight = weightDistract
+                (heroSegUtility?.layoutParams as? LinearLayout.LayoutParams)?.weight = weightUtility
+                if (snapshot.totalScreenTimeMs <= 0L) {
+                    (heroSegStudy?.layoutParams as? LinearLayout.LayoutParams)?.weight = 1f
+                }
+                heroSegStudy?.parent?.requestLayout()
+            }
         }
-        heroSegStudy?.parent?.requestLayout()
     }
 
     private fun loadAppList() {
@@ -991,78 +1007,84 @@ class MainActivity : AppCompatActivity() {
         val acceptBtn = findViewById<Button>(R.id.suggestionAcceptButton) ?: return
         val dismissBtn = findViewById<Button>(R.id.suggestionDismissButton) ?: return
 
-        if (UiThemePrefs.isAutoEnforceSuggestions(this)) {
-            val newlyEnforced = SmartSuggestionEngine.autoEnforce(this)
-            if (newlyEnforced.isEmpty()) {
-                card.visibility = View.GONE
-                return
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (UiThemePrefs.isAutoEnforceSuggestions(this@MainActivity)) {
+                val newlyEnforced = SmartSuggestionEngine.autoEnforce(this@MainActivity)
+                withContext(Dispatchers.Main) {
+                    if (newlyEnforced.isEmpty()) {
+                        card.visibility = View.GONE
+                        return@withContext
+                    }
+                    val firstCandidate = newlyEnforced.first()
+                    val firstPkg = firstCandidate.packageName
+                    val firstName = firstCandidate.appLabel
+                    val firstMins = firstCandidate.avgMinutes
+                    val capMins = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
+                    TimeLimitManager.setLimitMinutes(this@MainActivity, firstPkg, capMins)
+
+                    card.visibility = View.VISIBLE
+                    text.text = "✓ Auto-Blocked $firstName (${firstMins}m avg/day). It now displays a Blue Tick (✓) in your Apps Blocklist."
+                    acceptBtn.text = "Undo $firstName"
+                    dismissBtn.text = "Keep Blocked ✓"
+
+                    acceptBtn.setOnClickListener {
+                        SmartSuggestionEngine.undoAutoEnforce(this@MainActivity, firstPkg)
+                        BlockPolicyEngine.setAppBlocked(this@MainActivity, firstPkg, false)
+                        Toast.makeText(this@MainActivity, "Unblocked $firstName for today", Toast.LENGTH_SHORT).show()
+                        card.visibility = View.GONE
+                        loadAppList()
+                    }
+                    dismissBtn.setOnClickListener {
+                        SmartSuggestionEngine.dismiss(this@MainActivity, firstPkg)
+                        card.visibility = View.GONE
+                        loadAppList()
+                    }
+                }
+                return@launch
             }
-            val firstCandidate = newlyEnforced.first()
-            val firstPkg = firstCandidate.packageName
-            val firstName = firstCandidate.appLabel
-            val firstMins = firstCandidate.avgMinutes
-            val capMins = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
-            TimeLimitManager.setLimitMinutes(this, firstPkg, capMins)
 
-            card.visibility = View.VISIBLE
-            text.text = "✓ Auto-Blocked $firstName (${firstMins}m avg/day). It now displays a Blue Tick (✓) in your Apps Blocklist."
-            acceptBtn.text = "Undo $firstName"
-            dismissBtn.text = "Keep Blocked ✓"
+            val candidates = SmartSuggestionEngine.findCandidates(this@MainActivity)
+                .filter { candidate -> !HardBlockManager.isHardBlocked(this@MainActivity, candidate.packageName) }
 
-            acceptBtn.setOnClickListener {
-                SmartSuggestionEngine.undoAutoEnforce(this, firstPkg)
-                BlockPolicyEngine.setAppBlocked(this, firstPkg, false)
-                Toast.makeText(this, "Unblocked $firstName for today", Toast.LENGTH_SHORT).show()
-                card.visibility = View.GONE
-                loadAppList()
+            withContext(Dispatchers.Main) {
+                if (candidates.isEmpty()) {
+                    card.visibility = View.GONE
+                    return@withContext
+                }
+
+                val target = candidates.first()
+                val targetPkg = target.packageName
+                val appLabel = target.appLabel
+                val avgMins = target.avgMinutes
+                val capMins = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
+                val remainingCount = candidates.size - 1
+
+                card.visibility = View.VISIBLE
+                val extraNote = if (remainingCount > 0) " (+$remainingCount more app suggestion)" else ""
+                text.text = "You used $appLabel for ${avgMins}m+$extraNote.\nBlock ONLY $appLabel & apply a ${capMins}m daily cap with Blue Tick (✓)?"
+
+                acceptBtn.text = "✓ Block $appLabel (${capMins}m)"
+                dismissBtn.text = "Skip $appLabel"
+
+                acceptBtn.setOnClickListener {
+                    HardBlockManager.setHardBlocked(this@MainActivity, targetPkg, true)
+                    TimeLimitManager.setLimitMinutes(this@MainActivity, targetPkg, capMins)
+                    BlockPolicyEngine.setUnblockedForToday(this@MainActivity, targetPkg, false)
+                    SmartSuggestionEngine.dismiss(this@MainActivity, targetPkg)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "✓ Blocked $appLabel (${capMins}m cap + Blue Tick applied)!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    loadAppList()
+                    refreshSuggestionCard()
+                }
+
+                dismissBtn.setOnClickListener {
+                    SmartSuggestionEngine.dismiss(this@MainActivity, targetPkg)
+                    refreshSuggestionCard()
+                }
             }
-            dismissBtn.setOnClickListener {
-                SmartSuggestionEngine.dismiss(this, firstPkg)
-                card.visibility = View.GONE
-                loadAppList()
-            }
-            return
-        }
-
-        val candidates = SmartSuggestionEngine.findCandidates(this)
-            .filter { candidate -> !HardBlockManager.isHardBlocked(this, candidate.packageName) }
-
-        if (candidates.isEmpty()) {
-            card.visibility = View.GONE
-            return
-        }
-
-        val target = candidates.first()
-        val targetPkg = target.packageName
-        val appLabel = target.appLabel
-        val avgMins = target.avgMinutes
-        val capMins = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
-        val remainingCount = candidates.size - 1
-
-        card.visibility = View.VISIBLE
-        val extraNote = if (remainingCount > 0) " (+$remainingCount more app suggestion)" else ""
-        text.text = "You used $appLabel for ${avgMins}m+$extraNote.\nBlock ONLY $appLabel & apply a ${capMins}m daily cap with Blue Tick (✓)?"
-
-        acceptBtn.text = "✓ Block $appLabel (${capMins}m)"
-        dismissBtn.text = "Skip $appLabel"
-
-        acceptBtn.setOnClickListener {
-            HardBlockManager.setHardBlocked(this, targetPkg, true)
-            TimeLimitManager.setLimitMinutes(this, targetPkg, capMins)
-            BlockPolicyEngine.setUnblockedForToday(this, targetPkg, false)
-            SmartSuggestionEngine.dismiss(this, targetPkg)
-            Toast.makeText(
-                this,
-                "✓ Blocked $appLabel (${capMins}m cap + Blue Tick applied)!",
-                Toast.LENGTH_SHORT
-            ).show()
-            loadAppList()
-            refreshSuggestionCard()
-        }
-
-        dismissBtn.setOnClickListener {
-            SmartSuggestionEngine.dismiss(this, targetPkg)
-            refreshSuggestionCard()
         }
     }
 

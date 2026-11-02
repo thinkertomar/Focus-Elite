@@ -36,6 +36,11 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile
+    private var watchdogThread: android.os.HandlerThread? = null
+    @Volatile
+    private var watchdogHandler: Handler? = null
+
     private var lastBlockedAppPkg: String? = null
     private var lastBlockedAppAtMs: Long = 0L
     private var lastBlockedHost: String? = null
@@ -45,17 +50,17 @@ class BlockerAccessibilityService : AccessibilityService() {
     private var lastBrowserEvalAtMs: Long = 0L
 
     /**
-     * Continuous 1-second live window watchdog running directly inside [BlockerAccessibilityService].
+     * Continuous 1-second live window watchdog running on a dedicated background HandlerThread.
      * Guarantees that if an app (e.g. Instagram) crosses its 30-minute daily cap while already open
      * on screen, or if a browser hides its toolbar after 30 minutes of non-study browsing, it is
-     * immediately locked with full AccessibilityService window privileges.
+     * immediately locked without ever stalling or blocking the main UI thread.
      */
     private val liveWatchdogRunnable = object : Runnable {
         override fun run() {
             try {
                 runLiveWindowCheck()
             } catch (_: Throwable) {}
-            mainHandler.postDelayed(this, 1000L)
+            watchdogHandler?.postDelayed(this, 1000L)
         }
     }
 
@@ -64,8 +69,15 @@ class BlockerAccessibilityService : AccessibilityService() {
         instance = this
         SettingsTamperGuard.recordAccessibilityJustConnected(this)
         SettingsTamperGuard.recordVerifiedHeartbeat(this)
-        mainHandler.removeCallbacks(liveWatchdogRunnable)
-        mainHandler.post(liveWatchdogRunnable)
+
+        if (watchdogThread == null) {
+            val ht = android.os.HandlerThread("BlockerWatchdogThread").apply { start() }
+            watchdogThread = ht
+            watchdogHandler = Handler(ht.looper)
+        }
+        watchdogHandler?.removeCallbacks(liveWatchdogRunnable)
+        watchdogHandler?.post(liveWatchdogRunnable)
+
         try {
             WatchdogService.start(this)
             FocusForegroundMonitorService.start(this)
@@ -74,7 +86,10 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        mainHandler.removeCallbacks(liveWatchdogRunnable)
+        watchdogHandler?.removeCallbacks(liveWatchdogRunnable)
+        watchdogThread?.quitSafely()
+        watchdogThread = null
+        watchdogHandler = null
         if (instance === this) {
             instance = null
         }

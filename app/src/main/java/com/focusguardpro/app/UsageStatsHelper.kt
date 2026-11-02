@@ -19,7 +19,7 @@ object UsageStatsHelper {
 
     private const val LOOKBACK_MS = 2 * 60 * 60 * 1000L // 2-hour lookback for cross-midnight sessions
     private const val MAX_SINGLE_SESSION_MS = 6 * 60 * 60 * 1000L // 6h safety cap against missing pause events
-    private const val SNAPSHOT_CACHE_TTL_MS = 2_000L
+    private const val SNAPSHOT_CACHE_TTL_MS = 30_000L
 
     // Event constants for API compatibility
     private const val EVENT_ACTIVITY_RESUMED = UsageEvents.Event.ACTIVITY_RESUMED // 1
@@ -88,7 +88,7 @@ object UsageStatsHelper {
     fun getDigitalWellbeingExcludedPackages(context: Context): Set<String> {
         val now = System.currentTimeMillis()
         val existing = cachedExcludedSystemPkgs
-        if (existing != null && (now - cachedExcludedTimestampMs) < 60_000L) {
+        if (existing != null && (now - cachedExcludedTimestampMs) < 300_000L) {
             return existing
         }
 
@@ -146,18 +146,31 @@ object UsageStatsHelper {
         return sum
     }
 
+    /**
+     * Fast O(1) query for single package usage today using cached snapshot or Android OS table.
+     * Prevents UI thread stalls when evaluating 30m app caps.
+     */
     fun getTodayScreenTimeForPackage(context: Context, packageName: String): Long {
         if (!hasUsageAccess(context)) return 0L
-        val snapshot = getTodayWellbeingSnapshot(context)
-        val stat = snapshot.perAppStats[packageName]
+        val snapshot = cachedTodaySnapshot
+        val stat = snapshot?.perAppStats?.get(packageName)
         if (stat != null) return stat.durationMs
+
         val (start, end) = todayRange()
-        return getPerAppUsage(context, start, end)[packageName] ?: 0L
+        try {
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            val agg = usm?.queryAndAggregateUsageStats(start, end)
+            val fgMs = agg?.get(packageName)?.totalTimeInForeground
+            if (fgMs != null && fgMs > 0L) {
+                return fgMs
+            }
+        } catch (_: Throwable) {}
+        return 0L
     }
 
     /**
-     * Computes the full Digital Wellbeing snapshot for today with a short 2-second cache
-     * so rapid calls from Home, App List, Widgets, and Rings stay fast and consistent.
+     * Computes the full Digital Wellbeing snapshot for today with a 30-second cache
+     * so rapid calls from Home, App List, Widgets, and Rings stay fast and responsive.
      */
     fun getTodayWellbeingSnapshot(context: Context, forceRefresh: Boolean = false): WellbeingSnapshot {
         val now = System.currentTimeMillis()
@@ -472,7 +485,18 @@ object UsageStatsHelper {
         val yesterdayMs = if (includeYesterdayComparison) {
             val yStart = start - 86_400_000L
             val yEnd = start - 1L
-            getScreenTimeMillis(context, yStart, yEnd)
+            try {
+                val agg = usm.queryAndAggregateUsageStats(yStart, yEnd)
+                var sum = 0L
+                if (agg != null) {
+                    for ((pkg, s) in agg) {
+                        if (!excluded.contains(pkg) && s.totalTimeInForeground > 0L) {
+                            sum += s.totalTimeInForeground
+                        }
+                    }
+                }
+                sum
+            } catch (_: Throwable) { 0L }
         } else {
             0L
         }
@@ -520,23 +544,40 @@ object UsageStatsHelper {
      * Preserves 100% binary compatibility with all callers in app-classes.jar and Kotlin sources.
      * Returns per-package foreground durations (in milliseconds) within [start, end],
      * excluding launchers/SystemUI/keyboards so all downstream totals match Digital Wellbeing.
+     * Uses fast aggregate stats for historical days to avoid UI freezes.
      */
     fun getPerAppUsage(context: Context, start: Long, end: Long): Map<String, Long> {
         if (!hasUsageAccess(context) || end <= start) return emptyMap()
         val (todayStart, todayEnd) = todayRange()
-        val snapshot = if ( kotlin.math.abs(start - todayStart) < 5_000L && kotlin.math.abs(end - todayEnd) < 15_000L ) {
-            getTodayWellbeingSnapshot(context)
-        } else {
-            computeWellbeingRange(context, start, end, includeYesterdayComparison = false)
-        }
-
+        val isToday = kotlin.math.abs(start - todayStart) < 5_000L && kotlin.math.abs(end - todayEnd) < 15_000L
         val excluded = getDigitalWellbeingExcludedPackages(context)
-        val result = HashMap<String, Long>(snapshot.perAppStats.size)
-        for ((pkg, stat) in snapshot.perAppStats) {
-            if (!excluded.contains(pkg) && stat.durationMs > 0L) {
-                result[pkg] = stat.durationMs
+
+        if (isToday) {
+            val cached = cachedTodaySnapshot
+            if (cached != null) {
+                val result = HashMap<String, Long>(cached.perAppStats.size)
+                for ((pkg, stat) in cached.perAppStats) {
+                    if (!excluded.contains(pkg) && stat.durationMs > 0L) {
+                        result[pkg] = stat.durationMs
+                    }
+                }
+                return result
             }
         }
+
+        // Fast O(1) query using Android OS aggregate table (prevents multi-day ANR loops)
+        val result = HashMap<String, Long>()
+        try {
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            val agg = usm?.queryAndAggregateUsageStats(start, end)
+            if (agg != null) {
+                for ((pkg, stat) in agg) {
+                    if (!excluded.contains(pkg) && stat.totalTimeInForeground > 0L) {
+                        result[pkg] = stat.totalTimeInForeground
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
         return result
     }
 

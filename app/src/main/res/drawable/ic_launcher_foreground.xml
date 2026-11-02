@@ -1,54 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    
-    <!-- Document shadow -->
-    <path
-        android:fillColor="#33000000"
-        android:pathData="M35,30 L66,30 L78,42 L78,85 L35,85 Z" />
-
-    <!-- Document main body -->
-    <path
-        android:fillColor="#F8FAFC"
-        android:pathData="M33,27 L64,27 L76,39 L76,82 C76,83.1 75.1,84 74,84 L35,84 C33.9,84 33,83.1 33,82 Z" />
-
-    <!-- Folded corner tab -->
-    <path
-        android:fillColor="#E2E8F0"
-        android:pathData="M64,27 L76,39 L65,39 C64.4,39 64,38.6 64,38 Z" />
-    <path
-        android:fillColor="#CBD5E1"
-        android:pathData="M64,27 L64,39 L76,39 Z" />
-
-    <!-- Craft Grid lines inside document -->
-    <path
-        android:fillColor="#94A3B8"
-        android:pathData="M40,46 H68 V48 H40 Z M40,53 H68 V55 H40 Z M40,60 H58 V62 H40 Z" />
-
-    <!-- PDF Badge Banner in vibrant crimson/red -->
-    <path
-        android:fillColor="#E11D48"
-        android:pathData="M29,66 C29,64.9 29.9,64 31,64 L53,64 C54.1,64 55,64.9 55,66 L55,75 C55,76.1 54.1,77 53,77 L31,77 C29.9,77 29,76.1 29,75 Z" />
-
-    <!-- 'PDF' stylized letters inside badge -->
-    <!-- P -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M33,67 H36 C37.1,67 38,67.6 38,68.5 C38,69.4 37.1,70 36,70 H34.5 V74 H33 Z M34.5,68.2 V69 H35.8 C36.2,69 36.6,68.8 36.6,68.6 C36.6,68.4 36.2,68.2 35.8,68.2 Z" />
-    <!-- D -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M39.5,67 H42 C43.4,67 44.5,67.9 44.5,70.5 C44.5,73.1 43.4,74 42,74 H39.5 Z M41,68.2 V72.8 H41.9 C42.7,72.8 43.1,72.1 43.1,70.5 C43.1,68.9 42.7,68.2 41.9,68.2 Z" />
-    <!-- F -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M46,67 H50 V68.2 H47.5 V69.8 H49.5 V71 H47.5 V74 H46 Z" />
-
-    <!-- Craft tool pencil / compass geometric indicator -->
-    <path
-        android:fillColor="#0284C7"
-        android:pathData="M65,68 L73,60 C73.6,59.4 74.5,59.4 75.1,60 C75.7,60.6 75.7,61.5 75.1,62.1 L67.1,70.1 L63.5,70.5 Z" />
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="66dp"
+        android:height="66dp"
+        android:drawable="@drawable/focus_elite_icon"
+        android:gravity="center" />
+</layer-list>

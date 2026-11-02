@@ -33,8 +33,8 @@ object SystemDiagnosticsAndUpdatesManager {
     private const val KEY_SAVED_FEEDBACK_JSON = "saved_feedback_json"
     private const val KEY_LAST_SCAN_TIMESTAMP = "last_scan_timestamp"
 
-    const val CURRENT_VERSION_CODE = 5
-    const val CURRENT_VERSION_NAME = "1.4"
+    const val CURRENT_VERSION_CODE = 7
+    const val CURRENT_VERSION_NAME = "1.5.1"
     const val GITHUB_REPO_URL = "https://github.com/thinkertomar/Focus-Elite"
     const val GITHUB_RELEASES_URL = "https://github.com/thinkertomar/Focus-Elite/releases/latest"
     const val GITHUB_ACTIONS_URL = "https://github.com/thinkertomar/Focus-Elite/actions"
@@ -77,9 +77,21 @@ object SystemDiagnosticsAndUpdatesManager {
 
     val RELEASE_HISTORY: List<ReleaseNote> = listOf(
         ReleaseNote(
+            versionName = "1.5",
+            versionCode = 6,
+            dateLabel = "Official Milestone • Build 6",
+            headline = "Unlocked JEE Practice Suite (LaTeX & Diagrams), Reconciled Browser Usage Access & 1s Cap Watchdog",
+            highlights = listOf(
+                "📐 JEE Practice Suite Overhaul: Removed Engage Exam Lock, restored all 2,427 high-contrast question diagrams, and added an offline/online LaTeX math engine.",
+                "🌐 Reconciled Browser Usage Access: Combines Android UsageStats per-browser screen time with verified 24/7 Study Website exemptions.",
+                "⏱️ 1-Second Live App Cap Watchdog: Locks any distracted app the exact second it reaches its 30-minute daily cap while open on screen.",
+                "🎨 Redesigned Button Boxes & Signing Fix: Crisp button padding across every screen and locked deterministic APK signing for conflict-free updates."
+            )
+        ),
+        ReleaseNote(
             versionName = "1.4",
             versionCode = 5,
-            dateLabel = "Official Milestone • Build 5",
+            dateLabel = "Previous Milestone • Build 5",
             headline = "Digital Wellbeing Exact Engine, 30m Cap & Study Web 24/7, Ocean Cyan + AMOLED/Light Modes",
             highlights = listOf(
                 "📊 Digital Wellbeing Exact Foreground Engine: Full activity lifecycle state machine (RESUMED, PAUSED, STOPPED, KEYGUARD, SHUTDOWN) with cross-midnight clamping, launcher/SystemUI/keyboard exclusion, unlock & launch counters, and 24-hour hourly timeline.",
