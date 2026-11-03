@@ -309,6 +309,30 @@ object UpdatesHealthAndFeedbackSectionBuilder {
         topUpdateBtns.addView(releaseBtn)
         updateCard.addView(topUpdateBtns)
 
+        val actionsBtn = Button(activity).apply {
+            text = "⚡ Open GitHub Actions (Download Latest Built APK)"
+            textSize = 11.5f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setTextColor(Color.WHITE)
+            minHeight = dp(activity, 44f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(activity, 8f) }
+            background = GradientDrawable().apply {
+                cornerRadius = dp(activity, 12f).toFloat()
+                setColor(Color.parseColor("#1E3A8A"))
+                setStroke(dp(activity, 1f), Color.parseColor("#38BDF8"))
+            }
+            setPadding(dp(activity, 12f), dp(activity, 9f), dp(activity, 12f), dp(activity, 9f))
+            setOnClickListener {
+                SystemDiagnosticsAndUpdatesManager.openGitHubActionsInBrowser(activity)
+            }
+        }
+        updateCard.addView(actionsBtn)
+
         val publishHelperBtn = Button(activity).apply {
             text = "🎯 Copy Termux Command: Publish Official Release v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME}"
             textSize = 11.5f

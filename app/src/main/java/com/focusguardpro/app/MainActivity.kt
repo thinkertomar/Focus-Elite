@@ -428,13 +428,13 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         reportTextCol.addView(TextView(this).apply {
-            text = "v1.5.1 Update & Diagnostic Report"
+            text = "v${SystemDiagnosticsAndUpdatesManager.CURRENT_VERSION_NAME} Update & Diagnostic Report"
             textSize = 14.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
         })
         reportTextCol.addView(TextView(this).apply {
-            text = "JEE Suite Unlocked • 1s Cap Watchdog • Health: PASS"
+            text = "Floating Window Fix • 30m Ignore Cap • MIUI Shield"
             textSize = 12f
             setTextColor(Color.parseColor("#94A3B8"))
             setPadding(0, dp(2f), 0, 0)

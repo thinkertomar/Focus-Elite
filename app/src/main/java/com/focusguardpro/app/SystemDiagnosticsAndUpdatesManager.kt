@@ -33,8 +33,8 @@ object SystemDiagnosticsAndUpdatesManager {
     private const val KEY_SAVED_FEEDBACK_JSON = "saved_feedback_json"
     private const val KEY_LAST_SCAN_TIMESTAMP = "last_scan_timestamp"
 
-    const val CURRENT_VERSION_CODE = 7
-    const val CURRENT_VERSION_NAME = "1.5.1"
+    const val CURRENT_VERSION_CODE = 8
+    const val CURRENT_VERSION_NAME = "1.5.2"
     const val GITHUB_REPO_URL = "https://github.com/thinkertomar/Focus-Elite"
     const val GITHUB_RELEASES_URL = "https://github.com/thinkertomar/Focus-Elite/releases/latest"
     const val GITHUB_ACTIONS_URL = "https://github.com/thinkertomar/Focus-Elite/actions"
@@ -77,9 +77,22 @@ object SystemDiagnosticsAndUpdatesManager {
 
     val RELEASE_HISTORY: List<ReleaseNote> = listOf(
         ReleaseNote(
+            versionName = "1.5.2",
+            versionCode = 8,
+            dateLabel = "Latest Update • Build 8",
+            headline = "Multi-Window & Floating Window Usage Fix, Strict 30m Ignore Cap & Native MIUI Lock Overlay",
+            highlights = listOf(
+                "🪟 Multi-Window & Floating Window Telemetry: Tracks fullscreen study apps (e.g., SciAstra) and floating windows (e.g., ChatGPT) simultaneously so neither loses screen time.",
+                "🟠 Strict 30m Ignore Cap Enforcement: Ignored apps are accurately badged as 'IGNORED • 30m CAP' (instead of 'SYSTEM') and locked the exact second their 30m daily quota expires.",
+                "🛡️ Native MIUI/HyperOS Accessibility Lock Shield: Renders an instant TYPE_ACCESSIBILITY_OVERLAY shield directly over floating windows and fullscreen apps, bypassing Xiaomi background pop-up restrictions.",
+                "🔄 Live Usage Cache & Reconciliation: Reconciles daily foreground totals with Android Digital Wellbeing and refreshes active session counters every second.",
+                "⚡ MIUI Paused-Service Detector: Automatically warns you on the Home screen if MIUI/HyperOS pauses the Accessibility Blocker after an APK update."
+            )
+        ),
+        ReleaseNote(
             versionName = "1.5.1",
             versionCode = 7,
-            dateLabel = "Official Milestone • Build 7",
+            dateLabel = "Previous Milestone • Build 7",
             headline = "Unlocked JEE Practice Suite (LaTeX & Diagrams), Reconciled Browser Usage Access, 1s Cap Watchdog & Green CI Build",
             highlights = listOf(
                 "📐 JEE Practice Suite Overhaul: Removed Engage Exam Lock, restored all 2,427 high-contrast question diagrams, and added an offline/online LaTeX math engine.",
@@ -221,6 +234,21 @@ object SystemDiagnosticsAndUpdatesManager {
             Toast.makeText(
                 context,
                 "Could not open browser. Visit: $GITHUB_RELEASES_URL",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    fun openGitHubActionsInBrowser(context: Context) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_ACTIONS_URL)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Throwable) {
+            Toast.makeText(
+                context,
+                "Could not open browser. Visit: $GITHUB_ACTIONS_URL",
                 Toast.LENGTH_LONG
             ).show()
         }
