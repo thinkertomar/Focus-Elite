@@ -279,6 +279,17 @@ class CategorySettingsActivity : AppCompatActivity() {
         AppCategoryPrefs.setIgnoredApps(this, newIgnored)
         UiThemePrefs.markSetupCategoriesConfigured(this)
 
+        // Ensure apps placed in Ignored (30m cap) have no stale 'unblockedForToday' bypass and have a 30m cap registered
+        for (pkg in newIgnored) {
+            BlockPolicyEngine.setUnblockedForToday(this, pkg, false)
+            val existingLimit = TimeLimitManager.getLimitMinutes(this, pkg)
+            if (existingLimit <= 0 || existingLimit > 30) {
+                TimeLimitManager.setLimitMinutes(this, pkg, 30)
+            }
+        }
+
+        UsageStatsHelper.invalidateCache()
+
         try {
             EliteCommandWidgetProvider.updateAllWidgets(this)
         } catch (_: Exception) {}

@@ -19,7 +19,7 @@ object UsageStatsHelper {
 
     private const val LOOKBACK_MS = 2 * 60 * 60 * 1000L // 2-hour lookback for cross-midnight sessions
     private const val MAX_SINGLE_SESSION_MS = 6 * 60 * 60 * 1000L // 6h safety cap against missing pause events
-    private const val SNAPSHOT_CACHE_TTL_MS = 30_000L
+    private const val SNAPSHOT_CACHE_TTL_MS = 8_000L
 
     // Event constants for API compatibility
     private const val EVENT_ACTIVITY_RESUMED = UsageEvents.Event.ACTIVITY_RESUMED // 1
@@ -38,7 +38,7 @@ object UsageStatsHelper {
         val launchCount: Int,
         val longestSessionMs: Long,
         val lastTimeUsedMs: Long,
-        val category: String // "STUDY", "IMPROVE", "DISTRACT", "BROWSER", "UTILITY"
+        val category: String // "STUDY", "IMPROVE", "IGNORED", "DISTRACT", "BROWSER", "UTILITY"
     ) {
         val usedMinutes: Int
             get() = (durationMs / 60_000L).toInt()
@@ -94,8 +94,12 @@ object UsageStatsHelper {
 
         val excluded = HashSet<String>()
         excluded.add(context.packageName)
+        excluded.add("com.focuselite.app")
+        excluded.add("com.focusguardpro.app")
+        excluded.add("com.focusguardpro.elite")
         excluded.add("android")
         excluded.add("com.android.systemui")
+        excluded.add("com.miui.freeform")
         excluded.add("com.android.permissioncontroller")
         excluded.add("com.google.android.permissioncontroller")
         excluded.add("com.android.packageinstaller")
@@ -147,14 +151,28 @@ object UsageStatsHelper {
     }
 
     /**
-     * Fast O(1) query for single package usage today using cached snapshot or Android OS table.
-     * Prevents UI thread stalls when evaluating 30m app caps.
+     * Authoritative query for single package usage today with automatic TTL refresh
+     * and live multi-window / floating-window delta reconciliation.
      */
     fun getTodayScreenTimeForPackage(context: Context, packageName: String): Long {
         if (!hasUsageAccess(context)) return 0L
-        val snapshot = cachedTodaySnapshot
-        val stat = snapshot?.perAppStats?.get(packageName)
-        if (stat != null) return stat.durationMs
+        val now = System.currentTimeMillis()
+        val snapshot = getTodayWellbeingSnapshot(context, forceRefresh = false)
+        var bestMs = snapshot.perAppStats[packageName]?.durationMs ?: 0L
+
+        // Add live in-flight seconds since the snapshot was taken if the app is currently visible
+        val isCurrentlyVisible = try {
+            ForegroundTracker.currentPackage == packageName ||
+                BlockerAccessibilityService.instance?.getAllLiveVisiblePackages()?.contains(packageName) == true
+        } catch (_: Throwable) {
+            ForegroundTracker.currentPackage == packageName
+        }
+        if (isCurrentlyVisible && cachedTodayTimestampMs in 1 until now) {
+            val liveDelta = (now - cachedTodayTimestampMs).coerceIn(0L, SNAPSHOT_CACHE_TTL_MS)
+            bestMs += liveDelta
+        }
+
+        if (bestMs > 0L) return bestMs
 
         val (start, end) = todayRange()
         try {
@@ -162,15 +180,15 @@ object UsageStatsHelper {
             val agg = usm?.queryAndAggregateUsageStats(start, end)
             val fgMs = agg?.get(packageName)?.totalTimeInForeground
             if (fgMs != null && fgMs > 0L) {
-                return fgMs
+                return fgMs.coerceAtMost(end - start)
             }
         } catch (_: Throwable) {}
         return 0L
     }
 
     /**
-     * Computes the full Digital Wellbeing snapshot for today with a 30-second cache
-     * so rapid calls from Home, App List, Widgets, and Rings stay fast and responsive.
+     * Computes the full Digital Wellbeing snapshot for today with an 8-second cache
+     * so rapid calls from Home, App List, Widgets, and 1s Watchdog stay fast and accurate.
      */
     fun getTodayWellbeingSnapshot(context: Context, forceRefresh: Boolean = false): WellbeingSnapshot {
         val now = System.currentTimeMillis()
@@ -238,14 +256,19 @@ object UsageStatsHelper {
             null
         }
 
+        // Multi-window & Floating-window aware state machine:
+        // Tracks simultaneously visible apps (e.g. studying on SciAstra fullscreen while keeping ChatGPT in a floating window).
         var isInteractive = true
         var isKeyguardLocked = false
-        var activePkg: String? = null
-        var activeClass: String? = null
-        var activeStartMs = 0L
+        val resumedClassesByPkg = HashMap<String, MutableSet<String>>()
+        val visibleClassesByPkg = HashMap<String, MutableSet<String>>()
+        val activeStartByPkg = HashMap<String, Long>()
+        val pausedAtByPkg = HashMap<String, Long>()
+        val otherResumesSincePauseByPkg = HashMap<String, MutableSet<String>>()
+
         var lastKnownResumedPkg: String? = null
         var lastKnownResumedClass: String? = null
-        var lastcountedLaunchPkg: String? = null
+        var lastCountedLaunchPkg: String? = null
         var lastCountedLaunchMs: Long = 0L
 
         fun recordInterval(pkg: String?, rawStart: Long, rawEnd: Long) {
@@ -273,21 +296,42 @@ object UsageStatsHelper {
             }
         }
 
+        fun flushAllActivePackages(atTimestamp: Long) {
+            val activeKeys = activeStartByPkg.keys.toList()
+            for (activePkg in activeKeys) {
+                val startTs = activeStartByPkg.remove(activePkg) ?: continue
+                val pausedTs = pausedAtByPkg.remove(activePkg)
+                val otherCount = otherResumesSincePauseByPkg.remove(activePkg)?.size ?: 0
+                val effectiveEnd = when {
+                    pausedTs != null && (atTimestamp - pausedTs) <= 5_000L -> pausedTs
+                    pausedTs != null && otherCount >= 2 -> pausedTs
+                    else -> atTimestamp
+                }
+                recordInterval(activePkg, startTs, effectiveEnd)
+            }
+            resumedClassesByPkg.clear()
+            visibleClassesByPkg.clear()
+            pausedAtByPkg.clear()
+            otherResumesSincePauseByPkg.clear()
+        }
+
         if (events != null) {
             val ev = UsageEvents.Event()
             while (events.hasNextEvent()) {
                 events.getNextEvent(ev)
                 val t = ev.timeStamp
                 val pkg = ev.packageName
-                val cls = ev.className
+                val cls = ev.className ?: "__default__"
 
                 when (ev.eventType) {
                     EVENT_SCREEN_INTERACTIVE -> {
                         isInteractive = true
-                        if (!isKeyguardLocked && activePkg == null && lastKnownResumedPkg != null) {
-                            activePkg = lastKnownResumedPkg
-                            activeClass = lastKnownResumedClass
-                            activeStartMs = t
+                        if (!isKeyguardLocked && activeStartByPkg.isEmpty() && lastKnownResumedPkg != null) {
+                            val rPkg = lastKnownResumedPkg!!
+                            val rCls = lastKnownResumedClass ?: "__default__"
+                            resumedClassesByPkg.getOrPut(rPkg) { HashSet() }.add(rCls)
+                            visibleClassesByPkg.getOrPut(rPkg) { HashSet() }.add(rCls)
+                            activeStartByPkg[rPkg] = t
                         }
                     }
 
@@ -298,42 +342,29 @@ object UsageStatsHelper {
                             unlockCount++
                             lastUnlockEventMs = t
                         }
-                        if (activePkg == null && lastKnownResumedPkg != null) {
-                            activePkg = lastKnownResumedPkg
-                            activeClass = lastKnownResumedClass
-                            activeStartMs = t
+                        if (activeStartByPkg.isEmpty() && lastKnownResumedPkg != null) {
+                            val rPkg = lastKnownResumedPkg!!
+                            val rCls = lastKnownResumedClass ?: "__default__"
+                            resumedClassesByPkg.getOrPut(rPkg) { HashSet() }.add(rCls)
+                            visibleClassesByPkg.getOrPut(rPkg) { HashSet() }.add(rCls)
+                            activeStartByPkg[rPkg] = t
                         }
                     }
 
                     EVENT_SCREEN_NON_INTERACTIVE -> {
-                        if (activePkg != null && activeStartMs > 0L) {
-                            recordInterval(activePkg, activeStartMs, t)
-                        }
+                        flushAllActivePackages(t)
                         isInteractive = false
-                        activePkg = null
-                        activeClass = null
-                        activeStartMs = 0L
                     }
 
                     EVENT_KEYGUARD_SHOWN -> {
-                        if (activePkg != null && activeStartMs > 0L) {
-                            recordInterval(activePkg, activeStartMs, t)
-                        }
+                        flushAllActivePackages(t)
                         isKeyguardLocked = true
-                        activePkg = null
-                        activeClass = null
-                        activeStartMs = 0L
                     }
 
                     EVENT_DEVICE_SHUTDOWN, EVENT_DEVICE_STARTUP -> {
-                        if (activePkg != null && activeStartMs > 0L) {
-                            recordInterval(activePkg, activeStartMs, t)
-                        }
+                        flushAllActivePackages(t)
                         isInteractive = ev.eventType == EVENT_DEVICE_STARTUP
                         isKeyguardLocked = false
-                        activePkg = null
-                        activeClass = null
-                        activeStartMs = 0L
                         lastKnownResumedPkg = null
                         lastKnownResumedClass = null
                     }
@@ -343,44 +374,98 @@ object UsageStatsHelper {
                             lastKnownResumedPkg = pkg
                             lastKnownResumedClass = cls
 
-                            // Count app launch when switching to a different package inside [start, end]
+                            val wasAlreadyResumed = resumedClassesByPkg[pkg]?.isNotEmpty() == true
                             if (t in start..end && !excluded.contains(pkg)) {
-                                if (pkg != activePkg && (pkg != lastcountedLaunchPkg || (t - lastCountedLaunchMs) > 3_000L)) {
+                                if (!wasAlreadyResumed && (pkg != lastCountedLaunchPkg || (t - lastCountedLaunchMs) > 3_000L)) {
                                     launchesByPkg[pkg] = (launchesByPkg[pkg] ?: 0) + 1
-                                    lastcountedLaunchPkg = pkg
+                                    lastCountedLaunchPkg = pkg
                                     lastCountedLaunchMs = t
                                 }
                             }
 
-                            if (isInteractive && !isKeyguardLocked) {
-                                if (activePkg != null && activeStartMs > 0L) {
-                                    if (activePkg != pkg) {
-                                        recordInterval(activePkg, activeStartMs, t)
-                                        activePkg = pkg
-                                        activeClass = cls
-                                        activeStartMs = t
-                                    } else {
-                                        // Same package moved to another activity within the same app
-                                        activeClass = cls
-                                    }
-                                } else {
-                                    activePkg = pkg
-                                    activeClass = cls
-                                    activeStartMs = t
+                            resumedClassesByPkg.getOrPut(pkg) { HashSet() }.add(cls)
+                            visibleClassesByPkg.getOrPut(pkg) { HashSet() }.add(cls)
+
+                            // If this package was paused earlier, check whether it remained visible in multi-window / behind a floating window
+                            val prevPausedAt = pausedAtByPkg.remove(pkg)
+                            val othersSincePause = otherResumesSincePauseByPkg.remove(pkg)?.size ?: 0
+                            if (prevPausedAt != null && activeStartByPkg.containsKey(pkg)) {
+                                val remainedVisibleMultiWindow = othersSincePause <= 1 && (t - prevPausedAt) <= 90 * 60_000L
+                                if (!remainedVisibleMultiWindow) {
+                                    val prevStart = activeStartByPkg.remove(pkg) ?: prevPausedAt
+                                    recordInterval(pkg, prevStart, prevPausedAt)
                                 }
+                            }
+
+                            // Notify other currently-paused packages that `pkg` resumed
+                            if (!excluded.contains(pkg)) {
+                                val pausedKeys = pausedAtByPkg.keys.toList()
+                                for (pausedPkg in pausedKeys) {
+                                    if (pausedPkg == pkg) continue
+                                    val set = otherResumesSincePauseByPkg.getOrPut(pausedPkg) { HashSet() }
+                                    set.add(pkg)
+                                    // If 2+ distinct apps have resumed since `pausedPkg` paused, `pausedPkg` is no longer in multi-window
+                                    if (set.size >= 2) {
+                                        val pStart = activeStartByPkg.remove(pausedPkg)
+                                        val pEnd = pausedAtByPkg.remove(pausedPkg)
+                                        otherResumesSincePauseByPkg.remove(pausedPkg)
+                                        visibleClassesByPkg.remove(pausedPkg)
+                                        resumedClassesByPkg.remove(pausedPkg)
+                                        if (pStart != null && pEnd != null) {
+                                            recordInterval(pausedPkg, pStart, pEnd)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (isInteractive && !isKeyguardLocked && !activeStartByPkg.containsKey(pkg)) {
+                                activeStartByPkg[pkg] = t
                             }
                         }
                     }
 
-                    EVENT_ACTIVITY_PAUSED, EVENT_ACTIVITY_STOPPED -> {
-                        if (activePkg != null && pkg == activePkg) {
-                            val matchesActiveClass = activeClass == null || cls == null || cls == activeClass
-                            if (matchesActiveClass) {
-                                recordInterval(activePkg, activeStartMs, t)
-                                activePkg = null
-                                activeClass = null
-                                activeStartMs = 0L
-                                if (lastKnownResumedPkg == pkg && (lastKnownResumedClass == null || lastKnownResumedClass == cls)) {
+                    EVENT_ACTIVITY_PAUSED -> {
+                        if (!pkg.isNullOrEmpty()) {
+                            val rSet = resumedClassesByPkg[pkg]
+                            if (rSet != null) {
+                                rSet.remove(cls)
+                                if (cls == "__default__") rSet.clear()
+                            }
+                            if (rSet.isNullOrEmpty() && activeStartByPkg.containsKey(pkg) && !pausedAtByPkg.containsKey(pkg)) {
+                                pausedAtByPkg[pkg] = t
+                                otherResumesSincePauseByPkg[pkg] = HashSet()
+                            }
+                        }
+                    }
+
+                    EVENT_ACTIVITY_STOPPED -> {
+                        if (!pkg.isNullOrEmpty()) {
+                            val rSet = resumedClassesByPkg[pkg]
+                            rSet?.remove(cls)
+                            val vSet = visibleClassesByPkg[pkg]
+                            vSet?.remove(cls)
+                            if (cls == "__default__") {
+                                rSet?.clear()
+                                vSet?.clear()
+                            }
+
+                            if (rSet.isNullOrEmpty() && vSet.isNullOrEmpty()) {
+                                val startTs = activeStartByPkg.remove(pkg)
+                                val pausedTs = pausedAtByPkg.remove(pkg)
+                                val otherCount = otherResumesSincePauseByPkg.remove(pkg)?.size ?: 0
+                                if (startTs != null && startTs > 0L) {
+                                    // If ACTIVITY_STOPPED arrives within 5s of ACTIVITY_PAUSED, it was a normal fullscreen transition.
+                                    // If ACTIVITY_STOPPED arrives much later while <=1 companion floating window was used, the app
+                                    // stayed visibly running on screen (e.g. SciAstra video lecture behind ChatGPT floating window) until `t`!
+                                    val effectiveEnd = when {
+                                        pausedTs == null -> t
+                                        (t - pausedTs) <= 5_000L -> pausedTs
+                                        otherCount <= 1 -> t
+                                        else -> pausedTs
+                                    }
+                                    recordInterval(pkg, startTs, effectiveEnd)
+                                }
+                                if (lastKnownResumedPkg == pkg) {
                                     lastKnownResumedPkg = null
                                     lastKnownResumedClass = null
                                 }
@@ -391,18 +476,76 @@ object UsageStatsHelper {
             }
         }
 
-        // Credit the currently open foreground app up to `end` if the screen is active right now
-        if (isInteractive && !isKeyguardLocked && activePkg != null && activeStartMs in 1 until end) {
+        // Credit currently open foreground & multi-window/floating-window apps up to `end`
+        if (isInteractive && !isKeyguardLocked && activeStartByPkg.isNotEmpty()) {
             val screenActuallyInteractive = try {
                 val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
                 pm?.isInteractive ?: true
             } catch (_: Throwable) {
                 true
             }
-            if (screenActuallyInteractive) {
-                recordInterval(activePkg, activeStartMs, end)
+            val liveVisibleSet = try {
+                BlockerAccessibilityService.instance?.getAllLiveVisiblePackages()?.toSet() ?: emptySet()
+            } catch (_: Throwable) {
+                emptySet()
+            }
+            val hasAnyActivelyResumed = activeStartByPkg.keys.any { pausedAtByPkg[it] == null }
+
+            for ((pkg, startTs) in activeStartByPkg) {
+                if (startTs !in 1 until end) continue
+                val pausedTs = pausedAtByPkg[pkg]
+                val otherCount = otherResumesSincePauseByPkg[pkg]?.size ?: 0
+                val isStillVisibleMultiWindow = pausedTs == null ||
+                    liveVisibleSet.contains(pkg) ||
+                    (visibleClassesByPkg[pkg]?.isNotEmpty() == true && otherCount <= 1 && hasAnyActivelyResumed)
+
+                if (screenActuallyInteractive && isStillVisibleMultiWindow) {
+                    recordInterval(pkg, startTs, end)
+                } else if (pausedTs != null) {
+                    recordInterval(pkg, startTs, pausedTs)
+                }
             }
         }
+
+        // Reconcile with Android OS today-only UsageStats buckets so apps in floating windows or
+        // long video lectures (like SciAstra or ChatGPT) are never undercounted compared to Digital Wellbeing
+        try {
+            val dailyStats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
+            if (dailyStats != null) {
+                val maxWindowMs = (end - start).coerceAtLeast(1L)
+                val bestOsBucketByPkg = HashMap<String, Long>()
+                val bestOsLastUsedByPkg = HashMap<String, Long>()
+                for (stat in dailyStats) {
+                    val pkg = stat.packageName ?: continue
+                    val fgMs = stat.totalTimeInForeground
+                    if (fgMs <= 0L || stat.lastTimeUsed < start) continue
+                    // Only accept buckets that started today (or within 2h of midnight) so yesterday's usage never bleeds in
+                    if (stat.firstTimeStamp >= start - LOOKBACK_MS && fgMs <= maxWindowMs) {
+                        val prev = bestOsBucketByPkg[pkg] ?: 0L
+                        if (fgMs > prev) {
+                            bestOsBucketByPkg[pkg] = fgMs
+                        }
+                        val prevLast = bestOsLastUsedByPkg[pkg] ?: 0L
+                        if (stat.lastTimeUsed > prevLast) {
+                            bestOsLastUsedByPkg[pkg] = stat.lastTimeUsed
+                        }
+                    }
+                }
+                for ((pkg, osFgMs) in bestOsBucketByPkg) {
+                    val currentComputed = durationByPkg[pkg] ?: 0L
+                    if (osFgMs > currentComputed) {
+                        durationByPkg[pkg] = osFgMs
+                        if ((longestByPkg[pkg] ?: 0L) < osFgMs) {
+                            longestByPkg[pkg] = osFgMs
+                        }
+                        val osLast = bestOsLastUsedByPkg[pkg] ?: 0L
+                        if (osLast > (lastUsedByPkg[pkg] ?: 0L)) {
+                            lastUsedByPkg[pkg] = osLast
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
 
         // Fallback for historical windows if OEM cleared raw UsageEvents but kept aggregated UsageStats
         if (durationByPkg.isEmpty()) {
@@ -431,6 +574,7 @@ object UsageStatsHelper {
         for ((pkg, ms) in durationByPkg) {
             if (ms <= 0L) continue
             val isExcluded = excluded.contains(pkg)
+            val isSystemUtility = SystemExclusions.isExcludedPackage(context, pkg) || isExcluded
             val launches = launchesByPkg[pkg] ?: if (ms >= 15_000L) 1 else 0
             val longest = longestByPkg[pkg] ?: ms
             val lastUsed = lastUsedByPkg[pkg] ?: start
@@ -439,7 +583,8 @@ object UsageStatsHelper {
                 studyPkgs.contains(pkg) -> "STUDY"
                 improvePkgs.contains(pkg) -> "IMPROVE"
                 BlockPolicyEngine.isBrowserPackage(pkg) -> "BROWSER"
-                ignorePkgs.contains(pkg) || SystemExclusions.isExcludedPackage(context, pkg) || isExcluded -> "UTILITY"
+                ignorePkgs.contains(pkg) && !isSystemUtility -> "IGNORED"
+                isSystemUtility -> "UTILITY"
                 else -> "DISTRACT"
             }
 
@@ -464,7 +609,7 @@ object UsageStatsHelper {
                         studyMs += browserStudyMs
                         distractMs += nonStudyMs
                     }
-                    "UTILITY" -> utilityMs += ms
+                    "IGNORED", "UTILITY" -> utilityMs += ms
                     else -> distractMs += ms
                 }
             }

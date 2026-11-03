@@ -666,15 +666,17 @@ object BlockPolicyEngine {
             return BlockDecision.Blocked(BlockReason.BLACKOUT, packageName)
         }
 
-        // 8. Daily usage limit (including automatic 30-minute daily cap for all non-Study/non-Improvement apps)
-        val isWhitelisted = AppCategoryPrefs.getStudyApps(context).contains(packageName) ||
-            AppCategoryPrefs.getImprovementApps(context).contains(packageName) ||
-            isUnblockedForToday(context, packageName, nowMs)
+        // 8. Daily usage limit (including automatic 30-minute daily cap for Ignored and non-Study/non-Improvement apps)
+        val unblockedToday = isUnblockedForToday(context, packageName, nowMs)
         val isIgnored = AppCategoryPrefs.getIgnoredApps(context).contains(packageName)
+        val isWhitelisted = ((AppCategoryPrefs.getStudyApps(context).contains(packageName) ||
+            AppCategoryPrefs.getImprovementApps(context).contains(packageName)) && !isIgnored) ||
+            unblockedToday
         val customLimit = TimeLimitManager.getLimitMinutes(context, packageName)
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
 
         val limitMinutes = when {
+            unblockedToday -> 0
             isIgnored -> if (customLimit in 1..29) customLimit else 30
             customLimit > 0 -> customLimit
             !isWhitelisted -> defaultCap

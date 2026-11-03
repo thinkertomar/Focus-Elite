@@ -444,6 +444,11 @@ class UsageStatsActivity : AppCompatActivity() {
             val color = when (stat.category) {
                 "STUDY" -> Color.parseColor("#10B981")
                 "IMPROVE" -> Color.parseColor("#38BDF8")
+                "IGNORED" -> {
+                    val customLimit = TimeLimitManager.getLimitMinutes(this, stat.packageName)
+                    val cap = if (customLimit in 1..29) customLimit else 30
+                    if (stat.durationMs >= cap * 60_000L) Color.parseColor("#F43F5E") else Color.parseColor("#F59E0B")
+                }
                 "UTILITY" -> Color.parseColor("#64748B")
                 else -> palette.accentColor
             }
@@ -476,6 +481,11 @@ class UsageStatsActivity : AppCompatActivity() {
                 "STUDY" -> "STUDY"
                 "IMPROVE" -> "IMPROVE"
                 "BROWSER" -> "WEB 24/7"
+                "IGNORED" -> {
+                    val customLimit = TimeLimitManager.getLimitMinutes(this, stat.packageName)
+                    val cap = if (customLimit in 1..29) customLimit else 30
+                    if (stat.durationMs >= cap * 60_000L) "IGNORED • ${cap}m CAP REACHED" else "IGNORED • ${cap}m CAP"
+                }
                 "UTILITY" -> "SYSTEM"
                 else -> {
                     val customLimit = TimeLimitManager.getLimitMinutes(this, stat.packageName)
@@ -487,6 +497,11 @@ class UsageStatsActivity : AppCompatActivity() {
             val colorRes = when (stat.category) {
                 "STUDY" -> R.color.success_green
                 "IMPROVE" -> R.color.accent_purple
+                "IGNORED" -> {
+                    val customLimit = TimeLimitManager.getLimitMinutes(this, stat.packageName)
+                    val cap = if (customLimit in 1..29) customLimit else 30
+                    if (stat.durationMs >= cap * 60_000L) R.color.distract_red else R.color.text_secondary
+                }
                 "UTILITY" -> R.color.text_secondary
                 else -> R.color.distract_red
             }

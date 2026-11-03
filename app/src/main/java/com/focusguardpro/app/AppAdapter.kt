@@ -67,10 +67,16 @@ class AppAdapter(
         val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
         val isStudy = AppCategoryPrefs.getStudyApps(context).contains(app.packageName)
         val isImprove = AppCategoryPrefs.getImprovementApps(context).contains(app.packageName)
-        val isWhitelisted = isStudy || isImprove || BlockPolicyEngine.isUnblockedForToday(context, app.packageName)
+        val isIgnored = AppCategoryPrefs.getIgnoredApps(context).contains(app.packageName)
+        val isWhitelisted = ((isStudy || isImprove) && !isIgnored) ||
+            BlockPolicyEngine.isUnblockedForToday(context, app.packageName)
 
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
-        val effectiveLimit = if (limitMins > 0) limitMins else defaultCap
+        val effectiveLimit = when {
+            isIgnored -> if (limitMins in 1..29) limitMins else 30
+            limitMins > 0 -> limitMins
+            else -> defaultCap
+        }
         val isLimitReached = usedMinutesToday >= effectiveLimit && !isWhitelisted
 
         val policyBlocked = try {
@@ -105,6 +111,8 @@ class AppAdapter(
                     "\n$quotaBar ✓ Study 24/7 • Non-Study Limit (${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix)$opensSuffix"
                 isBrowser ->
                     "\n$quotaBar ✓ Study 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix$opensSuffix"
+                isLimitReached && isIgnored ->
+                    "\n$quotaBar ✓ Ignored 30m Cap Reached (${usedMinutesToday}m / ${effectiveLimit}m)$opensSuffix"
                 isLimitReached ->
                     "\n$quotaBar ✓ Auto-Blocked • Limit reached (${usedMinutesToday}m / ${effectiveLimit}m)$opensSuffix"
                 hardBlocked && limitMins > 0 ->
@@ -131,13 +139,15 @@ class AppAdapter(
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
             holder.name.text = sb
-        } else if ((usedMinutesToday > 0 || totalBrowserMins > 0 || launchesToday > 0 || isBrowser || isStudy || isImprove) && showBadgeDetails) {
+        } else if ((usedMinutesToday > 0 || totalBrowserMins > 0 || launchesToday > 0 || isBrowser || isStudy || isImprove || isIgnored) && showBadgeDetails) {
             val sb = SpannableStringBuilder()
             sb.append(app.appName)
             val subStart = sb.length
             val subText = when {
                 isBrowser ->
                     "\n$quotaBar Study Sites 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix$opensSuffix"
+                isIgnored ->
+                    "\n🟠 Ignored (${effectiveLimit}m Cap) • ${usedMinutesToday}m / ${effectiveLimit}m today$opensSuffix"
                 isStudy ->
                     "\n🟢 Study 24/7 • ${usedMinutesToday}m today$opensSuffix"
                 isImprove ->
@@ -147,6 +157,7 @@ class AppAdapter(
             }
             sb.append(subText)
             val subColor = when {
+                isIgnored -> Color.parseColor("#F59E0B")
                 isStudy -> Color.parseColor("#34D399")
                 isImprove -> Color.parseColor("#38BDF8")
                 usedMinutesToday >= (effectiveLimit * 0.8f).roundToInt() -> Color.parseColor("#F59E0B")

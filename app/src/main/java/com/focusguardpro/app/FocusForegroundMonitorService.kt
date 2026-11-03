@@ -201,45 +201,51 @@ class FocusForegroundMonitorService : Service() {
         if (!shieldPrefs.getBoolean("shield_active", true)) return
         if (AppLifecycleCoordinator.isRestoreInProgress) return
 
-        val fgPkg = getActiveForegroundPackage() ?: return
-        if (fgPkg.isBlank()) return
-
-        // 1. Never block Focus Elite or critical system processes
-        if (isSelfPackage(fgPkg)) {
-            ForegroundTracker.currentPackage = fgPkg
-            return
-        }
-
-        // 2. Never block system keyboards or excluded system packages (Launcher, Dialer, SystemUI)
-        if (SystemExclusions.isInputMethod(this, fgPkg) || SystemExclusions.isExcludedPackage(this, fgPkg)) {
-            ForegroundTracker.currentPackage = fgPkg
-            return
-        }
+        val candidatePackages = getActiveForegroundPackages()
+        if (candidatePackages.isEmpty()) return
 
         val nowMs = FocusLayerManager.verifiedNowMs(this)
 
-        // 3. Browser packages: evaluate per-website (Study websites work 24/7; Non-study websites respect 30m cap & Focus Layer)
-        if (BlockPolicyEngine.isBrowserPackage(fgPkg)) {
-            val a11y = BlockerAccessibilityService.instance
-            if (a11y != null) {
-                a11y.evaluateActiveBrowserFromMonitor(fgPkg)
-            } else {
-                val lastHost = BlockPolicyEngine.getLastActiveBrowserHost(this, fgPkg, nowMs)
-                if (!lastHost.isNullOrBlank()) {
-                    BlockPolicyEngine.recordBrowserWebsiteSample(this, fgPkg, lastHost, nowMs)
-                    val urlDecision = BlockPolicyEngine.evaluateBrowserUrl(this, fgPkg, lastHost, nowMs)
-                    if (urlDecision is BlockDecision.Blocked) {
-                        triggerEnforcement(urlDecision.target, urlDecision.reason.wireKey, nowMs, isWebsite = true, blockedPkgName = fgPkg)
+        for (fgPkg in candidatePackages) {
+            if (fgPkg.isBlank()) continue
+
+            // 1. Never block Focus Elite or critical system processes
+            if (isSelfPackage(fgPkg)) {
+                ForegroundTracker.currentPackage = fgPkg
+                continue
+            }
+
+            // 2. Never block system keyboards or excluded system packages (Launcher, Dialer, SystemUI)
+            if (SystemExclusions.isInputMethod(this, fgPkg) || SystemExclusions.isExcludedPackage(this, fgPkg)) {
+                ForegroundTracker.currentPackage = fgPkg
+                continue
+            }
+
+            // 3. Browser packages: evaluate per-website (Study websites work 24/7; Non-study websites respect 30m cap & Focus Layer)
+            if (BlockPolicyEngine.isBrowserPackage(fgPkg)) {
+                val a11y = BlockerAccessibilityService.instance
+                if (a11y != null) {
+                    a11y.evaluateActiveBrowserFromMonitor(fgPkg)
+                } else {
+                    val lastHost = BlockPolicyEngine.getLastActiveBrowserHost(this, fgPkg, nowMs)
+                    if (!lastHost.isNullOrBlank()) {
+                        BlockPolicyEngine.recordBrowserWebsiteSample(this, fgPkg, lastHost, nowMs)
+                        val urlDecision = BlockPolicyEngine.evaluateBrowserUrl(this, fgPkg, lastHost, nowMs)
+                        if (urlDecision is BlockDecision.Blocked) {
+                            triggerEnforcement(urlDecision.target, urlDecision.reason.wireKey, nowMs, isWebsite = true, blockedPkgName = fgPkg)
+                            return
+                        }
                     }
                 }
+                continue
             }
-            return
-        }
 
-        // 4. Authoritative policy evaluation for Non-Browser Apps (HardBlock, Focus Layer, Deep Focus, Blackout, 30m Daily Limit)
-        val decision = BlockPolicyEngine.evaluateApp(this, fgPkg, nowMs)
-        if (decision is BlockDecision.Blocked) {
-            triggerEnforcement(decision.target, decision.reason.wireKey, nowMs, isWebsite = false, blockedPkgName = fgPkg)
+            // 4. Authoritative policy evaluation for Non-Browser Apps (HardBlock, Focus Layer, Deep Focus, Blackout, 30m Daily Limit)
+            val decision = BlockPolicyEngine.evaluateApp(this, fgPkg, nowMs)
+            if (decision is BlockDecision.Blocked) {
+                triggerEnforcement(decision.target, decision.reason.wireKey, nowMs, isWebsite = false, blockedPkgName = fgPkg)
+                return
+            }
         }
     }
 
@@ -250,8 +256,8 @@ class FocusForegroundMonitorService : Service() {
         isWebsite: Boolean = false,
         blockedPkgName: String = target
     ) {
-        // Debounce repeated blocks of the same target within 1.0 second
-        if (target == lastBlockedPkg && nowMs - lastBlockedTimeMs < 1000L) {
+        // Debounce repeated blocks of the same target within 900ms
+        if (target == lastBlockedPkg && nowMs - lastBlockedTimeMs < 900L) {
             return
         }
         lastBlockedPkg = target
@@ -264,7 +270,7 @@ class FocusForegroundMonitorService : Service() {
             lastResolvedUsagesPkg = null
         }
 
-        // Delegate to BlockerAccessibilityService first so enforcement runs with Accessibility window privileges on Android 10-15
+        // Delegate to BlockerAccessibilityService first so enforcement runs with Accessibility overlay & window privileges
         val a11y = BlockerAccessibilityService.instance
         if (a11y != null) {
             a11y.enforceBlockNow(
@@ -276,12 +282,18 @@ class FocusForegroundMonitorService : Service() {
             return
         }
 
-        // Enhanced mode fallback: force stop package via Shizuku/Porter
-        if (!isWebsite && PorterBridge.isEnhancedModeActive()) {
+        // If Accessibility was unbound/paused by OEM (e.g. MIUI), try Porter/Shizuku re-enable & force-stop
+        if (PorterBridge.isEnhancedModeActive()) {
             try {
-                PorterBridge.forceStopPackage(blockedPkgName)
+                PorterBridge.ensureAccessibilityServiceEnabled(this)
+                if (!isWebsite) {
+                    PorterBridge.forceStopPackage(blockedPkgName)
+                }
             } catch (_: Exception) {}
         }
+
+        // Post high-priority full-screen lock notification so MIUI/HyperOS surfaces the block even if background startActivity is restricted
+        postHighPriorityBlockAlert(target, reason, blockedPkgName)
 
         // Launch full-screen BlockActivity explaining why the app/website is blocked
         try {
@@ -295,6 +307,83 @@ class FocusForegroundMonitorService : Service() {
                 startActivity(homeIntent)
             } catch (_: Exception) {}
         }
+    }
+
+    private fun postHighPriorityBlockAlert(target: String, reasonWireKey: String, blockedPkgName: String) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            val alertChannelId = "focusguard_block_enforcement_alert"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val ch = NotificationChannel(
+                    alertChannelId,
+                    "Focus Shield Lock Enforcement",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Immediate lock alert when a blocked or time-capped app is opened"
+                }
+                nm.createNotificationChannel(ch)
+            }
+
+            val appName = try {
+                val ai = packageManager.getApplicationInfo(blockedPkgName, 0)
+                packageManager.getApplicationLabel(ai).toString()
+            } catch (_: Throwable) {
+                target
+            }
+
+            val blockIntent = Intent(this, BlockActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("blocked_package", target)
+                putExtra("block_reason", reasonWireKey)
+            }
+            val pi = PendingIntent.getActivity(
+                this,
+                (target.hashCode() and 0x7FFFFFFF),
+                blockIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notif = NotificationCompat.Builder(this, alertChannelId)
+                .setSmallIcon(R.drawable.ic_shield_security)
+                .setContentTitle("🛡️ $appName Locked (Daily Limit Reached)")
+                .setContentText("Tap to view lock details or re-enable Accessibility Shield for instant auto-eviction.")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .setFullScreenIntent(pi, true)
+                .build()
+
+            nm.notify(2049, notif)
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * Returns ALL currently active foreground/visible packages across Accessibility windows
+     * (including MIUI/HyperOS floating windows and split-screen) plus UsageEvents.
+     */
+    private fun getActiveForegroundPackages(): List<String> {
+        val result = LinkedHashSet<String>()
+
+        try {
+            val liveVisible = BlockerAccessibilityService.instance?.getAllLiveVisiblePackages()
+            if (!liveVisible.isNullOrEmpty()) {
+                for (pkg in liveVisible) {
+                    if (pkg.isNotBlank() && pkg != "com.android.systemui") {
+                        result.add(pkg)
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        val primary = getActiveForegroundPackage()
+        if (!primary.isNullOrBlank() && primary != "com.android.systemui") {
+            result.add(primary)
+        }
+
+        return result.toList()
     }
 
     private fun getActiveForegroundPackage(): String? {
@@ -312,38 +401,81 @@ class FocusForegroundMonitorService : Service() {
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
         val now = System.currentTimeMillis()
 
-        // 2. Query recent UsageEvents (last 60 seconds) tracking both RESUMED and PAUSED/STOPPED
+        // 2. Query recent UsageEvents (last 90 seconds) tracking per-class RESUMED and PAUSED/STOPPED
+        // so internal ActivityA -> ActivityB transitions never null out activePkg when ActivityA stops 500ms later!
         if (usm != null) {
             try {
-                val recentEvents = usm.queryEvents(now - 60_000L, now)
+                val recentEvents = usm.queryEvents(now - 90_000L, now)
                 if (recentEvents != null) {
                     val event = UsageEvents.Event()
-                    var activePkg: String? = null
+                    val resumedClassesByPkg = HashMap<String, HashSet<String>>()
+                    val visibleClassesByPkg = HashMap<String, HashSet<String>>()
+                    var lastResumedPkg: String? = null
+
                     while (recentEvents.hasNextEvent()) {
                         recentEvents.getNextEvent(event)
                         val pkg = event.packageName ?: continue
                         if (pkg == "com.android.systemui" || SystemExclusions.isInputMethod(this, pkg)) continue
+                        val cls = event.className ?: "_default_"
                         when (event.eventType) {
                             UsageEvents.Event.ACTIVITY_RESUMED, 1 -> {
-                                activePkg = pkg
+                                resumedClassesByPkg.getOrPut(pkg) { HashSet() }.add(cls)
+                                visibleClassesByPkg.getOrPut(pkg) { HashSet() }.add(cls)
+                                lastResumedPkg = pkg
                             }
-                            UsageEvents.Event.ACTIVITY_PAUSED,
-                            UsageEvents.Event.ACTIVITY_STOPPED, 2, 23 -> {
-                                if (activePkg == pkg) {
-                                    activePkg = null
+                            UsageEvents.Event.ACTIVITY_PAUSED, 2 -> {
+                                resumedClassesByPkg[pkg]?.remove(cls)
+                                if (resumedClassesByPkg[pkg]?.isEmpty() == true) {
+                                    resumedClassesByPkg.remove(pkg)
+                                }
+                            }
+                            UsageEvents.Event.ACTIVITY_STOPPED, 23 -> {
+                                resumedClassesByPkg[pkg]?.remove(cls)
+                                if (resumedClassesByPkg[pkg]?.isEmpty() == true) {
+                                    resumedClassesByPkg.remove(pkg)
+                                }
+                                visibleClassesByPkg[pkg]?.remove(cls)
+                                if (visibleClassesByPkg[pkg]?.isEmpty() == true) {
+                                    visibleClassesByPkg.remove(pkg)
                                 }
                             }
                         }
                     }
-                    if (!activePkg.isNullOrBlank()) {
-                        lastResolvedUsagesPkg = activePkg
-                        return activePkg
+
+                    // Prefer any currently resumed or visible (floating window) package that is blocked
+                    val activeCandidates = LinkedHashSet<String>()
+                    if (!lastResumedPkg.isNullOrBlank() &&
+                        (resumedClassesByPkg.containsKey(lastResumedPkg) || visibleClassesByPkg.containsKey(lastResumedPkg))
+                    ) {
+                        activeCandidates.add(lastResumedPkg!!)
+                    }
+                    activeCandidates.addAll(resumedClassesByPkg.keys)
+                    activeCandidates.addAll(visibleClassesByPkg.keys)
+
+                    for (cand in activeCandidates) {
+                        if (!isSelfPackage(cand) && !SystemExclusions.isExcludedPackage(this, cand)) {
+                            val dec = try {
+                                BlockPolicyEngine.evaluateApp(this, cand, now)
+                            } catch (_: Throwable) {
+                                BlockDecision.Allowed
+                            }
+                            if (dec is BlockDecision.Blocked) {
+                                lastResolvedUsagesPkg = cand
+                                return cand
+                            }
+                        }
+                    }
+
+                    val chosen = activeCandidates.firstOrNull()
+                    if (!chosen.isNullOrBlank()) {
+                        lastResolvedUsagesPkg = chosen
+                        return chosen
                     }
                 }
             } catch (_: Exception) {}
         }
 
-        // 3. Cached foreground package from earlier UsageEvents if user has stayed in the same app >60s
+        // 3. Cached foreground package from earlier UsageEvents if user has stayed in the same app >90s
         val cached = lastResolvedUsagesPkg
         if (!cached.isNullOrBlank() && !isSelfPackage(cached)) {
             return cached

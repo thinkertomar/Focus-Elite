@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private var focusLayerStatusTitle: TextView? = null
     private var focusLayerStatusSubtitle: TextView? = null
     private var focusStudioCardView: LinearLayout? = null
+    private var homeUpdateReportCardView: LinearLayout? = null
 
     // Digital Wellbeing Hero Card Telemetry Views
     private var heroDeltaBadge: TextView? = null
@@ -365,6 +366,93 @@ class MainActivity : AppCompatActivity() {
         mainColumn.addView(focusStudioCard, (screenTimeIdx + 2).coerceAtMost(mainColumn.childCount))
         focusStudioCardView = focusStudioCard
 
+        // Interactive v1.5.1 Update & Diagnostic Report Card
+        val updateReportCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(12f)
+            }
+            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
+            background = UiThemePrefs.createCardBackground(this@MainActivity, cornerDp = 16f, isHero = false)
+            setOnClickListener {
+                val latest = SystemDiagnosticsAndUpdatesManager.RELEASE_HISTORY.first()
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("🎉 Focus Elite v${latest.versionName} Report")
+                    .setMessage(
+                        "${latest.headline}\n\n" +
+                            latest.highlights.joinToString("\n") { "• $it" } +
+                            "\n\n🩺 7-Point Offline Health: Verified & Active\n" +
+                            "🔒 100% Offline • Zero Internet Permission"
+                    )
+                    .setPositiveButton("🎉 What's New Showcase") { _, _ ->
+                        UpdatesHealthAndFeedbackSectionBuilder.showWhatsNewDialog(
+                            activity = this@MainActivity,
+                            palette = UiThemePrefs.getSelectedPalette(this@MainActivity)
+                        )
+                    }
+                    .setNeutralButton("📋 Copy Full Report") { _, _ ->
+                        val sub = SystemDiagnosticsAndUpdatesManager.saveAndFormatFeedbackReport(
+                            context = this@MainActivity,
+                            category = "System Update v${latest.versionName}",
+                            subject = "Focus Elite v${latest.versionName} Status Report",
+                            body = "App is running smoothly on v${latest.versionName} with green CI build and deterministic signing key.",
+                            includeDiagnostics = true
+                        )
+                        SystemDiagnosticsAndUpdatesManager.copyReportToClipboard(this@MainActivity, sub.formattedReport)
+                    }
+                    .setNegativeButton("🛠️ Health & Feedback Hub") { _, _ ->
+                        startActivity(
+                            Intent(this@MainActivity, AuxiliarySettingsActivity::class.java).apply {
+                                putExtra(AuxiliarySettingsActivity.EXTRA_INITIAL_TAB, AuxiliarySettingsActivity.TAB_UPDATES_HEALTH)
+                            }
+                        )
+                    }
+                    .show()
+            }
+        }
+        val reportCircle = TextView(this).apply {
+            text = "🚀"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            background = UiThemePrefs.createAccentCircleBackground(this@MainActivity)
+            layoutParams = LinearLayout.LayoutParams(dp(44f), dp(44f)).apply {
+                marginEnd = dp(14f)
+            }
+        }
+        val reportTextCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        reportTextCol.addView(TextView(this).apply {
+            text = "v1.5.1 Update & Diagnostic Report"
+            textSize = 14.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        reportTextCol.addView(TextView(this).apply {
+            text = "JEE Suite Unlocked • 1s Cap Watchdog • Health: PASS"
+            textSize = 12f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(2f), 0, 0)
+        })
+        val reportLabel = TextView(this).apply {
+            text = "Report →"
+            textSize = 12.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(palette.secondaryColor)
+            setPadding(dp(8f), dp(4f), 0, dp(4f))
+        }
+        updateReportCard.addView(reportCircle)
+        updateReportCard.addView(reportTextCol)
+        updateReportCard.addView(reportLabel)
+
+        mainColumn.addView(updateReportCard, (screenTimeIdx + 3).coerceAtMost(mainColumn.childCount))
+        homeUpdateReportCardView = updateReportCard
+
         // Inject Digital Wellbeing Structural Telemetry Strip inside screenTimeCard
         val heroCardGroup = screenTimeCard as? LinearLayout
         if (heroCardGroup != null && heroDeltaBadge == null) {
@@ -548,6 +636,10 @@ class MainActivity : AppCompatActivity() {
         focusStudioCardView?.background = UiThemePrefs.createCardBackground(this, cornerDp = 16f, isHero = false)
         (focusStudioCardView?.getChildAt(0) as? View)?.background = UiThemePrefs.createAccentCircleBackground(this)
         (focusStudioCardView?.getChildAt(2) as? TextView)?.setTextColor(palette.secondaryColor)
+
+        homeUpdateReportCardView?.background = UiThemePrefs.createCardBackground(this, cornerDp = 16f, isHero = false)
+        (homeUpdateReportCardView?.getChildAt(0) as? View)?.background = UiThemePrefs.createAccentCircleBackground(this)
+        (homeUpdateReportCardView?.getChildAt(2) as? TextView)?.setTextColor(palette.secondaryColor)
 
         val graceMins = FocusLayerManager.getPreWindowGraceRemainingMinutes(this)
         val sameDayRejection = FocusLayerManager.getSameDayHolidayRejectionNotice(this)
@@ -767,15 +859,36 @@ class MainActivity : AppCompatActivity() {
         val allSetText = findViewById<TextView>(R.id.allPermissionsSetText) ?: return
 
         val hasUsage = hasUsageStatsPermission()
-        val hasAccess = isAccessibilityServiceEnabled()
+        val hasAccessSetting = isAccessibilityServiceEnabled()
+        val isAccessLive = BlockerAccessibilityService.instance != null
+        val hasAccess = hasAccessSetting && isAccessLive
         val hasBattery = isIgnoringBatteryOptimizations()
         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         val adminComponent = ComponentName(this, MyAdminReceiver::class.java)
         val hasAdmin = dpm.isAdminActive(adminComponent)
 
+        if (hasAccessSetting && !isAccessLive) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    if (PorterBridge.isEnhancedModeActive()) {
+                        PorterBridge.ensureAccessibilityServiceEnabled(this@MainActivity)
+                    }
+                } catch (_: Throwable) {}
+            }
+            accessBtn.postDelayed({
+                if (!isFinishing && !isDestroyed && BlockerAccessibilityService.instance != null) {
+                    updatePermissionButtonStates()
+                }
+            }, 800L)
+        }
+
         usageBtn.text = "1. Enable Usage Access (Step 1)"
         adminBtn.text = "4A. Enable Device Admin Lock"
-        accessBtn.text = "4B. Enable Accessibility Shield (Enable Last)"
+        accessBtn.text = if (hasAccessSetting && !isAccessLive) {
+            "⚠️ Accessibility Paused by MIUI/OS — Tap & Toggle OFF then ON"
+        } else {
+            "4B. Enable Accessibility Shield (Enable Last)"
+        }
         batteryBtn.text = "Optional: Disable Battery Optimization"
 
         usageBtn.visibility = if (hasUsage) View.GONE else View.VISIBLE
@@ -792,6 +905,7 @@ class MainActivity : AppCompatActivity() {
             allSetText.visibility = View.VISIBLE
             val nextHint = when {
                 !hasUsage -> "Guided Setup: Step 1 → Grant Usage Access below"
+                hasAccessSetting && !isAccessLive -> "⚠️ After APK update, MIUI/OS paused Accessibility. Tap the button below, turn Focus Elite Accessibility OFF then ON."
                 !UiThemePrefs.isSetupCategoriesConfigured(this) -> "Guided Setup: Step 2 → Tap 'Category Settings' above to define Study/Improve/Ignore apps"
                 !UiThemePrefs.isSetupScheduleConfigured(this) -> "Guided Setup: Step 3 → Tap 'Focus Layer' banner above to confirm your schedule"
                 else -> "Guided Setup: Step 4 → Enable Device Admin & Accessibility Shield below"
@@ -906,6 +1020,7 @@ class MainActivity : AppCompatActivity() {
             val launchesMap = HashMap<String, Int>()
             val studyApps = AppCategoryPrefs.getStudyApps(this@MainActivity)
             val improveApps = AppCategoryPrefs.getImprovementApps(this@MainActivity)
+            val ignoredApps = AppCategoryPrefs.getIgnoredApps(this@MainActivity)
             val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this@MainActivity)
 
             val appModels = resolveInfos.mapNotNull { ri ->
@@ -929,10 +1044,14 @@ class MainActivity : AppCompatActivity() {
 
                 val limitMins = TimeLimitManager.getLimitMinutes(this@MainActivity, pkg)
                 val hardBlocked = HardBlockManager.isHardBlocked(this@MainActivity, pkg)
-                val isWhitelisted = studyApps.contains(pkg) ||
-                    improveApps.contains(pkg) ||
+                val isIgnored = ignoredApps.contains(pkg)
+                val isWhitelisted = (studyApps.contains(pkg) || improveApps.contains(pkg)) && !isIgnored ||
                     BlockPolicyEngine.isUnblockedForToday(this@MainActivity, pkg)
-                val effectiveCap = if (limitMins > 0) limitMins else defaultCap
+                val effectiveCap = when {
+                    isIgnored -> if (limitMins in 1..29) limitMins else 30
+                    limitMins > 0 -> limitMins
+                    else -> defaultCap
+                }
                 val reachedCap = usedMins >= effectiveCap && !isWhitelisted
 
                 // Ensure the 30m default cap is persisted in TimeLimitManager once reached

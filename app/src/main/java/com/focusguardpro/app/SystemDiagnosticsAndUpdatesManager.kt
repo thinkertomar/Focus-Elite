@@ -77,15 +77,16 @@ object SystemDiagnosticsAndUpdatesManager {
 
     val RELEASE_HISTORY: List<ReleaseNote> = listOf(
         ReleaseNote(
-            versionName = "1.5",
-            versionCode = 6,
-            dateLabel = "Official Milestone • Build 6",
-            headline = "Unlocked JEE Practice Suite (LaTeX & Diagrams), Reconciled Browser Usage Access & 1s Cap Watchdog",
+            versionName = "1.5.1",
+            versionCode = 7,
+            dateLabel = "Official Milestone • Build 7",
+            headline = "Unlocked JEE Practice Suite (LaTeX & Diagrams), Reconciled Browser Usage Access, 1s Cap Watchdog & Green CI Build",
             highlights = listOf(
                 "📐 JEE Practice Suite Overhaul: Removed Engage Exam Lock, restored all 2,427 high-contrast question diagrams, and added an offline/online LaTeX math engine.",
                 "🌐 Reconciled Browser Usage Access: Combines Android UsageStats per-browser screen time with verified 24/7 Study Website exemptions.",
                 "⏱️ 1-Second Live App Cap Watchdog: Locks any distracted app the exact second it reaches its 30-minute daily cap while open on screen.",
-                "🎨 Redesigned Button Boxes & Signing Fix: Crisp button padding across every screen and locked deterministic APK signing for conflict-free updates."
+                "🔐 Deterministic APK Signing & Green CI: Restored PKCS12 integrity and verified automated GitHub Actions build for conflict-free, in-place app updates.",
+                "🎨 Redesigned Home Update Card & Button Boxes: Crisp button padding across every screen, updated Home report banner, and 1-tap What's New showcase."
             )
         ),
         ReleaseNote(

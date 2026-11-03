@@ -361,26 +361,43 @@ class WatchdogService : Service() {
 
                 try {
                     if (ScreenStateTracker.isScreenOn && !isKeyguardLocked(this@WatchdogService)) {
-                        val fgPkg = ForegroundTracker.currentPackage ?: UsageStatsHelper.getForegroundPackage(this@WatchdogService)
-                        if (fgPkg != null &&
-                            fgPkg != packageName &&
-                            fgPkg != "com.focusguardpro.elite" &&
-                            fgPkg != "com.focusguardpro.app" &&
-                            !SystemExclusions.isExcludedPackage(this@WatchdogService, fgPkg) &&
-                            !SystemExclusions.isInputMethod(this@WatchdogService, fgPkg)
-                        ) {
-                            val decision = BlockPolicyEngine.evaluateApp(this@WatchdogService, fgPkg)
-                            if (decision is BlockDecision.Blocked) {
-                                if (PorterBridge.isEnhancedModeActive()) {
-                                    try {
-                                        PorterBridge.forceStopPackage(decision.target)
-                                    } catch (_: Exception) {}
+                        val candidatePkgs = LinkedHashSet<String>()
+                        BlockerAccessibilityService.instance?.getAllLiveVisiblePackages()?.let { candidatePkgs.addAll(it) }
+                        ForegroundTracker.currentPackage?.let { candidatePkgs.add(it) }
+                        UsageStatsHelper.getForegroundPackage(this@WatchdogService)?.let { candidatePkgs.add(it) }
+
+                        for (fgPkg in candidatePkgs) {
+                            if (fgPkg.isNotBlank() &&
+                                fgPkg != packageName &&
+                                fgPkg != "com.focusguardpro.elite" &&
+                                fgPkg != "com.focusguardpro.app" &&
+                                !SystemExclusions.isExcludedPackage(this@WatchdogService, fgPkg) &&
+                                !SystemExclusions.isInputMethod(this@WatchdogService, fgPkg)
+                            ) {
+                                val decision = BlockPolicyEngine.evaluateApp(this@WatchdogService, fgPkg)
+                                if (decision is BlockDecision.Blocked) {
+                                    val a11y = BlockerAccessibilityService.instance
+                                    if (a11y != null) {
+                                        a11y.enforceBlockNow(
+                                            target = decision.target,
+                                            reasonWireKey = decision.reason.wireKey,
+                                            isWebsite = false,
+                                            blockedPackageName = fgPkg
+                                        )
+                                    } else {
+                                        if (PorterBridge.isEnhancedModeActive()) {
+                                            try {
+                                                PorterBridge.forceStopPackage(decision.target)
+                                            } catch (_: Exception) {}
+                                        }
+                                        timeLimitManager.triggerBlock(decision.target, decision.reason.wireKey)
+                                    }
+                                    break
                                 }
-                                timeLimitManager.triggerBlock(decision.target, decision.reason.wireKey)
+                            } else if (fgPkg.isNotBlank() && SystemExclusions.isExcludedPackage(this@WatchdogService, fgPkg)) {
+                                ForegroundTracker.currentPackage = fgPkg
+                                ForegroundTracker.currentPackageSince = System.currentTimeMillis()
                             }
-                        } else if (fgPkg != null && SystemExclusions.isExcludedPackage(this@WatchdogService, fgPkg)) {
-                            ForegroundTracker.currentPackage = fgPkg
-                            ForegroundTracker.currentPackageSince = System.currentTimeMillis()
                         }
                     }
                 } catch (_: Exception) {}
