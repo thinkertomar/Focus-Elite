@@ -44,11 +44,18 @@ class ActivityStatsActivity : AppCompatActivity() {
     private var refreshJob: Job? = null
 
     private lateinit var tvHistoryLog: TextView
+    private lateinit var tvLatestWorkoutSummary: TextView
+    private lateinit var tvToggleWorkoutHistory: TextView
     private lateinit var tvWeight: TextView
     private lateinit var stepsRing: RingProgressView
     private lateinit var tvSensorStatusPill: TextView
+    private lateinit var tvHeroGoalPercent: TextView
+    private lateinit var tvHeroRemainingSteps: TextView
+    private lateinit var tvHeroPeakWindow: TextView
+    private lateinit var tvDistanceSub: TextView
 
-    // Auto-Detected Strava Walk/Jog Telemetry Views
+    // Running & Walking Performance Views
+    private lateinit var tvWalkJogStatusDot: TextView
     private lateinit var tvAutoWalkJogHeader: TextView
     private lateinit var tvAutoWalkJogSummaryLine: TextView
     private lateinit var tvAvgPace: TextView
@@ -58,10 +65,20 @@ class ActivityStatsActivity : AppCompatActivity() {
     private lateinit var stravaPaceChart: StravaPaceChartView
     private lateinit var llKmSplitsContainer: LinearLayout
 
+    // Secondary Collapsible Drawer Views
+    private lateinit var rowToggleDataSources: LinearLayout
+    private lateinit var llSecondaryDataSources: LinearLayout
+    private lateinit var tvDataSourcesChevron: TextView
+    private lateinit var tvDataSourcesSummary: TextView
+
     private var isLocalSensorRegistered = false
+    private var isHardwareSensorAvailable = true
     private var sensorManager: SensorManager? = null
     private var lastCounterBaseline: Int = -1
     private var hasAutoPromptedSensorOnOpen = false
+    private var isSplitsExpanded = false
+    private var isWorkoutHistoryExpanded = false
+    private var isDataSourcesExpanded = false
 
     private val localStepListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent?) {
@@ -135,10 +152,19 @@ class ActivityStatsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_activity_stats)
 
         stepsRing = findViewById(R.id.stepsRing)
+        stepsRing.ringColor = Color.parseColor("#16D99A") // Refined Emerald Green
+
         tvHistoryLog = findViewById(R.id.tvHistoryLog)
+        tvLatestWorkoutSummary = findViewById(R.id.tvLatestWorkoutSummary)
+        tvToggleWorkoutHistory = findViewById(R.id.tvToggleWorkoutHistory)
         tvWeight = findViewById(R.id.tvWeight)
         tvSensorStatusPill = findViewById(R.id.tvSensorStatusPill)
+        tvHeroGoalPercent = findViewById(R.id.tvHeroGoalPercent)
+        tvHeroRemainingSteps = findViewById(R.id.tvHeroRemainingSteps)
+        tvHeroPeakWindow = findViewById(R.id.tvHeroPeakWindow)
+        tvDistanceSub = findViewById(R.id.tvDistanceSub)
 
+        tvWalkJogStatusDot = findViewById(R.id.tvWalkJogStatusDot)
         tvAutoWalkJogHeader = findViewById(R.id.tvAutoWalkJogHeader)
         tvAutoWalkJogSummaryLine = findViewById(R.id.tvAutoWalkJogSummaryLine)
         tvAvgPace = findViewById(R.id.tvAvgPace)
@@ -148,17 +174,25 @@ class ActivityStatsActivity : AppCompatActivity() {
         stravaPaceChart = findViewById(R.id.stravaPaceChart)
         llKmSplitsContainer = findViewById(R.id.llKmSplitsContainer)
 
+        rowToggleDataSources = findViewById(R.id.rowToggleDataSources)
+        llSecondaryDataSources = findViewById(R.id.llSecondaryDataSources)
+        tvDataSourcesChevron = findViewById(R.id.tvDataSourcesChevron)
+        tvDataSourcesSummary = findViewById(R.id.tvDataSourcesSummary)
+
         findViewById<View>(R.id.activityBackButton)?.setOnClickListener { finish() }
 
         findViewById<View>(R.id.cardStepsRing)?.setOnClickListener {
             val current = GoalPrefs.getStepGoal(this)
             showGoalDialog("Daily Step Goal", current) { newGoal ->
                 GoalPrefs.setStepGoal(this, newGoal)
-                lifecycleScope.launch { refreshStepStats() }
+                lifecycleScope.launch {
+                    refreshStepStats()
+                    loadWeeklyTrend()
+                }
             }
         }
 
-        // Tapping Calories card opens the new Calorie Curve Breakdown (long-press sets goal)
+        // Metric Grid 1: Calories
         findViewById<View>(R.id.btnCaloriesGoal)?.setOnClickListener {
             startActivity(Intent(this, CaloriesHistoryActivity::class.java))
         }
@@ -170,23 +204,30 @@ class ActivityStatsActivity : AppCompatActivity() {
             }
             true
         }
-
         findViewById<View>(R.id.tvCaloriesBreakdownLink)?.setOnClickListener {
             startActivity(Intent(this, CaloriesHistoryActivity::class.java))
         }
 
+        // Metric Grid 2: Distance
         findViewById<View>(R.id.btnDistanceDetail)?.setOnClickListener {
             startActivity(Intent(this, DistanceHistoryActivity::class.java))
         }
 
+        // Running & Walking Performance: View Details
         findViewById<View>(R.id.tvOpenFullPaceHistory)?.setOnClickListener {
-            startActivity(Intent(this, DistanceHistoryActivity::class.java))
+            if (llKmSplitsContainer.childCount > 0 && !isSplitsExpanded) {
+                isSplitsExpanded = true
+                llKmSplitsContainer.visibility = View.VISIBLE
+                findViewById<TextView>(R.id.tvOpenFullPaceHistory)?.text = "Full Analysis ›"
+            } else {
+                startActivity(Intent(this, DistanceHistoryActivity::class.java))
+            }
         }
         findViewById<View>(R.id.cardStravaTelemetry)?.setOnClickListener {
             startActivity(Intent(this, DistanceHistoryActivity::class.java))
         }
 
-        // Tapping Move Minutes card opens the new Move Minutes Curve Breakdown (long-press sets goal)
+        // Metric Grid 3: Move Minutes
         findViewById<View>(R.id.btnMoveMinGoal)?.setOnClickListener {
             startActivity(Intent(this, MoveMinHistoryActivity::class.java))
         }
@@ -198,28 +239,50 @@ class ActivityStatsActivity : AppCompatActivity() {
             }
             true
         }
-
         findViewById<View>(R.id.tvMoveMinBreakdownLink)?.setOnClickListener {
             startActivity(Intent(this, MoveMinHistoryActivity::class.java))
         }
 
+        // Metric Grid 4: Weight
         findViewById<View>(R.id.btnWeightDetail)?.setOnClickListener {
             startActivity(Intent(this, WeightHistoryActivity::class.java))
+        }
+
+        // Weekly Activity History Link
+        findViewById<View>(R.id.tvWeeklyHistoryLink)?.setOnClickListener {
+            startActivity(Intent(this, DistanceHistoryActivity::class.java))
+        }
+
+        // Strength & Calisthenics
+        findViewById<View>(R.id.btnStartCalisthenics)?.setOnClickListener {
+            startActivity(Intent(this, CalisthenicsActivity::class.java))
+        }
+        tvToggleWorkoutHistory.setOnClickListener {
+            isWorkoutHistoryExpanded = !isWorkoutHistoryExpanded
+            tvHistoryLog.visibility = if (isWorkoutHistoryExpanded) View.VISIBLE else View.GONE
+            tvToggleWorkoutHistory.text = if (isWorkoutHistoryExpanded) {
+                "Hide session history ▴"
+            } else {
+                "View session history ▾"
+            }
+        }
+
+        // Collapsible Secondary Data Sources, Sensors & Reports
+        rowToggleDataSources.setOnClickListener {
+            isDataSourcesExpanded = !isDataSourcesExpanded
+            llSecondaryDataSources.visibility = if (isDataSourcesExpanded) View.VISIBLE else View.GONE
+            tvDataSourcesChevron.text = if (isDataSourcesExpanded) "Hide ▴" else "More ▾"
         }
 
         findViewById<View>(R.id.btnActivityReport)?.setOnClickListener {
             startActivity(Intent(this, InsightsDashboardActivity::class.java))
         }
 
-        findViewById<View>(R.id.btnStartCalisthenics)?.setOnClickListener {
-            startActivity(Intent(this, CalisthenicsActivity::class.java))
-        }
-
         findViewById<Button>(R.id.btnConnectHealthConnect)?.setOnClickListener {
             if (!HealthConnectManager.isSupported(this)) {
                 Toast.makeText(
                     this,
-                    "Hardware step sensor is active! Google Fit / Health Connect is not needed on this device.",
+                    "Standalone hardware step sensor is active! Google Fit / Health Connect is not needed.",
                     Toast.LENGTH_LONG
                 ).show()
                 return@setOnClickListener
@@ -260,15 +323,14 @@ class ActivityStatsActivity : AppCompatActivity() {
             } catch (_: Exception) {}
         }
 
-        UiThemePrefs.applyToActivity(this)
-
-        // PRIORITY #1: Automatically ask for Physical Activity Hardware Sensor permission on open!
+        checkHardwareSensorAvailability()
+        applyDashboardTheme()
         ensureHardwareSensorPermissionFirst()
     }
 
     override fun onResume() {
         super.onResume()
-        UiThemePrefs.applyToActivity(this)
+        applyDashboardTheme()
         refreshLocationPermissionButtons()
         refreshHealthConnectUi()
         registerStepDetectorIfPermitted()
@@ -289,30 +351,56 @@ class ActivityStatsActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Immediately prompts for Android's ACTIVITY_RECOGNITION hardware sensor permission when
-     * opening Physical Activity if not yet granted, so standalone tracking works without Google Fit.
-     */
+    private fun applyDashboardTheme() {
+        val isWhite = UiThemePrefs.isWhiteBackgroundActive(this)
+        val isBlack = UiThemePrefs.isBlackBackgroundActive(this)
+        val scroll = findViewById<ScrollView>(R.id.scrollPhysicalActivity)
+        val bg = when {
+            isWhite -> Color.parseColor("#FFFFFF")
+            isBlack -> Color.parseColor("#000000")
+            else -> Color.parseColor("#080D12")
+        }
+        window?.statusBarColor = bg
+        window?.navigationBarColor = bg
+        scroll?.setBackgroundColor(bg)
+        if (isWhite) {
+            UiThemePrefs.applyWindowAndViewTreeTheme(this, scroll)
+        }
+    }
+
+    private fun checkHardwareSensorAvailability() {
+        val sm = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        val hasDetector = sm?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR) != null
+        val hasCounter = sm?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) != null
+        isHardwareSensorAvailable = hasDetector || hasCounter
+    }
+
     private fun ensureHardwareSensorPermissionFirst() {
         val hasPerm = hasActivityRecognitionPermission()
         updateSensorStatusUi(hasPerm)
-        if (!hasPerm && !hasAutoPromptedSensorOnOpen && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (isHardwareSensorAvailable && !hasPerm && !hasAutoPromptedSensorOnOpen && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             hasAutoPromptedSensorOnOpen = true
             requestActivityPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
         }
     }
 
     private fun promptPhysicalActivitySensorPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (!hasActivityRecognitionPermission()) {
-                requestActivityPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
-            } else {
-                Toast.makeText(
-                    this,
-                    "Hardware Step Sensor is active and reading your movement directly!",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+        if (!isHardwareSensorAvailable) {
+            Toast.makeText(
+                this,
+                "Hardware step sensor not detected on this device. Connect Google Fit below if available.",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !hasActivityRecognitionPermission()) {
+            requestActivityPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+        } else {
+            Toast.makeText(
+                this,
+                "Hardware step sensor is active and tracking automatically.",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -323,14 +411,23 @@ class ActivityStatsActivity : AppCompatActivity() {
     }
 
     private fun updateSensorStatusUi(hasPerm: Boolean) {
-        findViewById<Button>(R.id.grantActivityPermissionButton)?.visibility =
-            if (hasPerm) View.GONE else View.VISIBLE
-        if (hasPerm) {
-            tvSensorStatusPill.text = "● Hardware Sensor Active"
-            tvSensorStatusPill.setTextColor(Color.parseColor("#00E676"))
-        } else {
-            tvSensorStatusPill.text = "⚠ Tap to Enable Sensor"
-            tvSensorStatusPill.setTextColor(Color.parseColor("#FFB74D"))
+        val btn = findViewById<Button>(R.id.grantActivityPermissionButton)
+        when {
+            !isHardwareSensorAvailable -> {
+                btn?.visibility = View.GONE
+                tvSensorStatusPill.text = "○ Sensor Unavailable"
+                tvSensorStatusPill.setTextColor(Color.parseColor("#8995A3"))
+            }
+            hasPerm -> {
+                btn?.visibility = View.GONE
+                tvSensorStatusPill.text = "● Sensor Active"
+                tvSensorStatusPill.setTextColor(Color.parseColor("#16D99A"))
+            }
+            else -> {
+                btn?.visibility = View.VISIBLE
+                tvSensorStatusPill.text = "⚠ Enable Sensor"
+                tvSensorStatusPill.setTextColor(Color.parseColor("#F59E0B"))
+            }
         }
     }
 
@@ -338,7 +435,7 @@ class ActivityStatsActivity : AppCompatActivity() {
         val hasPerm = hasActivityRecognitionPermission()
         updateSensorStatusUi(hasPerm)
 
-        if (hasPerm && !isLocalSensorRegistered) {
+        if (isHardwareSensorAvailable && hasPerm && !isLocalSensorRegistered) {
             try {
                 val sm = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
                 val stepDetector = sm?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
@@ -376,6 +473,7 @@ class ActivityStatsActivity : AppCompatActivity() {
 
         if (!HealthConnectManager.isSupported(this)) {
             card.visibility = View.GONE
+            tvDataSourcesSummary.text = "Focus & Activity Report • Hardware Sensor • Optional GPS"
             return
         }
         card.visibility = View.VISIBLE
@@ -389,12 +487,14 @@ class ActivityStatsActivity : AppCompatActivity() {
             }
             if (hasPerms) {
                 statusTv?.text = "Synced ✓"
-                statusTv?.setTextColor(Color.parseColor("#00E676"))
+                statusTv?.setTextColor(Color.parseColor("#16D99A"))
                 btn?.text = "Sync External Data Now"
+                tvDataSourcesSummary.text = "Focus Report • Google Fit Synced ✓ • Optional GPS"
             } else {
-                statusTv?.text = "Optional (Sensor Active)"
-                statusTv?.setTextColor(Color.parseColor("#94A3B8"))
+                statusTv?.text = "Disconnected"
+                statusTv?.setTextColor(Color.parseColor("#8995A3"))
                 btn?.text = "Connect Google Fit (Optional)"
+                tvDataSourcesSummary.text = "Focus Report • Google Fit (Optional) • GPS"
             }
         }
     }
@@ -441,9 +541,49 @@ class ActivityStatsActivity : AppCompatActivity() {
         val calGoal = GoalPrefs.getCalorieGoal(ctx).coerceAtLeast(50)
         val moveGoal = GoalPrefs.getMoveMinGoal(ctx).coerceAtLeast(5)
 
-        findViewById<TextView>(R.id.tvSteps)?.text = formatSteps(telemetry.totalSteps)
-        findViewById<TextView>(R.id.tvStepGoalSub)?.text = "of ${formatSteps(stepGoal)} goal"
-        stepsRing.progress = (telemetry.totalSteps.toFloat() / stepGoal.toFloat()).coerceIn(0f, 1f)
+        val steps = telemetry.totalSteps
+        val pct = ((steps * 100f) / stepGoal.toFloat()).roundToInt()
+
+        findViewById<TextView>(R.id.tvSteps)?.text = formatSteps(steps)
+        findViewById<TextView>(R.id.tvStepGoalSub)?.text = "of ${formatSteps(stepGoal)}"
+        stepsRing.progress = (steps.toFloat() / stepGoal.toFloat()).coerceIn(0f, 1f)
+
+        // Hero summary states (0%, partial, goal achieved)
+        when {
+            steps <= 0 -> {
+                tvHeroGoalPercent.text = "0% of daily goal"
+                tvHeroGoalPercent.setTextColor(Color.parseColor("#8995A3"))
+                tvHeroRemainingSteps.text = "${formatSteps(stepGoal)} steps to reach goal"
+            }
+            steps >= stepGoal -> {
+                tvHeroGoalPercent.text = "$pct% • Daily Goal Reached"
+                tvHeroGoalPercent.setTextColor(Color.parseColor("#F59E0B")) // Meaningful achievement orange
+                val extra = steps - stepGoal
+                tvHeroRemainingSteps.text = "+${formatSteps(extra)} steps beyond goal"
+            }
+            else -> {
+                tvHeroGoalPercent.text = "$pct% of daily goal"
+                tvHeroGoalPercent.setTextColor(Color.parseColor("#16D99A"))
+                val rem = (stepGoal - steps).coerceAtLeast(0)
+                tvHeroRemainingSteps.text = "${formatSteps(rem)} steps remaining today"
+            }
+        }
+
+        val peakW = telemetry.activeWindows.firstOrNull()
+        if (peakW != null && peakW.steps > 0) {
+            tvHeroPeakWindow.text = String.format(
+                Locale.US,
+                "Peak %s: %.2f km • %dm • %d kcal",
+                peakW.windowRangeLabel,
+                peakW.distanceKm,
+                peakW.moveMinutes,
+                peakW.caloriesKcal
+            )
+            tvDistanceSub.text = "Peak: ${peakW.windowRangeLabel}"
+        } else {
+            tvHeroPeakWindow.text = "Peak window: No movement logged yet"
+            tvDistanceSub.text = "Hourly windows & pace"
+        }
 
         findViewById<TextView>(R.id.tvCalories)?.text = formatSteps(telemetry.totalCaloriesKcal)
         findViewById<ProgressBar>(R.id.pbCalories)?.progress =
@@ -460,18 +600,18 @@ class ActivityStatsActivity : AppCompatActivity() {
 
     private fun renderAutoStravaCard(telemetry: ActivityTelemetryEngine.DayUnifiedTelemetry) {
         val autoSession = telemetry.autoDetectedSessions.firstOrNull()
-        if (autoSession != null) {
+        val viewDetailsTv = findViewById<TextView>(R.id.tvOpenFullPaceHistory)
+
+        if (autoSession != null && autoSession.splits.isNotEmpty()) {
+            tvWalkJogStatusDot.setTextColor(Color.parseColor("#16D99A"))
             tvAutoWalkJogHeader.text = autoSession.title
             val m = autoSession.durationSeconds / 60
             val s = autoSession.durationSeconds % 60
             tvAutoWalkJogSummaryLine.text = String.format(
                 Locale.US,
-                "%s  •  %.2f km  •  Pace %s/km  •  %dm %02ds  •  %d kcal",
+                "%s  •  %.2f km  •  %d kcal",
                 autoSession.timeRangeLabel,
                 autoSession.distanceKm,
-                StravaPaceChartView.formatPace(autoSession.avgPaceSecPerKm),
-                m,
-                s,
                 autoSession.caloriesKcal
             )
             tvAvgPace.text = StravaPaceChartView.formatPace(autoSession.avgPaceSecPerKm)
@@ -479,22 +619,40 @@ class ActivityStatsActivity : AppCompatActivity() {
             tvMovingTime.text = String.format(Locale.US, "%dm %02ds", m, s)
             tvStepCadence.text = "${autoSession.cadenceSpm} spm"
 
+            stravaPaceChart.visibility = View.VISIBLE
             stravaPaceChart.setSplits(
                 autoSession.splits,
-                subtitle = "AUTO-DETECTED STRAVA PACE CURVE (min/km) & SPLITS"
+                subtitle = "PACE CURVE (min/km) • ${autoSession.splits.size} SPLITS"
             )
             renderKmSplitRows(autoSession.splits, autoSession.avgPaceSecPerKm)
+            llKmSplitsContainer.visibility = if (isSplitsExpanded) View.VISIBLE else View.GONE
+            viewDetailsTv?.text = if (isSplitsExpanded) "Full Analysis ›" else "View Details ›"
         } else {
-            tvAutoWalkJogHeader.text = "Auto-Detected Continuous Walk / Jog"
-            tvAutoWalkJogSummaryLine.text =
-                "Automatic sensor tracking active • Continuous walks & jogs appear here automatically"
-            tvAvgPace.text = if (telemetry.avgPaceSecPerKm > 0f) StravaPaceChartView.formatPace(telemetry.avgPaceSecPerKm) else "—:—"
-            tvAvgSpeed.text = String.format(Locale.US, "%.1f", telemetry.avgSpeedKmh)
-            tvMovingTime.text = "${telemetry.totalMoveMinutes}m 00s"
-            tvStepCadence.text = "${telemetry.cadenceSpm} spm"
+            // Professional compact empty state — hide empty chart and splits so zero screen space is wasted
+            tvWalkJogStatusDot.setTextColor(Color.parseColor("#8995A3"))
+            tvAutoWalkJogHeader.text = "Walking & Running Performance"
+            tvAutoWalkJogSummaryLine.text = if (telemetry.totalSteps > 0) {
+                "Light intermittent movement today • Walk continuously for 1+ min to generate pace splits"
+            } else {
+                "No continuous walk or run recorded today • Auto-detects pace, speed & splits as you move"
+            }
+            tvAvgPace.text = if (telemetry.avgPaceSecPerKm > 0f && telemetry.totalDistanceKm >= 0.05) {
+                StravaPaceChartView.formatPace(telemetry.avgPaceSecPerKm)
+            } else {
+                "—:—"
+            }
+            tvAvgSpeed.text = if (telemetry.totalDistanceKm >= 0.05) {
+                String.format(Locale.US, "%.1f", telemetry.avgSpeedKmh)
+            } else {
+                "0.0"
+            }
+            tvMovingTime.text = if (telemetry.totalMoveMinutes > 0) "${telemetry.totalMoveMinutes}m 00s" else "0m 00s"
+            tvStepCadence.text = if (telemetry.totalSteps > 0) "${telemetry.cadenceSpm} spm" else "— spm"
 
-            stravaPaceChart.setSplits(emptyList(), subtitle = "AUTO-DETECTED PACE CURVE (min/km)")
+            stravaPaceChart.visibility = View.GONE
             llKmSplitsContainer.removeAllViews()
+            llKmSplitsContainer.visibility = View.GONE
+            viewDetailsTv?.text = "View Details ›"
         }
     }
 
@@ -504,7 +662,8 @@ class ActivityStatsActivity : AppCompatActivity() {
 
         val density = resources.displayMetrics.density
         val isLight = UiThemePrefs.isWhiteBackgroundActive(this)
-        val textPrimary = if (isLight) Color.parseColor("#0F172A") else Color.WHITE
+        val textPrimary = if (isLight) Color.parseColor("#0F172A") else Color.parseColor("#F1F5F9")
+        val textSecondary = if (isLight) Color.parseColor("#64748B") else Color.parseColor("#8995A3")
 
         val fastestPace = splits.minOf { it.paceSecondsPerKm }
         val slowestPace = splits.maxOf { it.paceSecondsPerKm }.coerceAtLeast(fastestPace + 10f)
@@ -516,25 +675,25 @@ class ActivityStatsActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (6 * density).toInt() }
+                ).apply { bottomMargin = (5 * density).toInt() }
             }
 
             val tvKm = TextView(this).apply {
                 text = split.splitLabel
-                textSize = 12f
+                textSize = 11.5f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(textPrimary)
-                layoutParams = LinearLayout.LayoutParams((54 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+                setTextColor(textSecondary)
+                layoutParams = LinearLayout.LayoutParams((50 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
             }
             row.addView(tvKm)
 
             val barTrack = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(0, (16 * density).toInt(), 1f).apply {
+                layoutParams = LinearLayout.LayoutParams(0, (12 * density).toInt(), 1f).apply {
                     marginEnd = (8 * density).toInt()
                 }
                 background = GradientDrawable().apply {
-                    cornerRadius = 8f * density
-                    setColor(if (isLight) Color.parseColor("#E2E8F0") else Color.parseColor("#1E293B"))
+                    cornerRadius = 6f * density
+                    setColor(if (isLight) Color.parseColor("#E2E8F0") else Color.parseColor("#17212B"))
                 }
             }
 
@@ -544,24 +703,24 @@ class ActivityStatsActivity : AppCompatActivity() {
             val barFill = View(this).apply {
                 layoutParams = FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT)
                 background = GradientDrawable().apply {
-                    cornerRadius = 8f * density
-                    setColor(if (isFastest) Color.parseColor("#10B981") else Color.parseColor("#FC4C02"))
+                    cornerRadius = 6f * density
+                    setColor(if (isFastest) Color.parseColor("#16D99A") else Color.parseColor("#27C7C9"))
                 }
             }
             barTrack.addView(barFill)
             barTrack.post {
-                val targetW = (barTrack.width * speedRatio).roundToInt().coerceAtLeast((24 * density).toInt())
+                val targetW = (barTrack.width * speedRatio).roundToInt().coerceAtLeast((20 * density).toInt())
                 barFill.layoutParams = FrameLayout.LayoutParams(targetW, ViewGroup.LayoutParams.MATCH_PARENT)
             }
             row.addView(barTrack)
 
             val tvPace = TextView(this).apply {
                 text = "${StravaPaceChartView.formatPace(split.paceSecondsPerKm)} /km"
-                textSize = 12f
+                textSize = 11.5f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(textPrimary)
                 gravity = Gravity.END
-                layoutParams = LinearLayout.LayoutParams((68 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+                layoutParams = LinearLayout.LayoutParams((64 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
             }
             row.addView(tvPace)
 
@@ -570,11 +729,11 @@ class ActivityStatsActivity : AppCompatActivity() {
             val absDelta = abs(deltaSec)
             val tvDelta = TextView(this).apply {
                 text = String.format(Locale.US, "%s%d:%02d", deltaSign, absDelta / 60, absDelta % 60)
-                textSize = 11f
+                textSize = 10.5f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(if (deltaSec <= 0) Color.parseColor("#10B981") else Color.parseColor("#FC4C02"))
+                setTextColor(if (deltaSec <= 0) Color.parseColor("#16D99A") else Color.parseColor("#8995A3"))
                 gravity = Gravity.END
-                layoutParams = LinearLayout.LayoutParams((46 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+                layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
             }
             row.addView(tvDelta)
 
@@ -612,6 +771,7 @@ class ActivityStatsActivity : AppCompatActivity() {
 
     private fun loadWeeklyTrend() {
         val chart = findViewById<SimpleBarChartView>(R.id.weeklyStepsChart) ?: return
+        val tvWeeklyEmpty = findViewById<TextView>(R.id.tvWeeklyEmptyState)
         val tvStreak = findViewById<TextView>(R.id.tvStreak)
         val tvBest = findViewById<TextView>(R.id.tvPersonalBest)
 
@@ -637,25 +797,50 @@ class ActivityStatsActivity : AppCompatActivity() {
                 }
             }
 
-            val entries = daySteps.mapIndexed { idx, (d, count) ->
-                val label = if (idx == 6) "Today" else d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                val disp = if (count >= 1000) String.format(Locale.US, "%.1fk", count / 1000f) else count.toString()
-                val color = if (idx == 6) Color.parseColor("#00E676") else Color.parseColor("#00E5FF")
-                SimpleBarChartView.BarEntry(label, count.toFloat(), disp, color)
-            }
-            chart.entries = entries
+            val goal = GoalPrefs.getStepGoal(this@ActivityStatsActivity).coerceAtLeast(100)
+            val totalWeekSteps = daySteps.sumOf { it.second }
 
-            val goal = GoalPrefs.getStepGoal(this@ActivityStatsActivity)
+            if (totalWeekSteps <= 0) {
+                // Hide giant blank chart area when all 7 days have 0 steps
+                chart.visibility = View.GONE
+                tvWeeklyEmpty?.visibility = View.VISIBLE
+            } else {
+                chart.visibility = View.VISIBLE
+                tvWeeklyEmpty?.visibility = View.GONE
+                val entries = daySteps.mapIndexed { idx, (d, count) ->
+                    val label = if (idx == 6) "Today" else d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+                    val disp = when {
+                        count >= 1000 -> String.format(Locale.US, "%.1fk", count / 1000f)
+                        count > 0 -> count.toString()
+                        else -> ""
+                    }
+                    val color = when {
+                        count >= goal -> Color.parseColor("#16D99A") // Goal met: Emerald
+                        idx == 6 -> Color.parseColor("#16D99A")      // Today: Emerald
+                        else -> Color.parseColor("#27C7C9")          // Active past day: Teal
+                    }
+                    SimpleBarChartView.BarEntry(label, count.toFloat(), disp, color)
+                }
+                chart.entries = entries
+            }
+
             var streak = 0
             for (i in daySteps.indices.reversed()) {
                 if (daySteps[i].second >= goal) streak++ else if (i < 6) break
             }
-            tvStreak?.text = "🔥 $streak-day streak"
+            if (streak > 0) {
+                tvStreak?.text = "🔥 $streak-day goal streak"
+                tvStreak?.setTextColor(Color.parseColor("#F59E0B"))
+            } else {
+                tvStreak?.text = "${formatSteps(totalWeekSteps)} steps this week"
+                tvStreak?.setTextColor(Color.parseColor("#8995A3"))
+            }
 
             val best = daySteps.maxByOrNull { it.second }
             if (best != null && best.second > 0) {
-                val dayName = best.first.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
-                tvBest?.text = "Personal best this week: ${formatSteps(best.second)} steps ($dayName)"
+                val dayName = best.first.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+                val avgSteps = totalWeekSteps / 7
+                tvBest?.text = "Best: ${formatSteps(best.second)} ($dayName)  •  Daily avg: ${formatSteps(avgSteps)}"
             } else {
                 tvBest?.text = "Personal best this week: —"
             }
@@ -667,31 +852,53 @@ class ActivityStatsActivity : AppCompatActivity() {
 
     private fun loadWorkoutHistory() {
         lifecycleScope.launch {
-            val text = withContext(Dispatchers.IO) {
+            val logs = withContext(Dispatchers.IO) {
                 try {
-                    val logs = AppDatabase.getDatabase(this@ActivityStatsActivity).exerciseDao().getAllLogs()
-                    if (logs.isEmpty()) {
-                        "No calisthenics workouts logged yet. Tap 'LOG CALISTHENICS SESSION' above to start!"
-                    } else {
-                        val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-                        logs.sortedByDescending { it.timestamp }
-                            .take(12)
-                            .joinToString("\n") { log ->
-                                val detail = buildString {
-                                    if (log.reps > 0) append("${log.reps} reps")
-                                    if (log.durationSeconds > 0) {
-                                        if (isNotEmpty()) append(" · ")
-                                        append("${log.durationSeconds}s hold")
-                                    }
-                                }
-                                "• ${sdf.format(Date(log.timestamp))} — ${log.exerciseType}: $detail (${log.notes})"
-                            }
-                    }
+                    AppDatabase.getDatabase(this@ActivityStatsActivity)
+                        .exerciseDao()
+                        .getAllLogs()
+                        .sortedByDescending { it.timestamp }
                 } catch (_: Exception) {
-                    "Unable to load workout history."
+                    emptyList()
                 }
             }
-            tvHistoryLog.text = text
+
+            if (logs.isEmpty()) {
+                tvLatestWorkoutSummary.text = "No sessions logged yet • Sets, reps & holds"
+                tvToggleWorkoutHistory.visibility = View.GONE
+                tvHistoryLog.visibility = View.GONE
+            } else {
+                val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+                val latest = logs.first()
+                val latestDetail = buildString {
+                    if (latest.reps > 0) append("${latest.reps} reps")
+                    if (latest.durationSeconds > 0) {
+                        if (isNotEmpty()) append(" · ")
+                        append("${latest.durationSeconds}s hold")
+                    }
+                }
+                tvLatestWorkoutSummary.text =
+                    "Latest: ${latest.exerciseType} ($latestDetail) • ${sdf.format(Date(latest.timestamp))}"
+
+                tvToggleWorkoutHistory.visibility = View.VISIBLE
+                tvToggleWorkoutHistory.text = if (isWorkoutHistoryExpanded) {
+                    "Hide session history (${logs.size}) ▴"
+                } else {
+                    "View session history (${logs.size}) ▾"
+                }
+
+                tvHistoryLog.text = logs.take(12).joinToString("\n") { log ->
+                    val detail = buildString {
+                        if (log.reps > 0) append("${log.reps} reps")
+                        if (log.durationSeconds > 0) {
+                            if (isNotEmpty()) append(" · ")
+                            append("${log.durationSeconds}s hold")
+                        }
+                    }
+                    "• ${sdf.format(Date(log.timestamp))} — ${log.exerciseType}: $detail (${log.notes})"
+                }
+                tvHistoryLog.visibility = if (isWorkoutHistoryExpanded) View.VISIBLE else View.GONE
+            }
         }
     }
 }

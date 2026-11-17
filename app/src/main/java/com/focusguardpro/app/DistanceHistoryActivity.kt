@@ -255,15 +255,16 @@ class DistanceHistoryActivity : AppCompatActivity() {
         val session = telemetry.autoDetectedSessions.firstOrNull()
         val density = resources.displayMetrics.density
         val isLight = UiThemePrefs.isWhiteBackgroundActive(this)
-        val textPrimary = if (isLight) Color.parseColor("#0F172A") else Color.WHITE
+        val textPrimary = if (isLight) Color.parseColor("#0F172A") else Color.parseColor("#F1F5F9")
 
-        if (session == null) {
-            tvAutoStravaTitle.text = "Auto-Detected Walk / Jog (Strava Telemetry)"
-            tvAutoStravaSubtitle.text = "Automatic detection active • Any continuous walk or jog is analyzed here automatically"
-            distancePaceChart.setSplits(emptyList(), subtitle = "AUTO-DETECTED PACE CURVE (min/km)")
+        if (session == null || session.splits.isEmpty()) {
+            tvAutoStravaTitle.text = "Walking & Running Performance"
+            tvAutoStravaSubtitle.text = "No continuous walk or jog recorded in this period • Auto-detects 1+ min sessions"
+            distancePaceChart.visibility = View.GONE
             return
         }
 
+        distancePaceChart.visibility = View.VISIBLE
         tvAutoStravaTitle.text = session.title
         val mins = session.durationSeconds / 60
         val secs = session.durationSeconds % 60
@@ -280,23 +281,23 @@ class DistanceHistoryActivity : AppCompatActivity() {
 
         distancePaceChart.setSplits(
             session.splits,
-            subtitle = "AUTO-DETECTED STRAVA PACE CURVE (min/km) & SPLITS"
+            subtitle = "PACE CURVE (min/km) & KILOMETER SPLITS"
         )
 
-        session.splits.take(5).forEach { sp ->
+        session.splits.take(8).forEach { sp ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = (4 * density).toInt() }
+                ).apply { topMargin = (5 * density).toInt() }
             }
             row.addView(TextView(this).apply {
                 text = sp.splitLabel
                 textSize = 12f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.parseColor("#FC4C02"))
+                setTextColor(Color.parseColor("#16D99A"))
                 layoutParams = LinearLayout.LayoutParams((64 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
             })
             row.addView(TextView(this).apply {

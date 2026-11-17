@@ -11,9 +11,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Strava-grade Pace (min/km), Speed (km/h), and Split Telemetry Chart View.
- * Renders a smooth cubic-Bezier pace curve with gradient fill, split bar indicators,
- * dashed average-pace reference line, fastest split highlight badge, and interactive touch inspection.
+ * Focus Elite Performance Pace (min/km), Speed (km/h), and Split Telemetry Chart View.
+ * Uses the unified Focus Elite palette (#16D99A Emerald, #27C7C9 Teal, #26313D Grid, #F1F5F9 Text).
  */
 class StravaPaceChartView @JvmOverloads constructor(
     context: Context,
@@ -33,7 +32,7 @@ class StravaPaceChartView @JvmOverloads constructor(
     private var splits: List<SplitPoint> = emptyList()
     private var selectedIndex: Int = -1
     private var isLightMode: Boolean = false
-    private var chartSubtitle: String = "PACE CURVE (min/km) & SPLIT SPEED"
+    private var chartSubtitle: String = "PACE CURVE (min/km)"
 
     var onSplitSelected: ((SplitPoint, Int) -> Unit)? = null
 
@@ -47,13 +46,13 @@ class StravaPaceChartView @JvmOverloads constructor(
 
     private val avgLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.5f * density
-        pathEffect = DashPathEffect(floatArrayOf(6f * density, 4f * density), 0f)
+        strokeWidth = 1.2f * density
+        pathEffect = DashPathEffect(floatArrayOf(5f * density, 4f * density), 0f)
     }
 
     private val curvePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3f * density
+        strokeWidth = 2.6f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
@@ -71,12 +70,12 @@ class StravaPaceChartView @JvmOverloads constructor(
     }
 
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 10.5f * scaledDensity
+        textSize = 10f * scaledDensity
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
 
     private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 11f * scaledDensity
+        textSize = 10.5f * scaledDensity
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
 
@@ -89,11 +88,10 @@ class StravaPaceChartView @JvmOverloads constructor(
     private val barRect = RectF()
     private val badgeRect = RectF()
 
-    fun setSplits(data: List<SplitPoint>, subtitle: String = "PACE CURVE (min/km) & SPLIT SPEED") {
+    fun setSplits(data: List<SplitPoint>, subtitle: String = "PACE CURVE (min/km)") {
         this.splits = data
         this.chartSubtitle = subtitle
         this.selectedIndex = if (data.isNotEmpty()) {
-            // Highlight fastest split by default
             data.indices.minByOrNull { data[it].paceSecondsPerKm } ?: (data.size - 1)
         } else {
             -1
@@ -110,48 +108,37 @@ class StravaPaceChartView @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
 
-        val textPrimary = if (isLightMode) Color.parseColor("#0F172A") else Color.parseColor("#F8FAFC")
-        val textSecondary = if (isLightMode) Color.parseColor("#64748B") else Color.parseColor("#94A3B8")
-        val gridColor = if (isLightMode) Color.parseColor("#E2E8F0") else Color.parseColor("#1E293B")
-        val accentOrange = Color.parseColor("#FC4C02") // Strava signature performance orange
-        val accentCyan = Color.parseColor("#00E5FF")
-        val accentEmerald = Color.parseColor("#10B981")
+        val textPrimary = if (isLightMode) Color.parseColor("#0F172A") else Color.parseColor("#F1F5F9")
+        val textSecondary = if (isLightMode) Color.parseColor("#64748B") else Color.parseColor("#8995A3")
+        val gridColor = if (isLightMode) Color.parseColor("#E2E8F0") else Color.parseColor("#26313D")
+        val accentTeal = Color.parseColor("#27C7C9")
+        val accentEmerald = Color.parseColor("#16D99A")
 
         gridPaint.color = gridColor
-        avgLinePaint.color = accentCyan
+        avgLinePaint.color = accentTeal
 
-        val padLeft = 14f * density
-        val padRight = 14f * density
-        val padTop = 36f * density
-        val padBottom = 30f * density
+        val padLeft = 10f * density
+        val padRight = 10f * density
+        val padTop = 28f * density
+        val padBottom = 22f * density
 
         val chartW = (w - padLeft - padRight).coerceAtLeast(1f)
         val chartH = (h - padTop - padBottom).coerceAtLeast(1f)
 
-        // Header subtitle + selected split telemetry
         labelPaint.color = textSecondary
         labelPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText(chartSubtitle, padLeft, 18f * density, labelPaint)
+        canvas.drawText(chartSubtitle, padLeft, 15f * density, labelPaint)
 
         if (splits.isEmpty()) {
-            labelPaint.textAlign = Paint.Align.CENTER
-            labelPaint.color = textSecondary
-            canvas.drawText(
-                "Start a Walk/Run or complete steps to plot live Strava pace splits",
-                w / 2f,
-                h / 2f + 4f * density,
-                labelPaint
-            )
             return
         }
 
-        // Draw horizontal grid lines
-        for (i in 0..3) {
-            val y = padTop + (chartH * i / 3f)
+        // Subtle 2-line horizontal reference grid
+        for (i in 0..2) {
+            val y = padTop + (chartH * i / 2f)
             canvas.drawLine(padLeft, y, w - padRight, y, gridPaint)
         }
 
-        // In pace charts, LOWER paceSecondsPerKm = FASTER = HIGHER on the Y axis
         val paces = splits.map { it.paceSecondsPerKm.coerceIn(120f, 1800f) }
         val fastestPace = (paces.minOrNull() ?: 360f)
         val slowestPace = (paces.maxOrNull() ?: 600f)
@@ -161,7 +148,6 @@ class StravaPaceChartView @JvmOverloads constructor(
         val avgPace = paces.average().toFloat()
 
         fun paceToY(paceSec: Float): Float {
-            // Faster pace (smaller sec/km) sits higher (closer to padTop)
             val normalized = ((maxBound - paceSec.coerceIn(minBound, maxBound)) / (maxBound - minBound)).coerceIn(0f, 1f)
             return padTop + chartH * (1f - normalized)
         }
@@ -175,17 +161,16 @@ class StravaPaceChartView @JvmOverloads constructor(
             PointF(x, y)
         }
 
-        // Draw subtle split speed columns in background
-        val barWidth = min(22f * density, (chartW / max(1, count * 2)))
+        val barWidth = min(18f * density, (chartW / max(1f, count * 2f)))
         splits.forEachIndexed { idx, split ->
             val pt = points[idx]
             val isFastest = split.paceSecondsPerKm <= fastestPace + 0.5f
             val isSelected = idx == selectedIndex
             barPaint.color = when {
-                isSelected -> Color.argb(65, 252, 76, 2)
-                isFastest -> Color.argb(55, 16, 185, 129)
-                isLightMode -> Color.argb(35, 15, 23, 42)
-                else -> Color.argb(38, 148, 163, 184)
+                isSelected -> Color.argb(55, 39, 199, 201)
+                isFastest -> Color.argb(50, 22, 217, 154)
+                isLightMode -> Color.argb(30, 15, 23, 42)
+                else -> Color.argb(32, 137, 149, 163)
             }
             barRect.set(
                 pt.x - barWidth / 2f,
@@ -193,17 +178,12 @@ class StravaPaceChartView @JvmOverloads constructor(
                 pt.x + barWidth / 2f,
                 padTop + chartH
             )
-            canvas.drawRoundRect(barRect, 6f * density, 6f * density, barPaint)
+            canvas.drawRoundRect(barRect, 4f * density, 4f * density, barPaint)
         }
 
-        // Draw average pace dashed reference line
         val avgY = paceToY(avgPace)
         canvas.drawLine(padLeft, avgY, w - padRight, avgY, avgLinePaint)
-        labelPaint.color = accentCyan
-        labelPaint.textAlign = Paint.Align.RIGHT
-        canvas.drawText("AVG ${formatPace(avgPace)}/km", w - padRight, (avgY - 5f * density).coerceAtLeast(padTop + 10f * density), labelPaint)
 
-        // Build smooth cubic Bezier path
         curvePath.reset()
         fillPath.reset()
         if (points.size == 1) {
@@ -235,46 +215,43 @@ class StravaPaceChartView @JvmOverloads constructor(
         fillPaint.shader = LinearGradient(
             0f, padTop, 0f, padTop + chartH,
             intArrayOf(
-                Color.argb(115, 252, 76, 2),
-                Color.argb(40, 252, 76, 2),
-                Color.argb(0, 252, 76, 2)
+                Color.argb(95, 39, 199, 201),
+                Color.argb(28, 39, 199, 201),
+                Color.argb(0, 39, 199, 201)
             ),
             floatArrayOf(0f, 0.65f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawPath(fillPath, fillPaint)
 
-        curvePaint.color = accentOrange
+        curvePaint.color = accentTeal
         canvas.drawPath(curvePath, curvePaint)
 
-        // Draw split points, X-axis labels, and selected split callout
-        val labelStep = max(1, count / 7)
+        val labelStep = max(1, count / 6)
         points.forEachIndexed { idx, pt ->
             val split = splits[idx]
             val isFastest = split.paceSecondsPerKm <= fastestPace + 0.5f
             val isSelected = idx == selectedIndex
 
             if (idx % labelStep == 0 || idx == count - 1 || isSelected) {
-                labelPaint.color = if (isSelected) accentOrange else textSecondary
+                labelPaint.color = if (isSelected) accentEmerald else textSecondary
                 labelPaint.textAlign = Paint.Align.CENTER
-                canvas.drawText(split.splitLabel, pt.x, h - 8f * density, labelPaint)
+                canvas.drawText(split.splitLabel, pt.x, h - 5f * density, labelPaint)
             }
 
-            // Outer halo for selected or fastest point
             if (isSelected || isFastest) {
-                dotPaint.color = if (isFastest) Color.argb(70, 16, 185, 129) else Color.argb(70, 252, 76, 2)
-                canvas.drawCircle(pt.x, pt.y, 8f * density, dotPaint)
+                dotPaint.color = if (isFastest) Color.argb(65, 22, 217, 154) else Color.argb(65, 39, 199, 201)
+                canvas.drawCircle(pt.x, pt.y, 6.5f * density, dotPaint)
             }
 
             dotPaint.color = when {
                 isFastest -> accentEmerald
-                isSelected -> accentOrange
+                isSelected -> accentTeal
                 else -> textPrimary
             }
-            canvas.drawCircle(pt.x, pt.y, 4.2f * density, dotPaint)
+            canvas.drawCircle(pt.x, pt.y, 3.5f * density, dotPaint)
         }
 
-        // Draw top-right selected split telemetry pill
         val activeIdx = selectedIndex.coerceIn(0, splits.lastIndex)
         val activeSplit = splits[activeIdx]
         val summaryText = String.format(
@@ -284,17 +261,17 @@ class StravaPaceChartView @JvmOverloads constructor(
             formatPace(activeSplit.paceSecondsPerKm),
             activeSplit.speedKmh
         )
-        valuePaint.color = Color.WHITE
-        val badgeW = valuePaint.measureText(summaryText) + 16f * density
-        val badgeH = 22f * density
-        badgeRect.set(w - padRight - badgeW, 4f * density, w - padRight, 4f * density + badgeH)
-        badgeBgPaint.color = accentOrange
-        canvas.drawRoundRect(badgeRect, 11f * density, 11f * density, badgeBgPaint)
+        valuePaint.color = Color.parseColor("#080D12")
+        val badgeW = valuePaint.measureText(summaryText) + 14f * density
+        val badgeH = 19f * density
+        badgeRect.set(w - padRight - badgeW, 3f * density, w - padRight, 3f * density + badgeH)
+        badgeBgPaint.color = accentEmerald
+        canvas.drawRoundRect(badgeRect, 9.5f * density, 9.5f * density, badgeBgPaint)
         valuePaint.textAlign = Paint.Align.CENTER
         canvas.drawText(
             summaryText,
             badgeRect.centerX(),
-            badgeRect.centerY() + 4f * density,
+            badgeRect.centerY() + 3.5f * density,
             valuePaint
         )
     }
@@ -303,8 +280,8 @@ class StravaPaceChartView @JvmOverloads constructor(
         if (splits.isEmpty()) return super.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                val padLeft = 14f * density
-                val padRight = 14f * density
+                val padLeft = 10f * density
+                val padRight = 10f * density
                 val chartW = (width - padLeft - padRight).coerceAtLeast(1f)
                 val nearest = if (splits.size == 1) {
                     0

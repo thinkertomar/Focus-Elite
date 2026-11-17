@@ -28,12 +28,12 @@ import kotlin.math.min
 object UsageStatsHelper {
 
     private const val LOOKBACK_MS = 60 * 60 * 1000L // 1-hour lookback for cross-midnight active sessions
-    private const val MAX_SINGLE_SESSION_MS = 4 * 60 * 60 * 1000L // 4h cap per continuous session
+    private const val MAX_SINGLE_SESSION_MS = 8 * 60 * 60 * 1000L // 8h cap per continuous session (supports 5h+ study/video sessions like SciAstra)
     private const val MAX_PAUSED_COMPANION_MS = 12 * 60 * 1000L // 12m max companion grace if not live on screen
     private const val SNAPSHOT_CACHE_TTL_MS = 8_000L
 
     private const val PREFS_WELLBEING_CACHE = "focus_wellbeing_cache_v3"
-    private const val PREFS_HISTORICAL_CACHE = "focus_historical_days_v3"
+    private const val PREFS_HISTORICAL_CACHE = "focus_historical_days_v5"
 
     // Event constants for API compatibility
     private const val EVENT_ACTIVITY_RESUMED = UsageEvents.Event.ACTIVITY_RESUMED // 1
@@ -622,22 +622,59 @@ object UsageStatsHelper {
             }
         }
 
-        // Fallback ONLY if OEM cleared UsageEvents completely
-        if (durationByPkg.isEmpty()) {
+        val (todayStartMs, _) = todayRange()
+        val isCompletedPastDay = end <= todayStartMs
+        val dayKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(start))
+
+        // For completed past days (e.g., Yesterday / Tue Nov 17) or if OEM cleared UsageEvents:
+        // Reconcile per-package durations with verified single-day INTERVAL_DAILY buckets and any archived
+        // live snapshot from that day so early-morning sessions rotated out of the UsageEvents buffer (like a 5h SciAstra lecture) are never lost.
+        var recoveredExtraMs = 0L
+        if (isCompletedPastDay || durationByPkg.isEmpty()) {
+            val archivedSnap = if (isCompletedPastDay) loadArchivedDaySnapshotFromPrefs(context, dayKey, start) else null
+            if (archivedSnap != null) {
+                for ((pkg, archStat) in archivedSnap.perAppStats) {
+                    val cur = durationByPkg[pkg] ?: 0L
+                    if (archStat.durationMs > cur) {
+                        val diff = archStat.durationMs - cur
+                        durationByPkg[pkg] = archStat.durationMs
+                        if (!excluded.contains(pkg)) recoveredExtraMs += diff
+                    }
+                    if (archStat.launchCount > (launchesByPkg[pkg] ?: 0)) {
+                        launchesByPkg[pkg] = archStat.launchCount
+                    }
+                    if (archStat.longestSessionMs > (longestByPkg[pkg] ?: 0L)) {
+                        longestByPkg[pkg] = archStat.longestSessionMs
+                    }
+                }
+            }
+
             try {
                 val dailyStats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
                 if (dailyStats != null) {
-                    val maxWindowMs = (end - start).coerceAtLeast(1L)
+                    val maxWindowMs = (end - start).coerceAtLeast(1L).coerceAtMost(16 * 3_600_000L)
                     for (stat in dailyStats) {
                         val pkg = stat.packageName ?: continue
                         val fgMs = stat.totalTimeInForeground
-                        if (fgMs <= 0L || stat.lastTimeUsed < start) continue
-                        if (stat.firstTimeStamp >= start && fgMs <= maxWindowMs) {
+                        if (fgMs <= 0L || fgMs > maxWindowMs) continue
+                        val bucketSpan = stat.lastTimeStamp - stat.firstTimeStamp
+                        // Verify this is a single-day bucket belonging to [start, end] (allowing for UTC/IST rollover)
+                        val isValidSingleDayBucket = if (isCompletedPastDay) {
+                            bucketSpan in 1L..(28 * 3_600_000L) &&
+                                stat.firstTimeStamp >= (start - 6 * 3_600_000L) &&
+                                stat.firstTimeStamp < end &&
+                                stat.lastTimeUsed in start..(end + 4 * 3_600_000L)
+                        } else {
+                            stat.firstTimeStamp >= start && stat.lastTimeUsed >= start
+                        }
+                        if (isValidSingleDayBucket) {
                             val prev = durationByPkg[pkg] ?: 0L
                             if (fgMs > prev) {
+                                val diff = fgMs - prev
                                 durationByPkg[pkg] = fgMs
-                                longestByPkg[pkg] = fgMs
-                                lastUsedByPkg[pkg] = stat.lastTimeUsed
+                                if (fgMs > (longestByPkg[pkg] ?: 0L)) longestByPkg[pkg] = fgMs
+                                if (stat.lastTimeUsed > (lastUsedByPkg[pkg] ?: 0L)) lastUsedByPkg[pkg] = stat.lastTimeUsed
+                                if (!excluded.contains(pkg)) recoveredExtraMs += diff
                             }
                         }
                     }
@@ -726,12 +763,12 @@ object UsageStatsHelper {
             }
         }
 
-        val totalScreenTimeMs = if (mergedWallClockTotalMs > 0L) {
-            // Use wall-clock union as primary screen time, or sumAppScreenTimeMs if within 15% multi-window allowance
-            min(sumAppScreenTimeMs, (mergedWallClockTotalMs * 115L) / 100L)
+        val effectiveWallClockMs = mergedWallClockTotalMs + recoveredExtraMs
+        val totalScreenTimeMs = if (effectiveWallClockMs > 0L) {
+            min(sumAppScreenTimeMs, (effectiveWallClockMs * 115L) / 100L)
         } else {
             sumAppScreenTimeMs
-        }
+        }.coerceAtMost(18 * 3_600_000L)
 
         val hourlyMins = IntArray(24)
         var peakHourIdx = 0
@@ -792,6 +829,71 @@ object UsageStatsHelper {
         }
     }
 
+    data class WeeklyDayRange(
+        val dayKey: String,
+        val shortLabel: String,
+        val fullDateLabel: String,
+        val startMs: Long,
+        val endMs: Long,
+        val totalScreenTimeMs: Long,
+        val isToday: Boolean
+    )
+
+    private val historicalSnapshotCache = ConcurrentHashMap<String, WellbeingSnapshot>()
+
+    /**
+     * Authoritative full WellbeingSnapshot for ANY day (Today or any historical day in Last 7 Days).
+     * Uses the exact same multi-activity foreground state machine as Today, reconciled with
+     * single-day INTERVAL_DAILY buckets and archived snapshots so apps like SciAstra never drop hours.
+     */
+    fun getDayWellbeingSnapshot(context: Context, start: Long, end: Long, forceRefresh: Boolean = false): WellbeingSnapshot {
+        if (!hasUsageAccess(context) || end <= start) return emptySnapshot(start, end)
+        val (todayStart, _) = todayRange()
+        val isToday = kotlin.math.abs(start - todayStart) < 60_000L && end >= todayStart
+        if (isToday) {
+            return getTodayWellbeingSnapshot(context, forceRefresh = forceRefresh)
+        }
+
+        val dayKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(start))
+        if (!forceRefresh) {
+            val inMem = historicalSnapshotCache[dayKey]
+            if (inMem != null) return inMem
+
+            val fromDisk = loadArchivedDaySnapshotFromPrefs(context, dayKey, start, prefsName = PREFS_HISTORICAL_CACHE)
+            if (fromDisk != null && fromDisk.totalScreenTimeMs > 0L) {
+                historicalSnapshotCache[dayKey] = fromDisk
+                return fromDisk
+            }
+        }
+
+        val prevDayStart = start - 86_400_000L
+        val prevDayEnd = start - 1L
+        val computed = computeWellbeingRange(context, start, end, includeYesterdayComparison = false)
+        val prevTotal = if (end <= todayStart) {
+            // Optional lightweight comparison with the day before
+            val prevKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(prevDayStart))
+            historicalDayTotalCache[prevKey]
+                ?: context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE).getLong("total_$prevKey", 0L)
+        } else 0L
+
+        val finalSnap = if (prevTotal > 0L) computed.copy(yesterdayScreenTimeMs = prevTotal) else computed
+
+        if (end <= todayStart) {
+            historicalSnapshotCache[dayKey] = finalSnap
+            historicalDayTotalCache[dayKey] = finalSnap.totalScreenTimeMs
+            val excluded = getDigitalWellbeingExcludedPackages(context)
+            val perAppMap = HashMap<String, Long>()
+            for ((pkg, st) in finalSnap.perAppStats) {
+                if (!excluded.contains(pkg) && st.durationMs > 0L) {
+                    perAppMap[pkg] = st.durationMs
+                }
+            }
+            historicalDayPerAppCache[dayKey] = perAppMap
+            saveArchivedDaySnapshotToPrefs(context, dayKey, finalSnap, perAppMap)
+        }
+        return finalSnap
+    }
+
     /**
      * Preserves 100% binary compatibility with all callers in app-classes.jar and Kotlin sources.
      * Uses persistent disk cache for historical days so 7D/30D rollups and charts execute in <1ms.
@@ -836,132 +938,23 @@ object UsageStatsHelper {
                         val v = obj.optLong(k, 0L)
                         if (v > 0L) map[k] = v
                     }
-                    historicalDayPerAppCache[dayKey] = map
-                    return map
+                    if (map.isNotEmpty()) {
+                        historicalDayPerAppCache[dayKey] = map
+                        return map
+                    }
                 } catch (_: Throwable) {}
             }
         }
 
+        // Delegate directly to getDayWellbeingSnapshot which runs the full multi-activity state machine + daily bucket reconciliation
+        val snap = getDayWellbeingSnapshot(context, start, end)
         val excluded = getDigitalWellbeingExcludedPackages(context)
-        val homePkgs = getHomeLauncherPackages(context)
-        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return emptyMap()
         val result = HashMap<String, Long>()
-        val maxDayMs = (end - start).coerceIn(1L, 86_400_000L)
-
-        // 1. Try exact UsageEvents state machine for this historical day (accurate to the second, never inflated)
-        try {
-            val events = usm.queryEvents(start, end)
-            if (events != null) {
-                val ev = UsageEvents.Event()
-                var currentPkg: String? = null
-                var currentStart = 0L
-                var isInteractive = true
-                while (events.hasNextEvent()) {
-                    events.getNextEvent(ev)
-                    val t = ev.timeStamp
-                    val pkg = ev.packageName
-                    when (ev.eventType) {
-                        EVENT_SCREEN_INTERACTIVE, EVENT_KEYGUARD_HIDDEN -> {
-                            isInteractive = true
-                        }
-                        EVENT_SCREEN_NON_INTERACTIVE, EVENT_KEYGUARD_SHOWN, EVENT_DEVICE_SHUTDOWN -> {
-                            if (currentPkg != null && currentStart in start until t) {
-                                val delta = min(t - currentStart, MAX_SINGLE_SESSION_MS)
-                                if (delta > 0L && !excluded.contains(currentPkg!!)) {
-                                    result[currentPkg!!] = (result[currentPkg!!] ?: 0L) + delta
-                                }
-                            }
-                            currentPkg = null
-                            currentStart = 0L
-                            isInteractive = false
-                        }
-                        EVENT_ACTIVITY_RESUMED -> {
-                            if (!pkg.isNullOrEmpty()) {
-                                if (currentPkg != null && currentPkg != pkg && currentStart in start until t) {
-                                    val delta = min(t - currentStart, MAX_SINGLE_SESSION_MS)
-                                    if (delta > 0L && !excluded.contains(currentPkg!!)) {
-                                        result[currentPkg!!] = (result[currentPkg!!] ?: 0L) + delta
-                                    }
-                                }
-                                if (homePkgs.contains(pkg) || excluded.contains(pkg)) {
-                                    currentPkg = null
-                                    currentStart = 0L
-                                } else if (isInteractive) {
-                                    currentPkg = pkg
-                                    currentStart = max(t, start)
-                                }
-                            }
-                        }
-                        EVENT_ACTIVITY_PAUSED, EVENT_ACTIVITY_STOPPED -> {
-                            if (!pkg.isNullOrEmpty() && pkg == currentPkg && currentStart in start until t) {
-                                val delta = min(t - currentStart, MAX_SINGLE_SESSION_MS)
-                                if (delta > 0L && !excluded.contains(pkg)) {
-                                    result[pkg] = (result[pkg] ?: 0L) + delta
-                                }
-                                currentPkg = null
-                                currentStart = 0L
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (_: Throwable) {}
-
-        // 2. Fallback to strictly filtered single-day INTERVAL_DAILY buckets if UsageEvents were already pruned by OS
-        if (result.isEmpty()) {
-            try {
-                val dailyList = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
-                if (!dailyList.isNullOrEmpty()) {
-                    for (stat in dailyList) {
-                        val pkg = stat.packageName ?: continue
-                        if (excluded.contains(pkg)) continue
-                        val fgMs = stat.totalTimeInForeground
-                        if (fgMs <= 0L) continue
-                        val bucketSpan = stat.lastTimeStamp - stat.firstTimeStamp
-                        // Reject multi-day / weekly rollup buckets that cause 47h inflation on MIUI
-                        if (bucketSpan <= 30 * 3_600_000L &&
-                            stat.lastTimeUsed in start..(end + 4 * 3_600_000L) &&
-                            fgMs <= 14 * 3_600_000L
-                        ) {
-                            val prev = result[pkg] ?: 0L
-                            if (fgMs > prev) {
-                                result[pkg] = fgMs
-                            }
-                        }
-                    }
-                }
-            } catch (_: Throwable) {}
-        }
-
-        // Clamp total across all apps to a realistic single-day ceiling (never > 18h for historical fallback)
-        var totalSum = 0L
-        for ((_, ms) in result) totalSum += ms
-        val realisticCapMs = min(maxDayMs, 18 * 3_600_000L)
-        if (totalSum > realisticCapMs && totalSum > 0L) {
-            val scale = realisticCapMs.toDouble() / totalSum.toDouble()
-            for (k in result.keys.toList()) {
-                result[k] = ((result[k] ?: 0L) * scale).toLong()
+        for ((pkg, stat) in snap.perAppStats) {
+            if (!excluded.contains(pkg) && stat.durationMs > 0L) {
+                result[pkg] = stat.durationMs
             }
         }
-
-        if (isCompletedPastDay) {
-            historicalDayPerAppCache[dayKey] = result
-            var clampedSum = 0L
-            for ((_, ms) in result) clampedSum += ms
-            val finalDayTotal = clampedSum.coerceIn(0L, realisticCapMs)
-            historicalDayTotalCache[dayKey] = finalDayTotal
-            try {
-                val json = JSONObject()
-                for ((k, v) in result) {
-                    if (v >= 30_000L) json.put(k, v)
-                }
-                prefs.edit()
-                    .putLong("total_$dayKey", finalDayTotal)
-                    .putString("map_$dayKey", json.toString())
-                    .apply()
-            } catch (_: Throwable) {}
-        }
-
         return result
     }
 
@@ -986,26 +979,22 @@ object UsageStatsHelper {
         val prefs = context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE)
         if (isCompletedPastDay && prefs.contains("total_$dayKey")) {
             val saved = prefs.getLong("total_$dayKey", 0L).coerceIn(0L, 18 * 3_600_000L)
-            historicalDayTotalCache[dayKey] = saved
-            return saved
+            if (saved > 0L) {
+                historicalDayTotalCache[dayKey] = saved
+                return saved
+            }
         }
 
-        val perApp = computeHistoricalDayPerApp(context, start, end)
-        var sum = 0L
-        for ((_, ms) in perApp) {
-            sum += ms
-        }
-        val finalTotal = sum.coerceIn(0L, min(end - start, 18 * 3_600_000L))
-        if (isCompletedPastDay) {
-            historicalDayTotalCache[dayKey] = finalTotal
-        }
-        return finalTotal
+        val snap = getDayWellbeingSnapshot(context, start, end)
+        return snap.totalScreenTimeMs
     }
 
-    fun getWeeklyTotals(context: Context): List<Pair<String, Long>> {
+    fun getWeeklyDayRanges(context: Context): List<WeeklyDayRange> {
         if (!hasUsageAccess(context)) return emptyList()
-        val result = ArrayList<Pair<String, Long>>(7)
+        val result = ArrayList<WeeklyDayRange>(7)
         val dayFmt = SimpleDateFormat("EEE", Locale.getDefault())
+        val fullFmt = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+        val keyFmt = SimpleDateFormat("yyyyMMdd", Locale.US)
         val cal = Calendar.getInstance()
         val now = System.currentTimeMillis()
 
@@ -1022,55 +1011,161 @@ object UsageStatsHelper {
             } else {
                 dStart + 86_400_000L - 1L
             }
-            val label = if (daysAgo == 0) "Today" else dayFmt.format(Date(dStart))
+            val shortLabel = if (daysAgo == 0) "Today" else dayFmt.format(Date(dStart))
+            val fullDateLabel = when (daysAgo) {
+                0 -> "Today • ${fullFmt.format(Date(dStart))}"
+                1 -> "Yesterday • ${fullFmt.format(Date(dStart))}"
+                else -> fullFmt.format(Date(dStart))
+            }
             val ms = if (daysAgo == 0) {
                 getTodayScreenTimeMillis(context).coerceAtMost(now - dStart)
             } else {
                 getHistoricalDayScreenTimeMillis(context, dStart, dEnd)
             }
-            result.add(label to ms)
+            result.add(
+                WeeklyDayRange(
+                    dayKey = keyFmt.format(Date(dStart)),
+                    shortLabel = shortLabel,
+                    fullDateLabel = fullDateLabel,
+                    startMs = dStart,
+                    endMs = dEnd,
+                    totalScreenTimeMs = ms,
+                    isToday = daysAgo == 0
+                )
+            )
         }
         return result
     }
 
+    fun getWeeklyTotals(context: Context): List<Pair<String, Long>> {
+        return getWeeklyDayRanges(context).map { it.shortLabel to it.totalScreenTimeMs }
+    }
+
+    private fun serializeSnapshotToJson(snap: WellbeingSnapshot): JSONObject {
+        val root = JSONObject()
+        root.put("startMs", snap.startMs)
+        root.put("endMs", snap.endMs)
+        root.put("totalScreenTimeMs", snap.totalScreenTimeMs)
+        root.put("yesterdayScreenTimeMs", snap.yesterdayScreenTimeMs)
+        root.put("unlockCount", snap.unlockCount)
+        root.put("totalAppLaunches", snap.totalAppLaunches)
+        root.put("studyMs", snap.studyMs)
+        root.put("improveMs", snap.improveMs)
+        root.put("distractMs", snap.distractMs)
+        root.put("utilityMs", snap.utilityMs)
+        root.put("peakHourIndex", snap.peakHourIndex)
+        root.put("peakHourMinutes", snap.peakHourMinutes)
+
+        val hourlyArr = JSONArray()
+        for (m in snap.hourlyMinutes) hourlyArr.put(m)
+        root.put("hourlyMinutes", hourlyArr)
+
+        val appsArr = JSONArray()
+        for ((_, stat) in snap.perAppStats) {
+            if (stat.durationMs < 5_000L) continue
+            val obj = JSONObject()
+            obj.put("pkg", stat.packageName)
+            obj.put("dur", stat.durationMs)
+            obj.put("lch", stat.launchCount)
+            obj.put("lng", stat.longestSessionMs)
+            obj.put("lst", stat.lastTimeUsedMs)
+            obj.put("cat", stat.category)
+            appsArr.put(obj)
+        }
+        root.put("apps", appsArr)
+        return root
+    }
+
+    private fun deserializeSnapshotFromJson(root: JSONObject, expectedStartMs: Long): WellbeingSnapshot {
+        val hourly = IntArray(24)
+        val hArr = root.optJSONArray("hourlyMinutes")
+        if (hArr != null) {
+            for (i in 0 until min(24, hArr.length())) {
+                hourly[i] = hArr.optInt(i, 0).coerceIn(0, 60)
+            }
+        }
+
+        val perApp = HashMap<String, AppWellbeingStat>()
+        val appsArr = root.optJSONArray("apps")
+        if (appsArr != null) {
+            for (i in 0 until appsArr.length()) {
+                val o = appsArr.optJSONObject(i) ?: continue
+                val pkg = o.optString("pkg", "")
+                if (pkg.isEmpty()) continue
+                perApp[pkg] = AppWellbeingStat(
+                    packageName = pkg,
+                    durationMs = o.optLong("dur", 0L),
+                    launchCount = o.optInt("lch", 1),
+                    longestSessionMs = o.optLong("lng", 0L),
+                    lastTimeUsedMs = o.optLong("lst", expectedStartMs),
+                    category = o.optString("cat", "DISTRACT")
+                )
+            }
+        }
+
+        return WellbeingSnapshot(
+            startMs = root.optLong("startMs", expectedStartMs),
+            endMs = root.optLong("endMs", System.currentTimeMillis()),
+            totalScreenTimeMs = root.optLong("totalScreenTimeMs", 0L),
+            yesterdayScreenTimeMs = root.optLong("yesterdayScreenTimeMs", 0L),
+            unlockCount = root.optInt("unlockCount", 0),
+            totalAppLaunches = root.optInt("totalAppLaunches", 0),
+            studyMs = root.optLong("studyMs", 0L),
+            improveMs = root.optLong("improveMs", 0L),
+            distractMs = root.optLong("distractMs", 0L),
+            utilityMs = root.optLong("utilityMs", 0L),
+            hourlyMinutes = hourly,
+            perAppStats = perApp,
+            peakHourIndex = root.optInt("peakHourIndex", 0),
+            peakHourMinutes = root.optInt("peakHourMinutes", 0)
+        )
+    }
+
+    private fun saveArchivedDaySnapshotToPrefs(
+        context: Context,
+        dayKey: String,
+        snap: WellbeingSnapshot,
+        perAppMap: Map<String, Long>
+    ) {
+        try {
+            val snapJson = serializeSnapshotToJson(snap).toString()
+            val mapObj = JSONObject()
+            for ((k, v) in perAppMap) {
+                if (v >= 10_000L) mapObj.put(k, v)
+            }
+            context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE)
+                .edit()
+                .putLong("total_$dayKey", snap.totalScreenTimeMs)
+                .putString("map_$dayKey", mapObj.toString())
+                .putString("snap_$dayKey", snapJson)
+                .apply()
+        } catch (_: Throwable) {}
+    }
+
+    private fun loadArchivedDaySnapshotFromPrefs(
+        context: Context,
+        dayKey: String,
+        expectedStartMs: Long,
+        prefsName: String = PREFS_WELLBEING_CACHE
+    ): WellbeingSnapshot? {
+        return try {
+            val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            val raw = prefs.getString("snap_$dayKey", null) ?: return null
+            deserializeSnapshotFromJson(JSONObject(raw), expectedStartMs)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     private fun saveWarmSnapshotToPrefs(context: Context, snap: WellbeingSnapshot) {
         try {
-            val root = JSONObject()
-            root.put("startMs", snap.startMs)
-            root.put("endMs", snap.endMs)
-            root.put("totalScreenTimeMs", snap.totalScreenTimeMs)
-            root.put("yesterdayScreenTimeMs", snap.yesterdayScreenTimeMs)
-            root.put("unlockCount", snap.unlockCount)
-            root.put("totalAppLaunches", snap.totalAppLaunches)
-            root.put("studyMs", snap.studyMs)
-            root.put("improveMs", snap.improveMs)
-            root.put("distractMs", snap.distractMs)
-            root.put("utilityMs", snap.utilityMs)
-            root.put("peakHourIndex", snap.peakHourIndex)
-            root.put("peakHourMinutes", snap.peakHourMinutes)
-
-            val hourlyArr = JSONArray()
-            for (m in snap.hourlyMinutes) hourlyArr.put(m)
-            root.put("hourlyMinutes", hourlyArr)
-
-            val appsArr = JSONArray()
-            for ((_, stat) in snap.perAppStats) {
-                if (stat.durationMs < 5_000L) continue
-                val obj = JSONObject()
-                obj.put("pkg", stat.packageName)
-                obj.put("dur", stat.durationMs)
-                obj.put("lch", stat.launchCount)
-                obj.put("lng", stat.longestSessionMs)
-                obj.put("lst", stat.lastTimeUsedMs)
-                obj.put("cat", stat.category)
-                appsArr.put(obj)
-            }
-            root.put("apps", appsArr)
-
+            val jsonStr = serializeSnapshotToJson(snap).toString()
+            val dayKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(snap.startMs))
             context.getSharedPreferences(PREFS_WELLBEING_CACHE, Context.MODE_PRIVATE)
                 .edit()
-                .putString("today_snapshot_json", root.toString())
+                .putString("today_snapshot_json", jsonStr)
                 .putLong("today_start_ms", snap.startMs)
+                .putString("snap_$dayKey", jsonStr)
                 .apply()
         } catch (_: Throwable) {}
     }
@@ -1081,50 +1176,7 @@ object UsageStatsHelper {
             val savedStart = prefs.getLong("today_start_ms", 0L)
             if (kotlin.math.abs(savedStart - expectedStartMs) > 60_000L) return null
             val raw = prefs.getString("today_snapshot_json", null) ?: return null
-            val root = JSONObject(raw)
-
-            val hourly = IntArray(24)
-            val hArr = root.optJSONArray("hourlyMinutes")
-            if (hArr != null) {
-                for (i in 0 until min(24, hArr.length())) {
-                    hourly[i] = hArr.optInt(i, 0).coerceIn(0, 60)
-                }
-            }
-
-            val perApp = HashMap<String, AppWellbeingStat>()
-            val appsArr = root.optJSONArray("apps")
-            if (appsArr != null) {
-                for (i in 0 until appsArr.length()) {
-                    val o = appsArr.optJSONObject(i) ?: continue
-                    val pkg = o.optString("pkg", "")
-                    if (pkg.isEmpty()) continue
-                    perApp[pkg] = AppWellbeingStat(
-                        packageName = pkg,
-                        durationMs = o.optLong("dur", 0L),
-                        launchCount = o.optInt("lch", 1),
-                        longestSessionMs = o.optLong("lng", 0L),
-                        lastTimeUsedMs = o.optLong("lst", expectedStartMs),
-                        category = o.optString("cat", "DISTRACT")
-                    )
-                }
-            }
-
-            WellbeingSnapshot(
-                startMs = root.optLong("startMs", expectedStartMs),
-                endMs = root.optLong("endMs", System.currentTimeMillis()),
-                totalScreenTimeMs = root.optLong("totalScreenTimeMs", 0L),
-                yesterdayScreenTimeMs = root.optLong("yesterdayScreenTimeMs", 0L),
-                unlockCount = root.optInt("unlockCount", 0),
-                totalAppLaunches = root.optInt("totalAppLaunches", 0),
-                studyMs = root.optLong("studyMs", 0L),
-                improveMs = root.optLong("improveMs", 0L),
-                distractMs = root.optLong("distractMs", 0L),
-                utilityMs = root.optLong("utilityMs", 0L),
-                hourlyMinutes = hourly,
-                perAppStats = perApp,
-                peakHourIndex = root.optInt("peakHourIndex", 0),
-                peakHourMinutes = root.optInt("peakHourMinutes", 0)
-            )
+            deserializeSnapshotFromJson(JSONObject(raw), expectedStartMs)
         } catch (_: Throwable) {
             null
         }

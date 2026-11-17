@@ -6,19 +6,13 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import android.content.pm.PackageManager
-import android.graphics.drawable.Drawable
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -27,13 +21,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 class UsageStatsActivity : AppCompatActivity() {
 
     private var refreshJob: Job? = null
+    private var daySelectionJob: Job? = null
 
     private lateinit var todayChart: SimpleBarChartView
     private lateinit var weeklyChart: SimpleBarChartView
@@ -43,10 +37,13 @@ class UsageStatsActivity : AppCompatActivity() {
     private lateinit var categorySummaryRow: LinearLayout
     private lateinit var tvVsYesterday: TextView
 
-    // Dynamically injected Digital Wellbeing Executive Header & 24h Hourly Timeline views
+    // Dynamically injected Digital Wellbeing Executive Header, Day Switcher & 24h Hourly Timeline views
     private var wellbeingHeroCard: LinearLayout? = null
     private var tvHeroTotalTime: TextView? = null
     private var tvHeroDeltaPill: TextView? = null
+    private var tvSelectedDayLabel: TextView? = null
+    private var btnPrevDay: TextView? = null
+    private var btnNextDay: TextView? = null
     private var tvKpiUnlocks: TextView? = null
     private var tvKpiLaunches: TextView? = null
     private var tvKpiPeakHour: TextView? = null
@@ -54,7 +51,12 @@ class UsageStatsActivity : AppCompatActivity() {
     private var segImproveBar: View? = null
     private var segDistractBar: View? = null
     private var segUtilityBar: View? = null
+    private var hourlyHeaderTv: TextView? = null
+    private var byAppHeaderTv: TextView? = null
     private var hourlyChartView: SimpleBarChartView? = null
+
+    private var weeklyRanges: List<UsageStatsHelper.WeeklyDayRange> = emptyList()
+    private var selectedDayIndex: Int = 6 // Default to Today (index 6 in 7-day list)
 
     private fun dp(value: Float): Int =
         (value * resources.displayMetrics.density).roundToInt()
@@ -82,6 +84,13 @@ class UsageStatsActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
 
+        // Interactive Last 7 Days bar click: tapping any day (e.g. Tue Nov 17) loads that day's full breakdown
+        weeklyChart.onBarClick = { clickedIndex ->
+            if (clickedIndex in weeklyRanges.indices) {
+                selectDay(clickedIndex, scrollToTop = true)
+            }
+        }
+
         injectWellbeingExecutiveViews()
     }
 
@@ -94,6 +103,15 @@ class UsageStatsActivity : AppCompatActivity() {
     private fun injectWellbeingExecutiveViews() {
         val rootContainer = categorySummaryRow.parent as? LinearLayout ?: return
         if (wellbeingHeroCard != null) return
+
+        // Locate existing "Today by App" TextView so we can update its title when switching days
+        for (i in 0 until rootContainer.childCount) {
+            val v = rootContainer.getChildAt(i)
+            if (v is TextView && v.text?.toString()?.contains("by App", ignoreCase = true) == true) {
+                byAppHeaderTv = v
+                break
+            }
+        }
 
         val palette = UiThemePrefs.getSelectedPalette(this)
 
@@ -150,10 +168,71 @@ class UsageStatsActivity : AppCompatActivity() {
             textSize = 34f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
-            setPadding(0, dp(4f), 0, dp(10f))
+            setPadding(0, dp(4f), 0, dp(6f))
         }
         tvHeroTotalTime = totalTv
         hero.addView(totalTv)
+
+        // Interactive Date Navigator Row (<  Tue, Nov 17  >) just like Android Digital Wellbeing
+        val dayNavRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8f), dp(6f), dp(8f), dp(6f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(12f)
+            }
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                setColor(Color.parseColor("#131C2B"))
+                setStroke(dp(1f), Color.parseColor("#26354D"))
+            }
+        }
+
+        val prevBtn = TextView(this).apply {
+            text = "‹ Prev"
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38BDF8"))
+            setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
+            setOnClickListener {
+                if (selectedDayIndex > 0) {
+                    selectDay(selectedDayIndex - 1, scrollToTop = false)
+                }
+            }
+        }
+        btnPrevDay = prevBtn
+
+        val dayLabelTv = TextView(this).apply {
+            text = "Today"
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#F1F5F9"))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        tvSelectedDayLabel = dayLabelTv
+
+        val nextBtn = TextView(this).apply {
+            text = "Next ›"
+            textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38BDF8"))
+            setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
+            setOnClickListener {
+                if (selectedDayIndex < weeklyRanges.size - 1) {
+                    selectDay(selectedDayIndex + 1, scrollToTop = false)
+                }
+            }
+        }
+        btnNextDay = nextBtn
+
+        dayNavRow.addView(prevBtn)
+        dayNavRow.addView(dayLabelTv)
+        dayNavRow.addView(nextBtn)
+        hero.addView(dayNavRow)
 
         // Multi-segment Category Proportion Bar
         val barContainer = LinearLayout(this).apply {
@@ -239,7 +318,7 @@ class UsageStatsActivity : AppCompatActivity() {
             return col to valTv
         }
 
-        val (unlockCell, unlockTv) = buildKpiCell("UNLOCKS TODAY", Color.parseColor("#38BDF8"))
+        val (unlockCell, unlockTv) = buildKpiCell("UNLOCKS", Color.parseColor("#38BDF8"))
         val (launchCell, launchTv) = buildKpiCell("APP OPENS", Color.parseColor("#A78BFA"))
         val (peakCell, peakTv) = buildKpiCell("PEAK HOUR", Color.parseColor("#34D399"))
         tvKpiUnlocks = unlockTv
@@ -268,6 +347,8 @@ class UsageStatsActivity : AppCompatActivity() {
                 bottomMargin = dp(8f)
             }
         }
+        hourlyHeaderTv = hourlyHeader
+
         val hourlyCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
@@ -282,7 +363,7 @@ class UsageStatsActivity : AppCompatActivity() {
         val hChart = SimpleBarChartView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(155f)
+                dp(145f)
             )
         }
         hourlyChartView = hChart
@@ -339,15 +420,20 @@ class UsageStatsActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         refreshJob?.cancel()
+        daySelectionJob?.cancel()
     }
 
-    private data class PreparedTodayData(
+    private data class PreparedDayData(
         val snapshot: UsageStatsHelper.WellbeingSnapshot,
         val topBarEntries: List<SimpleBarChartView.BarEntry>,
-        val rows: List<AppUsageRow>
+        val rows: List<AppUsageRow>,
+        val dayRange: UsageStatsHelper.WeeklyDayRange?
     )
 
-    private fun buildPreparedTodayData(snapshot: UsageStatsHelper.WellbeingSnapshot): PreparedTodayData {
+    private fun buildPreparedDayData(
+        snapshot: UsageStatsHelper.WellbeingSnapshot,
+        dayRange: UsageStatsHelper.WeeklyDayRange?
+    ): PreparedDayData {
         val pm = packageManager
         val palette = UiThemePrefs.getSelectedPalette(this)
         val excluded = UsageStatsHelper.getDigitalWellbeingExcludedPackages(this)
@@ -399,7 +485,8 @@ class UsageStatsActivity : AppCompatActivity() {
                     "${cap}m CAP"
                 }
             }
-            val enrichedName = "$rawName  •  $catTag  (${stat.launchCount} opens · $sharePct%)"
+            val formattedTime = UsageStatsHelper.formatDuration(stat.durationMs)
+            val enrichedName = "$rawName  •  $formattedTime  ($catTag · ${stat.launchCount} opens · $sharePct%)"
             val colorRes = when (stat.category) {
                 "STUDY" -> R.color.success_green
                 "IMPROVE" -> R.color.accent_purple
@@ -415,15 +502,35 @@ class UsageStatsActivity : AppCompatActivity() {
             AppUsageRow(enrichedName, icon, mins, colorRes)
         }
 
-        return PreparedTodayData(
+        return PreparedDayData(
             snapshot = snapshot,
             topBarEntries = topBarEntries,
-            rows = rows
+            rows = rows,
+            dayRange = dayRange
         )
     }
 
-    private fun bindTodayBreakdown(prepared: PreparedTodayData) {
-        bindExecutiveHeroAndCategories(prepared.snapshot)
+    private fun bindDayBreakdown(prepared: PreparedDayData) {
+        val dayRange = prepared.dayRange
+        val isToday = dayRange?.isToday ?: true
+        val dayTitle = dayRange?.fullDateLabel ?: "Today"
+
+        tvSelectedDayLabel?.text = dayTitle
+        btnPrevDay?.alpha = if (selectedDayIndex > 0) 1.0f else 0.35f
+        btnNextDay?.alpha = if (selectedDayIndex < weeklyRanges.size - 1) 1.0f else 0.35f
+
+        hourlyHeaderTv?.text = if (isToday) {
+            "Hourly Activity Timeline (Today)"
+        } else {
+            "Hourly Activity Timeline (${dayRange?.shortLabel ?: dayTitle})"
+        }
+        byAppHeaderTv?.text = if (isToday) {
+            getString(R.string.today_by_app)
+        } else {
+            "${dayRange?.fullDateLabel ?: "Selected Day"} — Apps Used"
+        }
+
+        bindExecutiveHeroAndCategories(prepared.snapshot, dayRange)
         bindHourlyTimeline(prepared.snapshot)
         if (prepared.rows.isEmpty()) {
             appUsageEmptyText.visibility = View.VISIBLE
@@ -434,6 +541,59 @@ class UsageStatsActivity : AppCompatActivity() {
             appUsageList.visibility = View.VISIBLE
             todayChart.entries = prepared.topBarEntries
             appUsageList.adapter = AppUsageAdapter(prepared.rows)
+        }
+        renderWeeklyChartSelection()
+    }
+
+    private fun renderWeeklyChartSelection() {
+        if (weeklyRanges.isEmpty()) return
+        val palette = UiThemePrefs.getSelectedPalette(this)
+        val entries = weeklyRanges.mapIndexed { idx, item ->
+            val mins = (item.totalScreenTimeMs / 60_000f)
+            val isSelected = idx == selectedDayIndex
+            val color = when {
+                isSelected -> Color.parseColor("#16D99A") // Highlighted active bar in Emerald
+                item.isToday -> Color.parseColor("#38BDF8")
+                else -> palette.accentColor
+            }
+            SimpleBarChartView.BarEntry(
+                item.shortLabel,
+                mins,
+                UsageStatsHelper.formatShort(item.totalScreenTimeMs),
+                color
+            )
+        }
+        weeklyChart.entries = entries
+    }
+
+    private fun selectDay(index: Int, scrollToTop: Boolean) {
+        if (index !in weeklyRanges.indices) return
+        selectedDayIndex = index
+        val targetRange = weeklyRanges[index]
+        renderWeeklyChartSelection()
+
+        daySelectionJob?.cancel()
+        daySelectionJob = lifecycleScope.launch(Dispatchers.IO) {
+            val snap = if (targetRange.isToday) {
+                UsageStatsHelper.getTodayWellbeingSnapshot(this@UsageStatsActivity, forceRefresh = false)
+            } else {
+                UsageStatsHelper.getDayWellbeingSnapshot(
+                    this@UsageStatsActivity,
+                    targetRange.startMs,
+                    targetRange.endMs,
+                    forceRefresh = false
+                )
+            }
+            val prepared = buildPreparedDayData(snap, targetRange)
+            withContext(Dispatchers.Main) {
+                if (!isFinishing && !isDestroyed) {
+                    bindDayBreakdown(prepared)
+                    if (scrollToTop) {
+                        val rootScroll = (categorySummaryRow.parent?.parent) as? ScrollView
+                        rootScroll?.smoothScrollTo(0, 0)
+                    }
+                }
+            }
         }
     }
 
@@ -457,61 +617,55 @@ class UsageStatsActivity : AppCompatActivity() {
 
         // Fast zero-latency path: immediately show warm/in-memory snapshot so Today by App is never blank
         val cached = UsageStatsHelper.getCachedTodaySnapshot(this)
-        if (cached != null) {
-            bindExecutiveHeroAndCategories(cached)
+        if (cached != null && selectedDayIndex == 6) {
+            bindExecutiveHeroAndCategories(cached, null)
             bindHourlyTimeline(cached)
             tvHeroDeltaPill?.text = "Syncing..."
         }
 
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch(Dispatchers.IO) {
-            // If cached snapshot exists, immediately build and display Today by App rows before fresh scan
-            if (cached != null && appUsageList.adapter == null) {
-                val warmPrepared = buildPreparedTodayData(cached)
+            if (cached != null && appUsageList.adapter == null && selectedDayIndex == 6) {
+                val warmPrepared = buildPreparedDayData(cached, null)
                 withContext(Dispatchers.Main) {
                     if (!isFinishing && !isDestroyed) {
-                        bindTodayBreakdown(warmPrepared)
+                        bindDayBreakdown(warmPrepared)
                         tvHeroDeltaPill?.text = "Syncing..."
                     }
                 }
             }
 
-            // Stage 1: Authoritative Today Snapshot & Today by App List
-            val snapshot = UsageStatsHelper.getTodayWellbeingSnapshot(this@UsageStatsActivity, forceRefresh = true)
-            val preparedToday = buildPreparedTodayData(snapshot)
-            withContext(Dispatchers.Main) {
-                if (!isFinishing && !isDestroyed) {
-                    bindTodayBreakdown(preparedToday)
-                }
-            }
+            // Stage 1: Load 7-day ranges and authoritative snapshot for currently selected day
+            val ranges = UsageStatsHelper.getWeeklyDayRanges(this@UsageStatsActivity)
+            val safeIdx = selectedDayIndex.coerceIn(0, (ranges.size - 1).coerceAtLeast(0))
+            val activeRange = ranges.getOrNull(safeIdx)
 
-            // Stage 2: Fast Cached Last 7 Days Weekly Chart
-            val palette = UiThemePrefs.getSelectedPalette(this@UsageStatsActivity)
-            val weekly = UsageStatsHelper.getWeeklyTotals(this@UsageStatsActivity)
-            val weeklyEntries = weekly.map { (dayLabel, ms) ->
-                val mins = (ms / 60_000f)
-                val color = if (dayLabel == "Today") {
-                    Color.parseColor("#38BDF8")
-                } else {
-                    palette.accentColor
-                }
-                SimpleBarChartView.BarEntry(
-                    dayLabel,
-                    mins,
-                    UsageStatsHelper.formatShort(ms),
-                    color
+            val snapshot = if (activeRange == null || activeRange.isToday) {
+                UsageStatsHelper.getTodayWellbeingSnapshot(this@UsageStatsActivity, forceRefresh = true)
+            } else {
+                UsageStatsHelper.getDayWellbeingSnapshot(
+                    this@UsageStatsActivity,
+                    activeRange.startMs,
+                    activeRange.endMs,
+                    forceRefresh = true
                 )
             }
+            val prepared = buildPreparedDayData(snapshot, activeRange)
 
             withContext(Dispatchers.Main) {
                 if (!isFinishing && !isDestroyed) {
-                    weeklyChart.entries = weeklyEntries
+                    weeklyRanges = ranges
+                    selectedDayIndex = safeIdx
+                    bindDayBreakdown(prepared)
                 }
             }
         }
     }
 
-    private fun bindExecutiveHeroAndCategories(snapshot: UsageStatsHelper.WellbeingSnapshot) {
+    private fun bindExecutiveHeroAndCategories(
+        snapshot: UsageStatsHelper.WellbeingSnapshot,
+        dayRange: UsageStatsHelper.WeeklyDayRange?
+    ) {
         tvHeroTotalTime?.text = UsageStatsHelper.formatPreciseDuration(snapshot.totalScreenTimeMs)
         tvKpiUnlocks?.text = snapshot.unlockCount.toString()
         tvKpiLaunches?.text = snapshot.totalAppLaunches.toString()
@@ -521,23 +675,28 @@ class UsageStatsActivity : AppCompatActivity() {
             "—"
         }
 
+        val isToday = dayRange?.isToday ?: true
         val diffMs = snapshot.totalScreenTimeMs - snapshot.yesterdayScreenTimeMs
         val diffMins = kotlin.math.abs(diffMs / 60_000L)
         val diffFormatted = UsageStatsHelper.formatDuration(kotlin.math.abs(diffMs))
-        if (snapshot.yesterdayScreenTimeMs <= 0L) {
+        if (!isToday) {
+            tvHeroDeltaPill?.text = dayRange?.shortLabel ?: "History"
+            tvHeroDeltaPill?.setTextColor(Color.parseColor("#16D99A"))
+            tvVsYesterday.text = "Showing full app breakdown for ${dayRange?.fullDateLabel ?: "selected day"} • Tap any bar in Last 7 Days to switch"
+        } else if (snapshot.yesterdayScreenTimeMs <= 0L) {
             tvHeroDeltaPill?.text = "✓ Exact Tracking"
-            tvVsYesterday.text = "Digital Wellbeing foreground state machine active • Tap any bar or app below for details"
+            tvVsYesterday.text = "Tap any day bar in 'Last 7 Days' below (or use ◀ ▶ above) to inspect past days"
         } else if (diffMins < 2L) {
             tvHeroDeltaPill?.text = "≈ Same as yesterday"
-            tvVsYesterday.text = "On pace with yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)} total yesterday)"
+            tvVsYesterday.text = "On pace with yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)} total yesterday) • Tap any day bar below for details"
         } else if (diffMs < 0L) {
             tvHeroDeltaPill?.text = "▼ $diffFormatted vs yesterday"
             tvHeroDeltaPill?.setTextColor(Color.parseColor("#34D399"))
-            tvVsYesterday.text = "Great discipline! Down $diffFormatted compared to yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)})"
+            tvVsYesterday.text = "Down $diffFormatted vs yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any day bar in Last 7 Days to inspect"
         } else {
             tvHeroDeltaPill?.text = "▲ $diffFormatted vs yesterday"
             tvHeroDeltaPill?.setTextColor(Color.parseColor("#F59E0B"))
-            tvVsYesterday.text = "Up $diffFormatted compared to yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)})"
+            tvVsYesterday.text = "Up $diffFormatted vs yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any day bar in Last 7 Days to inspect"
         }
 
         // Update Category Summary Row
@@ -566,7 +725,6 @@ class UsageStatsActivity : AppCompatActivity() {
     private fun bindHourlyTimeline(snapshot: UsageStatsHelper.WellbeingSnapshot) {
         val chart = hourlyChartView ?: return
         val palette = UiThemePrefs.getSelectedPalette(this)
-        // Group into 8 clean 3-hour blocks or active hours so labels stay crisp and legible on all screen widths
         val entries = ArrayList<SimpleBarChartView.BarEntry>()
         val blockLabels = arrayOf("12A", "3A", "6A", "9A", "12P", "3P", "6P", "9P")
         for (block in 0 until 8) {
