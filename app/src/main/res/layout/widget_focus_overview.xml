@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="2dp">
+
+    <!-- High-DPI Custom Canvas Rendered Command Deck Surface -->
+    <ImageView
+        android:id="@+id/iv_widget_command_canvas"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:contentDescription="Focus Elite Command Deck Widget" />
+
+    <!-- Interactive Touch Zones Overlay (3-Zone Cockpit) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <!-- Zone 1 (Left 33%): Dual Neon Rings (Screen Time vs Steps) -->
+        <RelativeLayout
+            android:id="@id/layout_widget_ring"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.0"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:id="@id/iv_widget_steps_ring"
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:visibility="gone"
+                android:contentDescription="Steps Ring" />
+        </RelativeLayout>
+
+        <!-- Zone 2 (Center 35%): Focus Layer Status & Shield Toggle -->
+        <LinearLayout
+            android:id="@id/btn_widget_focus_toggle"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.06"
+            android:orientation="vertical"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@id/tv_widget_focus_state"
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:visibility="gone"
+                android:text="ON" />
+        </LinearLayout>
+
+        <!-- Zone 3 (Right 32%): 1-Tap 25m + 40Hz Launch & Widget Studio -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.94"
+            android:orientation="vertical">
+
+            <!-- Top Action: 1-Tap Deep Focus 25m + 40Hz Gamma -->
+            <FrameLayout
+                android:id="@+id/btn_widget_quick_focus"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="0.68"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <!-- Bottom Action: Open Widget Studio & Skins -->
+            <FrameLayout
+                android:id="@+id/btn_widget_open_studio"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="0.32"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

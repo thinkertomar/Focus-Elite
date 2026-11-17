@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView android:background="@color/background_dark" android:fitsSystemWindows="true" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:orientation="vertical" android:padding="20.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content">
+        <TextView android:textSize="16.0sp" android:textColor="@color/accent_purple" android:id="@id/backButton" android:padding="4.0dip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" android:text="@string/back" />
+        <TextView android:textSize="22.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip" android:text="@string/usage_stats_title" />
+        <LinearLayout android:orientation="vertical" android:id="@id/noAccessCard" android:background="@drawable/bg_card" android:padding="16.0dip" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip">
+            <TextView android:textColor="@color/text_secondary" android:id="@id/noAccessText" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" android:text="@string/permission_required" />
+            <Button android:textColor="@color/text_primary" android:id="@id/btnGrantUsageAccess" android:background="@drawable/bg_button_primary" android:layout_width="fill_parent" android:layout_height="48.0dip" android:text="@string/grant_usage_access" android:textAllCaps="false" android:elevation="0.0dip" />
+        </LinearLayout>
+        <LinearLayout android:orientation="horizontal" android:id="@id/categorySummaryRow" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="10.0dip">
+            <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0">
+                <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="@color/success_green" android:id="@id/tvStudyMinutes" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <TextView android:textSize="11.0sp" android:textColor="@color/text_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/category_study" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0">
+                <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:id="@id/tvImproveMinutes" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <TextView android:textSize="11.0sp" android:textColor="@color/text_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/category_improve" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0">
+                <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="@color/distract_red" android:id="@id/tvDistractMinutes" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <TextView android:textSize="11.0sp" android:textColor="@color/text_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/category_distract" />
+            </LinearLayout>
+            <LinearLayout android:gravity="center" android:orientation="vertical" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0">
+                <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="@color/accent_purple" android:id="@id/tvIgnoreMinutes" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                <TextView android:textSize="11.0sp" android:textColor="@color/text_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/category_ignore" />
+            </LinearLayout>
+        </LinearLayout>
+        <TextView android:textSize="12.0sp" android:textColor="@color/text_secondary" android:gravity="center" android:id="@id/tvVsYesterday" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" />
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/today_by_app" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="10.0dip">
+            <com.focusguardpro.app.SimpleBarChartView android:id="@id/todayChart" android:layout_width="fill_parent" android:layout_height="190.0dip" />
+        </LinearLayout>
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="24.0dip">
+            <androidx.recyclerview.widget.RecyclerView android:id="@id/appUsageList" android:layout_width="fill_parent" android:layout_height="wrap_content" android:nestedScrollingEnabled="false" />
+            <TextView android:textColor="@color/text_secondary" android:gravity="center" android:id="@id/appUsageEmptyText" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:text="@string/no_usage_yet" />
+        </LinearLayout>
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/last_7_days" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip">
+            <com.focusguardpro.app.SimpleBarChartView android:id="@id/weeklyChart" android:layout_width="fill_parent" android:layout_height="190.0dip" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

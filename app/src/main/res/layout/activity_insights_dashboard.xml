@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:orientation="vertical" android:background="#ff121212" android:padding="16.0dip" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content">
+        <TextView android:textSize="20.0sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="0.0dip" android:layout_height="wrap_content" android:text="Discipline Insights" android:layout_weight="1.0" />
+        <RadioGroup android:orientation="horizontal" android:id="@id/rg_time_range" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checkedButton="@id/rb_7_days">
+            <RadioButton android:textSize="12.0sp" android:textColor="#ffcfd8dc" android:id="@id/rb_7_days" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="7D" />
+            <RadioButton android:textSize="12.0sp" android:textColor="#ffcfd8dc" android:id="@id/rb_30_days" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="30D" />
+        </RadioGroup>
+    </LinearLayout>
+    <LinearLayout android:gravity="center" android:orientation="vertical" android:background="@drawable/bg_card" android:padding="18.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip">
+        <TextView android:textSize="11.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="DISCIPLINE SYNERGY SCORE" />
+        <TextView android:textSize="38.0sp" android:textStyle="bold" android:textColor="#ff00e5ff" android:id="@id/tv_synergy_score" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" android:text="--/100" />
+    </LinearLayout>
+    <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="12.0dip">
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginEnd="6.0dip">
+            <TextView android:textSize="10.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="AVG DAILY FOCUS" />
+            <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="#ffffffff" android:id="@id/tv_avg_focus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" />
+        </LinearLayout>
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginStart="6.0dip">
+            <TextView android:textSize="10.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="AVG DAILY STEPS" />
+            <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="#ffffffff" android:id="@id/tv_avg_steps" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" />
+        </LinearLayout>
+    </LinearLayout>
+    <TextView android:textSize="11.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="18.0dip" android:layout_marginBottom="8.0dip" android:text="DAY-BY-DAY AUDIT" />
+    <androidx.recyclerview.widget.RecyclerView android:id="@id/rv_insights_breakdown" android:layout_width="fill_parent" android:layout_height="0.0dip" android:layout_weight="1.0" />
+</LinearLayout>

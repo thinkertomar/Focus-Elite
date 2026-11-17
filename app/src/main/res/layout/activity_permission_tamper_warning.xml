@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center_vertical" android:orientation="vertical" android:background="#ff121212" android:padding="24.0dip" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="24.0sp" android:textStyle="bold" android:textColor="#fff44336" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" android:text="⚠️ Hold On" />
+    <TextView android:textSize="15.0sp" android:textColor="#ffe0e0e0" android:gravity="center" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="28.0dip" android:text="You're on the system screen to turn off Focus Elite's permission. If you genuinely want to stop using the shield, do it properly through the app - not by quietly switching it off here." />
+    <Button android:textSize="15.0sp" android:textColor="#ffffffff" android:id="@id/btnGoToDeactivate" android:layout_width="fill_parent" android:layout_height="56.0dip" android:layout_marginBottom="12.0dip" android:text="Take me to Deactivate Shield" android:textAllCaps="false" android:backgroundTint="#fff44336" />
+    <Button android:textSize="14.0sp" android:textColor="#ffb0bec5" android:id="@id/btnGoBack" android:layout_width="fill_parent" android:layout_height="52.0dip" android:text="Go back - I changed my mind" android:textAllCaps="false" android:backgroundTint="#ff2c2c2c" />
+</LinearLayout>

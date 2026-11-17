@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#ff0a0b0f">
+
+    <WebView
+        android:id="@id/jeeWebView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Kept as GONE solely for ViewBinding/ID compatibility; Engage Exam Lock is removed -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@id/btnEngageLock"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        android:text="ENGAGE EXAM LOCK"
+        app:cornerRadius="12dp" />
+</RelativeLayout>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView android:background="@color/background_dark" android:fitsSystemWindows="true" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:orientation="vertical" android:padding="20.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content">
+        <TextView android:textSize="16.0sp" android:textColor="@color/accent_purple" android:id="@id/backupBackButton" android:padding="4.0dip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="10.0dip" android:text="@string/back" />
+        <TextView android:textSize="24.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="14.0dip" android:text="Backup &amp; Restore" />
+        <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/backupStatusText" android:background="@drawable/bg_card" android:padding="16.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="16.0dip" android:lineSpacingExtra="4.0dip" />
+        <Button android:textSize="14.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:id="@id/btnBackupNow" android:layout_width="fill_parent" android:layout_height="50.0dip" android:layout_marginBottom="10.0dip" android:text="Quick Auto-Backup" android:backgroundTint="@color/accent_purple" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip">
+            <Button android:textSize="12.0sp" android:textColor="@color/text_primary" android:id="@id/btnExportBackup" android:layout_width="0.0dip" android:layout_height="48.0dip" android:text="Export to Storage" android:layout_weight="1.0" android:layout_marginEnd="6.0dip" android:backgroundTint="#ff333344" />
+            <Button android:textSize="12.0sp" android:textColor="@color/text_primary" android:id="@id/btnImportBackup" android:layout_width="0.0dip" android:layout_height="48.0dip" android:text="Import from Storage" android:layout_weight="1.0" android:layout_marginStart="6.0dip" android:backgroundTint="#ff333344" />
+        </LinearLayout>
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip">
+            <TextView android:textSize="13.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="4.0dip" android:text="Dedicated Backup Folder" />
+            <TextView android:textSize="11.0sp" android:textColor="@color/text_secondary" android:id="@id/tvCurrentFolder" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="4.0dip" android:text="Folder: Downloads/FocusElite/AutoBackups" />
+            <TextView android:textSize="11.0sp" android:textColor="#ffaaaaaa" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="Tip: After an app reinstall, Android's scoped storage hides older files. Tap 'Pick Custom Folder' and select 'FocusElite/AutoBackups' (or any folder) to restore access to all past dates." />
+            <Button android:textSize="11.0sp" android:textColor="@color/accent_purple" android:id="@id/btnPickBackupFolder" android:layout_width="wrap_content" android:layout_height="38.0dip" android:text="Pick Custom Folder" android:backgroundTint="#ff222233" />
+        </LinearLayout>
+        <TextView android:textSize="18.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="10.0dip" android:text="Available Backups" />
+        <TextView android:textColor="@color/text_secondary" android:gravity="center" android:id="@id/backupEmptyText" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" android:text="No backups yet - one will be created automatically within a day, or tap Backup Now above." />
+        <LinearLayout android:orientation="vertical" android:id="@id/backupListContainer" android:layout_width="fill_parent" android:layout_height="wrap_content" />
+    </LinearLayout>
+</ScrollView>

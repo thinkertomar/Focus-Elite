@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:orientation="vertical" android:paddingTop="8.0dip" android:paddingBottom="8.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="6.0dip">
+        <ImageView android:id="@id/rowAppIcon" android:layout_width="22.0dip" android:layout_height="22.0dip" android:layout_marginEnd="10.0dip" />
+        <TextView android:textSize="14.0sp" android:textColor="@color/text_primary" android:ellipsize="end" android:id="@id/rowAppName" android:layout_width="0.0dip" android:layout_height="wrap_content" android:maxLines="1" android:layout_weight="1.0" />
+        <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/rowAppTime" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8.0dip" />
+    </LinearLayout>
+    <LinearLayout android:orientation="horizontal" android:background="@drawable/bg_card" android:layout_width="fill_parent" android:layout_height="8.0dip">
+        <View android:id="@id/rowBarFill" android:background="@color/accent_purple" android:layout_width="0.0dip" android:layout_height="fill_parent" android:layout_weight="1.0" />
+        <View android:id="@id/rowBarEmpty" android:background="@android:color/transparent" android:layout_width="0.0dip" android:layout_height="fill_parent" android:layout_weight="1.0" />
+    </LinearLayout>
+</LinearLayout>

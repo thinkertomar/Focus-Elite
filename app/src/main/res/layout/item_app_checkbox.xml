@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <ImageView android:id="@id/catIcon" android:layout_width="36.0dip" android:layout_height="36.0dip" android:contentDescription="App Icon" android:layout_marginEnd="12.0dip" />
+    <TextView android:textSize="14.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:ellipsize="end" android:id="@id/catName" android:layout_width="0.0dip" android:layout_height="wrap_content" android:maxLines="2" android:layout_weight="1.0" />
+    <CheckBox android:textSize="11.0sp" android:textStyle="bold" android:textColor="@color/success_green" android:id="@id/studyCheckBox" android:layout_width="wrap_content" android:layout_height="48.0dip" android:minHeight="48.0dip" android:text="@string/study_label" android:layout_marginEnd="2.0dip" android:buttonTint="@color/success_green" />
+    <CheckBox android:textSize="11.0sp" android:textStyle="bold" android:textColor="@color/improve_blue" android:id="@id/improvementCheckBox" android:layout_width="wrap_content" android:layout_height="48.0dip" android:minHeight="48.0dip" android:text="@string/improvement_label" android:layout_marginEnd="2.0dip" android:buttonTint="@color/improve_blue" />
+    <CheckBox android:textSize="11.0sp" android:textStyle="bold" android:textColor="@color/text_secondary" android:id="@id/ignoreCheckBox" android:layout_width="wrap_content" android:layout_height="48.0dip" android:minHeight="48.0dip" android:text="@string/ignore_label" android:buttonTint="@color/sleep_indigo" />
+</LinearLayout>

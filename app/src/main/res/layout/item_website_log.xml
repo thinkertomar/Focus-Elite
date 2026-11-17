@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip"
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:textSize="14.0sp" android:gravity="center" android:id="@id/tvWebsiteLogIcon" android:background="@drawable/bg_circle_red" android:layout_width="32.0dip" android:layout_height="32.0dip" android:text="🌐" android:layout_marginEnd="12.0dip" />
+    <LinearLayout android:orientation="vertical" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0">
+        <TextView android:textSize="14.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:id="@id/tvWebsiteLogHost" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:textSize="11.0sp" android:textColor="@color/text_secondary" android:id="@id/tvWebsiteLogTime" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2.0dip" />
+    </LinearLayout>
+    <TextView android:textSize="10.0sp" android:textStyle="bold" android:textColor="@color/distract_red" android:id="@id/tvWebsiteLogStatus" android:background="#ff2a1b1b" android:paddingTop="3.0dip" android:paddingBottom="3.0dip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BLOCKED" android:paddingStart="8.0dip" android:paddingEnd="8.0dip" />
+</LinearLayout>

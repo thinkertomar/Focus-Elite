@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView android:background="@color/background_dark" android:layout_width="fill_parent" android:layout_height="fill_parent"
+  xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <LinearLayout android:orientation="vertical" android:padding="20.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content">
+        <TextView android:textSize="16.0sp" android:textColor="@color/accent_purple" android:id="@id/websiteBlockBackButton" android:padding="4.0dip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" android:text="@string/back" />
+        <TextView android:textSize="22.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="4.0dip" android:text="@string/website_block_title" />
+        <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip" android:text="@string/website_block_subtitle" />
+        <TextView android:textSize="12.0sp" android:textColor="@color/text_secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/website_block_suggested_label" />
+        <com.google.android.material.chip.ChipGroup android:id="@id/suggestedChipGroup" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip" app:chipSpacingHorizontal="8.0dip" app:chipSpacingVertical="8.0dip" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip">
+            <EditText android:textColor="@color/text_primary" android:textColorHint="@color/text_secondary" android:id="@id/customDomainInput" android:background="@drawable/bg_card" android:padding="10.0dip" android:layout_width="0.0dip" android:layout_height="wrap_content" android:hint="@string/website_block_custom_hint" android:layout_weight="1.0" android:inputType="textUri" android:layout_marginEnd="8.0dip" />
+            <Button android:textColor="@color/text_primary" android:id="@id/addDomainButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/website_block_add_button" android:backgroundTint="@color/accent_purple" />
+        </LinearLayout>
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/website_block_current_label" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content">
+            <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/blockedListEmptyText" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:text="@string/website_block_empty" />
+            <androidx.recyclerview.widget.RecyclerView android:id="@id/blockedDomainsList" android:layout_width="fill_parent" android:layout_height="wrap_content" android:nestedScrollingEnabled="false" />
+        </LinearLayout>
+        <TextView android:textSize="11.0sp" android:textColor="@color/text_secondary" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip" android:layout_marginBottom="28.0dip" android:text="@string/website_block_disclaimer" />
+        <View android:background="@color/card_border" android:layout_width="fill_parent" android:layout_height="1.0dip" android:layout_marginBottom="20.0dip" />
+        <TextView android:textSize="22.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="4.0dip" android:text="@string/fair_websites_title" />
+        <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip" android:text="@string/fair_websites_subtitle" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="20.0dip">
+            <EditText android:textColor="@color/text_primary" android:textColorHint="@color/text_secondary" android:id="@id/fairDomainInput" android:background="@drawable/bg_card" android:padding="10.0dip" android:layout_width="0.0dip" android:layout_height="wrap_content" android:hint="@string/fair_websites_hint" android:layout_weight="1.0" android:inputType="textUri" android:layout_marginEnd="8.0dip" />
+            <Button android:textColor="@color/background_dark" android:id="@id/addFairDomainButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/website_block_add_button" android:backgroundTint="@color/success_green" />
+        </LinearLayout>
+        <TextView android:textSize="15.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip" android:text="@string/fair_websites_current_label" />
+        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="14.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content">
+            <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/fairListEmptyText" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:text="@string/fair_websites_empty" />
+            <androidx.recyclerview.widget.RecyclerView android:id="@id/fairDomainsList" android:layout_width="fill_parent" android:layout_height="wrap_content" android:nestedScrollingEnabled="false" />
+        </LinearLayout>
+        <View android:background="@color/card_border" android:layout_width="fill_parent" android:layout_height="1.0dip" android:layout_marginTop="24.0dip" android:layout_marginBottom="20.0dip" />
+        <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="8.0dip">
+            <TextView android:textSize="18.0sp" android:textStyle="bold" android:textColor="@color/text_primary" android:layout_width="0.0dip" android:layout_height="wrap_content" android:text="Website Block Log" android:layout_weight="1.0" />
+            <TextView android:textSize="13.0sp" android:textColor="@color/accent_purple" android:id="@id/btnClearWebsiteLogs" android:padding="6.0dip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Clear" />
+        </LinearLayout>
+        <TextView android:textSize="12.0sp" android:textColor="@color/text_secondary" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" android:text="Real-time log of blocked sites intercepted by Blocker Shield." />
+        <TextView android:textSize="13.0sp" android:textColor="@color/text_secondary" android:id="@id/websiteLogsEmptyText" android:visibility="gone" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginBottom="12.0dip" android:text="No blocked website attempts logged yet." />
+        <androidx.recyclerview.widget.RecyclerView android:id="@id/websiteLogsList" android:layout_width="fill_parent" android:layout_height="wrap_content" android:nestedScrollingEnabled="false" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector
+  xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="@color/accent_purple_pressed" />
+            <corners android:radius="14.0dip" />
+            <padding android:left="12.0dip" android:top="6.0dip" android:right="12.0dip" android:bottom="6.0dip" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <solid android:color="@color/accent_purple" />
+            <corners android:radius="14.0dip" />
+            <padding android:left="12.0dip" android:top="6.0dip" android:right="12.0dip" android:bottom="6.0dip" />
+        </shape>
+    </item>
+</selector>
