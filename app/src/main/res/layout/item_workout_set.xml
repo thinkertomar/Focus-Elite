@@ -1,144 +1,179 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/layoutSetRow"
+    android:id="@+id/rowRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
+    android:layout_marginBottom="8dp"
     android:background="@drawable/bg_tile"
-    android:paddingStart="6dp"
-    android:paddingEnd="6dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
     android:paddingTop="8dp"
-    android:paddingBottom="8dp"
-    android:layout_marginBottom="6dp">
+    android:paddingEnd="8dp"
+    android:paddingBottom="8dp">
 
+    <!-- Set number badge (long-press to delete) -->
     <TextView
         android:id="@+id/tvSetNumber"
-        android:layout_width="26dp"
-        android:layout_height="26dp"
-        android:text="1"
-        android:textColor="@color/text_primary"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:gravity="center"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
         android:background="@drawable/bg_button_pill"
-        android:backgroundTint="#262D3D"
-        android:layout_marginEnd="6dp" />
+        android:padding="0dp"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:text="1"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold" />
 
+    <!-- Previous performance chip (tap to copy into current set) -->
     <TextView
         android:id="@+id/tvPrevious"
-        android:layout_width="50dp"
+        android:layout_width="42dp"
         android:layout_height="wrap_content"
-        android:minHeight="32dp"
-        android:text="—"
-        android:textColor="@color/text_secondary"
-        android:textSize="11sp"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
+        android:ellipsize="end"
         android:gravity="center"
-        android:layout_marginEnd="6dp" />
+        android:maxLines="1"
+        android:paddingVertical="6dp"
+        android:text="—"
+        android:textColor="#9AA3B2"
+        android:textSize="11sp"
+        android:textStyle="bold" />
 
+    <!-- Reps compact stepper -->
     <LinearLayout
+        android:id="@+id/llRepsStepper"
         android:layout_width="0dp"
-        android:layout_height="36dp"
+        android:layout_height="38dp"
+        android:layout_marginEnd="6dp"
         android:layout_weight="1"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:background="@drawable/bg_button_pill"
-        android:backgroundTint="#0E1320"
-        android:layout_marginEnd="6dp">
+        android:padding="0dp"
+        android:paddingStart="2dp"
+        android:paddingEnd="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <ImageButton
+        <TextView
             android:id="@+id/btnRepsMinus"
             android:layout_width="26dp"
             android:layout_height="match_parent"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_remove"
-            android:tint="@color/text_secondary"
-            android:contentDescription="Decrease reps" />
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:text="−"
+            android:textColor="#8E87FF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <EditText
             android:id="@+id/etRepsValue"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="15"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:minWidth="30dp"
+            android:background="@android:color/transparent"
             android:gravity="center"
+            android:imeOptions="actionDone"
+            android:includeFontPadding="false"
             android:inputType="number"
             android:maxLength="3"
             android:padding="0dp"
-            android:background="@android:color/transparent"
-            android:singleLine="true" />
+            android:selectAllOnFocus="true"
+            android:text="10"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
-        <ImageButton
+        <TextView
             android:id="@+id/btnRepsPlus"
             android:layout_width="26dp"
             android:layout_height="match_parent"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_add"
-            android:tint="@color/text_secondary"
-            android:contentDescription="Increase reps" />
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:text="+"
+            android:textColor="#8E87FF"
+            android:textSize="17sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
+    <!-- Hold (seconds) compact stepper -->
     <LinearLayout
+        android:id="@+id/llHoldStepper"
         android:layout_width="0dp"
-        android:layout_height="36dp"
+        android:layout_height="38dp"
+        android:layout_marginEnd="6dp"
         android:layout_weight="1"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:background="@drawable/bg_button_pill"
-        android:backgroundTint="#0E1320"
-        android:layout_marginEnd="6dp">
+        android:padding="0dp"
+        android:paddingStart="2dp"
+        android:paddingEnd="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <ImageButton
+        <TextView
             android:id="@+id/btnHoldMinus"
             android:layout_width="26dp"
             android:layout_height="match_parent"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_remove"
-            android:tint="@color/text_secondary"
-            android:contentDescription="Decrease hold" />
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:text="−"
+            android:textColor="#4FD1FF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <EditText
             android:id="@+id/etHoldValue"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="0"
-            android:hint="0"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="#00E5FF"
-            android:gravity="center"
-            android:inputType="number"
-            android:maxLength="3"
-            android:padding="0dp"
+            android:minWidth="30dp"
             android:background="@android:color/transparent"
-            android:singleLine="true" />
+            android:gravity="center"
+            android:imeOptions="actionDone"
+            android:includeFontPadding="false"
+            android:inputType="number"
+            android:maxLength="4"
+            android:padding="0dp"
+            android:selectAllOnFocus="true"
+            android:text="0"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
-        <ImageButton
+        <TextView
             android:id="@+id/btnHoldPlus"
             android:layout_width="26dp"
             android:layout_height="match_parent"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_add"
-            android:tint="@color/text_secondary"
-            android:contentDescription="Increase hold" />
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:text="+"
+            android:textColor="#4FD1FF"
+            android:textSize="17sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <Button
+    <!-- Done check toggle -->
+    <TextView
         android:id="@+id/btnCheckSet"
-        android:layout_width="38dp"
-        android:layout_height="36dp"
-        android:text="✓"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:textColor="@color/text_secondary"
+        android:layout_width="36dp"
+        android:layout_height="38dp"
         android:background="@drawable/bg_button_pill"
-        android:backgroundTint="#1F2533"
         android:padding="0dp"
-        android:minWidth="0dp"
-        android:minHeight="0dp" />
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:text="✓"
+        android:textColor="#9AA3B2"
+        android:textSize="15sp"
+        android:textStyle="bold" />
 
 </LinearLayout>

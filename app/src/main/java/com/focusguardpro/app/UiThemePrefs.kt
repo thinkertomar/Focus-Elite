@@ -33,6 +33,13 @@ object UiThemePrefs {
     const val BG_MODE_THEME = "theme"
     const val BG_MODE_BLACK = "black"
     const val BG_MODE_WHITE = "white"
+    const val MODE_WHITE = BG_MODE_WHITE
+
+    fun getMode(context: Context): String =
+        if (isWhiteBackgroundActive(context)) BG_MODE_WHITE else getBackgroundMode(context)
+
+    fun applyToActivity(activity: Activity) =
+        applyWindowAndViewTreeTheme(activity)
 
     private const val TAG_ORIGINAL_TEXT_COLOR = 0x7F0B9901
     private const val TAG_RV_LISTENER_ATTACHED = 0x7F0B9902

@@ -110,11 +110,16 @@ class CalisthenicsActivity : AppCompatActivity() {
     private var remainingRestSeconds = 0
     private var totalRestSeconds = 60
 
-    // Summary
+    // Summary & Pace Telemetry
     private lateinit var tvStatExercises: TextView
     private lateinit var tvStatSets: TextView
     private lateinit var tvStatReps: TextView
     private lateinit var tvStatTime: TextView
+    private lateinit var tvStatPaceRepsMin: TextView
+    private lateinit var tvStatAvgSetPace: TextView
+    private lateinit var tvStatCalories: TextView
+    private lateinit var calisthenicsPaceChart: StravaPaceChartView
+    private lateinit var btnOpenCardioPace: TextView
     private lateinit var btnFinishSession: Button
     private lateinit var btnDiscardSession: Button
 
@@ -176,6 +181,7 @@ class CalisthenicsActivity : AppCompatActivity() {
         setupHistoryUi()
         selectTab(0)
         startSessionClock()
+        UiThemePrefs.applyToActivity(this)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -191,6 +197,14 @@ class CalisthenicsActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        UiThemePrefs.applyToActivity(this)
+        if (::setAdapter.isInitialized) {
+            setAdapter.notifyDataSetChanged()
+        }
     }
 
     override fun onDestroy() {
@@ -244,6 +258,11 @@ class CalisthenicsActivity : AppCompatActivity() {
         tvStatSets = findViewById(R.id.tvStatSets)
         tvStatReps = findViewById(R.id.tvStatReps)
         tvStatTime = findViewById(R.id.tvStatTime)
+        tvStatPaceRepsMin = findViewById(R.id.tvStatPaceRepsMin)
+        tvStatAvgSetPace = findViewById(R.id.tvStatAvgSetPace)
+        tvStatCalories = findViewById(R.id.tvStatCalories)
+        calisthenicsPaceChart = findViewById(R.id.calisthenicsPaceChart)
+        btnOpenCardioPace = findViewById(R.id.btnOpenCardioPace)
         btnFinishSession = findViewById(R.id.btnFinishSession)
         btnDiscardSession = findViewById(R.id.btnDiscardSession)
 
@@ -274,6 +293,10 @@ class CalisthenicsActivity : AppCompatActivity() {
         btnTabHistory.setOnClickListener { selectTab(2) }
 
         btnChangeExercise.setOnClickListener { selectTab(1) }
+
+        btnOpenCardioPace.setOnClickListener {
+            startActivity(android.content.Intent(this, ActivityStatsActivity::class.java))
+        }
 
         tvFavoriteActive.setOnClickListener {
             val ex = currentExercise ?: return@setOnClickListener
@@ -653,10 +676,59 @@ class CalisthenicsActivity : AppCompatActivity() {
         val doneExercises = session.values.count { it.sets.any { s -> s.isCompleted } }
         val sets = completedSetCount()
         val reps = session.values.sumOf { it.sets.filter { s -> s.isCompleted }.sumOf { s -> s.reps } }
+        val totalHoldSec = session.values.sumOf { it.sets.filter { s -> s.isCompleted }.sumOf { s -> s.holdSeconds } }
         tvStatExercises.text = doneExercises.toString()
         tvStatSets.text = sets.toString()
         tvStatReps.text = reps.toString()
         renderElapsed()
+
+        val elapsedSec = if (sessionStartMs > 0L) {
+            ((System.currentTimeMillis() - sessionStartMs) / 1000L).toInt().coerceAtLeast(1)
+        } else {
+            (sets * 45).coerceAtLeast(1)
+        }
+        val elapsedMin = elapsedSec / 60f
+        val repsPerMin = if (sets > 0 && elapsedMin > 0.05f) reps / elapsedMin else 0f
+        val avgSetSec = if (sets > 0) elapsedSec / sets else 0
+        // Calisthenics MET ~ 6.0 (approx 0.42 kcal per rep + 0.12 kcal per hold second + base active time)
+        val estKcal = if (sets > 0) {
+            (reps * 0.42f + totalHoldSec * 0.14f + sets * 2.5f).toInt().coerceAtLeast(1)
+        } else 0
+
+        tvStatPaceRepsMin.text = String.format(Locale.US, "%.1f /min", repsPerMin)
+        tvStatAvgSetPace.text = if (sets > 0) "${avgSetSec}s /set" else "0s /set"
+        tvStatCalories.text = "$estKcal kcal"
+
+        // High-contrast Finish button styling (never dark text on dark button)
+        btnFinishSession.setTextColor(Color.WHITE)
+        btnFinishSession.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            if (sets > 0) Color.parseColor("#10B981") else Color.parseColor("#334155")
+        )
+        btnFinishSession.text = if (sets > 0) "Finish & log workout ($sets ${if (sets == 1) "set" else "sets"})" else "Finish & log workout"
+
+        // Update Strava-style set tempo curve
+        val targetSets = if (activeSets.any { it.isCompleted }) {
+            activeSets.filter { it.isCompleted }
+        } else {
+            activeSets
+        }
+        val splitPoints = targetSets.mapIndexed { idx, s ->
+            val effectiveWorkUnits = (s.reps + s.holdSeconds / 3).coerceAtLeast(1)
+            // Faster tempo / higher rep output maps to faster equivalent split pace
+            val eqPaceSec = (480f - effectiveWorkUnits * 9f).coerceIn(180f, 540f)
+            val eqSpeed = (3600f / eqPaceSec).coerceIn(6f, 20f)
+            StravaPaceChartView.SplitPoint(
+                splitLabel = "S${idx + 1}",
+                paceSecondsPerKm = eqPaceSec,
+                speedKmh = eqSpeed,
+                durationSeconds = (s.reps * 3 + s.holdSeconds).coerceAtLeast(15),
+                cadenceSpm = s.reps * 2
+            )
+        }
+        calisthenicsPaceChart.setSplits(
+            splitPoints,
+            subtitle = "SET TEMPO & WORKLOAD SPLIT CURVE (${currentExercise?.name ?: "Workout"})"
+        )
     }
 
     private fun renderSessionChips() {
