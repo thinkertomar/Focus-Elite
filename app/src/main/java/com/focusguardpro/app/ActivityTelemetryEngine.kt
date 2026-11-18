@@ -3,7 +3,11 @@ package com.focusguardpro.app
 import android.content.Context
 import com.focusguardpro.app.db.AppDatabase
 import com.focusguardpro.app.db.AuditRecord
+import kotlinx.coroutines.runBlocking
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.*
 import kotlin.math.abs
 import kotlin.math.max
@@ -17,6 +21,90 @@ import kotlin.math.roundToInt
 object ActivityTelemetryEngine {
 
     private const val HOURLY_STEPS_PREFS = "focus_hourly_step_windows_v1"
+
+    /**
+     * Resolves historical or current-day step count across ALL storage formats:
+     * 1. StepHistoryManager BASIC_ISO_DATE ("yyyyMMdd" — used by StepPrefs rollover & HealthConnectManager)
+     * 2. StepHistoryManager ISO ("yyyy-MM-dd")
+     * 3. Hourly step buckets ("yyyy-MM-dd_h0..23" and "yyyyMMdd_h0..23")
+     * 4. WalkSession audit records for that day
+     * 5. HealthConnectManager / Google Fit (when supported & permitted)
+     */
+    fun getHistoricalStepsForDay(context: Context, dayStartMs: Long): Int {
+        StepPrefs.rolloverCheck(context)
+        val todayCal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val isToday = (dayStartMs == todayCal.timeInMillis)
+        val date = Date(dayStartMs)
+        val basicIsoKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(date)
+        val hyphenKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date)
+
+        var bestSteps = if (isToday) {
+            StepPrefs.getDailySteps(context)
+        } else {
+            max(
+                StepHistoryManager.getStepsForDay(context, basicIsoKey) ?: 0,
+                StepHistoryManager.getStepsForDay(context, hyphenKey) ?: 0
+            )
+        }
+
+        // Check hourly step buckets under both key formats
+        val prefs = context.getSharedPreferences(HOURLY_STEPS_PREFS, Context.MODE_PRIVATE)
+        var hourlySum = 0
+        for (h in 0 until 24) {
+            hourlySum += max(
+                prefs.getInt("${hyphenKey}_h$h", 0),
+                prefs.getInt("${basicIsoKey}_h$h", 0)
+            )
+        }
+        if (hourlySum > bestSteps) {
+            bestSteps = hourlySum
+        }
+
+        // Check recorded WalkSessions for that day
+        val dayEndMs = dayStartMs + 86_400_000L
+        val sessionSteps = try {
+            DistanceHelper.getSessions(context, dayStartMs, dayEndMs).sumOf { it.steps }
+        } catch (_: Exception) {
+            0
+        }
+        if (sessionSteps > bestSteps) {
+            bestSteps = sessionSteps
+        }
+
+        // Query Google Fit / Health Connect for today or any past day (e.g. Nov 17) when permitted
+        if (HealthConnectManager.isSupported(context)) {
+            try {
+                runBlocking {
+                    if (HealthConnectManager.hasStepsPermission(context)) {
+                        val localDate: LocalDate = Instant.ofEpochMilli(dayStartMs)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate()
+                        val hcSteps = (HealthConnectManager.getStepsForDay(context, localDate) ?: 0L).toInt()
+                        if (hcSteps > bestSteps) {
+                            bestSteps = hcSteps
+                            if (isToday) {
+                                StepPrefs.setDailySteps(context, hcSteps)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Persist reconciled historical count under BASIC_ISO_DATE ("yyyyMMdd") so future lookups are instant
+        if (!isToday && bestSteps > 0) {
+            try {
+                StepHistoryManager.recordDayFinal(context, basicIsoKey, bestSteps)
+            } catch (_: Exception) {}
+        }
+
+        return bestSteps
+    }
 
     data class SyncedTimeWindow(
         val index: Int,
@@ -64,11 +152,13 @@ object ActivityTelemetryEngine {
         val now = System.currentTimeMillis()
         val cal = Calendar.getInstance().apply { timeInMillis = now }
         val dayKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+        val basicIsoKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(cal.time)
         val hour = cal.get(Calendar.HOUR_OF_DAY)
 
         val prefs = context.getSharedPreferences(HOURLY_STEPS_PREFS, Context.MODE_PRIVATE)
         val bucketKey = "${dayKey}_h$hour"
-        val prevSteps = prefs.getInt(bucketKey, 0)
+        val basicBucketKey = "${basicIsoKey}_h$hour"
+        val prevSteps = max(prefs.getInt(bucketKey, 0), prefs.getInt(basicBucketKey, 0))
         val updatedSteps = prevSteps + addedSteps
 
         val lastStepTs = prefs.getLong("last_step_ts", 0L)
@@ -82,10 +172,24 @@ object ActivityTelemetryEngine {
 
         prefs.edit()
             .putInt(bucketKey, updatedSteps)
+            .putInt(basicBucketKey, updatedSteps)
             .putLong("last_step_ts", now)
             .putLong("burst_start_ts", newBurstStart)
             .putInt("burst_steps", newBurstSteps)
             .apply()
+
+        // Automatically activate GpsWalkTracker during active movement if location permission is granted
+        try {
+            if (GpsWalkTracker.hasPermission(context) && !GpsWalkTracker.isTracking) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    try {
+                        if (GpsWalkTracker.hasPermission(context.applicationContext) && !GpsWalkTracker.isTracking) {
+                            GpsWalkTracker.start(context.applicationContext)
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
 
         // Once a continuous burst reaches >= 60 steps (~45m+), automatically persist/update WALK_SESSION
         if (newBurstSteps >= 60) {
@@ -134,13 +238,9 @@ object ActivityTelemetryEngine {
         }
         val isToday = (dayStartMs == todayCal.timeInMillis)
         val dayKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(dayStartMs))
+        val basicIsoKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(dayStartMs))
 
-        StepPrefs.rolloverCheck(context)
-        val rawTotalSteps = if (isToday) {
-            StepPrefs.getDailySteps(context)
-        } else {
-            StepHistoryManager.getStepsForDay(context, dayKey) ?: 0
-        }
+        val rawTotalSteps = getHistoricalStepsForDay(context, dayStartMs)
 
         val sessions = try {
             DistanceHelper.getSessions(context, dayStartMs, dayEndMs)
@@ -151,7 +251,10 @@ object ActivityTelemetryEngine {
         val prefs = context.getSharedPreferences(HOURLY_STEPS_PREFS, Context.MODE_PRIVATE)
         val hourlySteps = IntArray(24)
         for (h in 0 until 24) {
-            hourlySteps[h] = prefs.getInt("${dayKey}_h$h", 0)
+            hourlySteps[h] = max(
+                prefs.getInt("${dayKey}_h$h", 0),
+                prefs.getInt("${basicIsoKey}_h$h", 0)
+            )
         }
 
         // Also fold any recorded WalkSessions into their respective hour buckets
@@ -166,7 +269,7 @@ object ActivityTelemetryEngine {
         val recordedHourSum = hourlySteps.sum()
         if (rawTotalSteps > recordedHourSum) {
             val diff = rawTotalSteps - recordedHourSum
-            val currentHour = if (isToday) Calendar.getInstance().get(Calendar.HOUR_OF_DAY) else 8
+            val currentHour = if (isToday) Calendar.getInstance().get(Calendar.HOUR_OF_DAY) else 12
             hourlySteps[currentHour.coerceIn(0, 23)] += diff
         }
 
@@ -201,12 +304,33 @@ object ActivityTelemetryEngine {
         val activeWindows = hourlyWindows.filter { it.steps > 0 || it.distanceKm >= 0.01 }
             .sortedByDescending { it.distanceKm }
 
-        val totalKm = max(
+        var totalKm = max(
             hourlyWindows.sumOf { it.distanceKm },
             DistanceHelper.stepsToKm(totalSteps)
         )
-        val totalMoveMin = hourlyWindows.sumOf { it.moveMinutes }
-        val totalKcal = hourlyWindows.sumOf { it.caloriesKcal }
+        var totalKcal = hourlyWindows.sumOf { it.caloriesKcal }
+
+        // Reconcile with Google Fit / Health Connect distance & calories if available
+        if (HealthConnectManager.isSupported(context)) {
+            try {
+                runBlocking {
+                    val localDate: LocalDate = Instant.ofEpochMilli(dayStartMs)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate()
+                    val hcMeters = HealthConnectManager.getDistanceForDay(context, localDate) ?: 0.0
+                    val hcKm = hcMeters / 1000.0
+                    if (hcKm > totalKm) totalKm = hcKm
+
+                    val hcKcal = (HealthConnectManager.getCaloriesForDay(context, localDate) ?: 0.0).roundToInt()
+                    if (hcKcal > totalKcal) totalKcal = hcKcal
+                }
+            } catch (_: Exception) {}
+        }
+
+        val totalMoveMin = max(
+            hourlyWindows.sumOf { it.moveMinutes },
+            if (totalSteps > 0) (totalKm * 11.0).roundToInt().coerceAtLeast(1) else 0
+        )
 
         val movingSeconds = (totalMoveMin * 60).coerceAtLeast(if (totalSteps > 0) 60 else 0)
         val avgPaceSec = if (totalKm >= 0.05 && movingSeconds > 0) {
@@ -247,13 +371,16 @@ object ActivityTelemetryEngine {
     fun loadPeriodTelemetry(context: Context, endDayStartMs: Long, days: Int): DayUnifiedTelemetry {
         val dayFmt = SimpleDateFormat("EEE", Locale.getDefault())
         val dateFmt = SimpleDateFormat("MMM d", Locale.getDefault())
-        val keyFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val todayStart = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+
+        if (HealthConnectManager.isSupported(context)) {
+            try {
+                runBlocking {
+                    if (HealthConnectManager.hasStepsPermission(context)) {
+                        HealthConnectManager.syncPastDaysSteps(context, days.coerceAtLeast(7))
+                    }
+                }
+            } catch (_: Exception) {}
+        }
 
         val dailyWindows = mutableListOf<SyncedTimeWindow>()
         val allSessions = mutableListOf<DistanceHelper.WalkSession>()
@@ -261,12 +388,7 @@ object ActivityTelemetryEngine {
         for (i in (days - 1) downTo 0) {
             val dStart = endDayStartMs - i * 86_400_000L
             val dEnd = dStart + 86_400_000L
-            val dKey = keyFmt.format(Date(dStart))
-            val steps = if (dStart == todayStart) {
-                StepPrefs.getDailySteps(context)
-            } else {
-                StepHistoryManager.getStepsForDay(context, dKey) ?: 0
-            }
+            val steps = getHistoricalStepsForDay(context, dStart)
             val dSessions = try {
                 DistanceHelper.getSessions(context, dStart, dEnd)
             } catch (_: Exception) {

@@ -293,13 +293,32 @@ class WatchdogService : Service() {
 
         val now = System.currentTimeMillis()
         lastStepTickAt = now
+
+        try {
+            if (GpsWalkTracker.hasPermission(this) && !GpsWalkTracker.isTracking) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    try {
+                        if (GpsWalkTracker.hasPermission(applicationContext) && !GpsWalkTracker.isTracking) {
+                            GpsWalkTracker.start(applicationContext)
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+
         val dao = AppDatabase.getDatabase(this).systemDao()
         val last = dao.getMostRecentAuditRecord("WALK_SESSION")
+        val gpsMeters = try {
+            if (GpsWalkTracker.isTracking) GpsWalkTracker.currentAccumulatedMeters() else 0.0
+        } catch (_: Throwable) {
+            0.0
+        }
 
         if (last != null && now - last.timestamp <= WALK_SESSION_GAP_MS) {
             val (prevSteps, prevMeters) = DistanceHelper.parseSessionDetails(last.details)
             val updatedSteps = prevSteps + delta
-            val updatedMeters = (prevMeters ?: 0.0) + (delta * 0.76)
+            val stepMeters = (prevMeters ?: 0.0) + (delta * 0.76)
+            val updatedMeters = if (gpsMeters >= 15.0 && gpsMeters > stepMeters * 0.5) gpsMeters else stepMeters
             dao.updateAuditRecord(
                 last.copy(
                     details = DistanceHelper.buildSessionDetails(updatedSteps, updatedMeters),
@@ -307,7 +326,7 @@ class WatchdogService : Service() {
                 )
             )
         } else {
-            val meters = delta * 0.76
+            val meters = if (gpsMeters >= 15.0) gpsMeters else (delta * 0.76)
             dao.insertAuditRecord(
                 AuditRecord(
                     id = 0,

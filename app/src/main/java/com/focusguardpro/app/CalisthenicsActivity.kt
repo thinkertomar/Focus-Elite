@@ -98,6 +98,7 @@ class CalisthenicsActivity : AppCompatActivity() {
     private lateinit var llRestChips: LinearLayout
     private lateinit var rvWorkoutSets: RecyclerView
     private lateinit var btnAddSetRow: Button
+    private lateinit var btnRepeatSetRow: Button
     private lateinit var setAdapter: WorkoutSetAdapter
 
     // Rest timer
@@ -110,16 +111,11 @@ class CalisthenicsActivity : AppCompatActivity() {
     private var remainingRestSeconds = 0
     private var totalRestSeconds = 60
 
-    // Summary & Pace Telemetry
+    // Summary
     private lateinit var tvStatExercises: TextView
     private lateinit var tvStatSets: TextView
     private lateinit var tvStatReps: TextView
     private lateinit var tvStatTime: TextView
-    private lateinit var tvStatPaceRepsMin: TextView
-    private lateinit var tvStatAvgSetPace: TextView
-    private lateinit var tvStatCalories: TextView
-    private lateinit var calisthenicsPaceChart: StravaPaceChartView
-    private lateinit var btnOpenCardioPace: TextView
     private lateinit var btnFinishSession: Button
     private lateinit var btnDiscardSession: Button
 
@@ -247,6 +243,7 @@ class CalisthenicsActivity : AppCompatActivity() {
         llRestChips = findViewById(R.id.llRestChips)
         rvWorkoutSets = findViewById(R.id.rvWorkoutSets)
         btnAddSetRow = findViewById(R.id.btnAddSetRow)
+        btnRepeatSetRow = findViewById(R.id.btnRepeatSetRow)
 
         layoutRestTimer = findViewById(R.id.layoutRestTimer)
         tvRestTimerStatus = findViewById(R.id.tvRestTimerStatus)
@@ -258,11 +255,6 @@ class CalisthenicsActivity : AppCompatActivity() {
         tvStatSets = findViewById(R.id.tvStatSets)
         tvStatReps = findViewById(R.id.tvStatReps)
         tvStatTime = findViewById(R.id.tvStatTime)
-        tvStatPaceRepsMin = findViewById(R.id.tvStatPaceRepsMin)
-        tvStatAvgSetPace = findViewById(R.id.tvStatAvgSetPace)
-        tvStatCalories = findViewById(R.id.tvStatCalories)
-        calisthenicsPaceChart = findViewById(R.id.calisthenicsPaceChart)
-        btnOpenCardioPace = findViewById(R.id.btnOpenCardioPace)
         btnFinishSession = findViewById(R.id.btnFinishSession)
         btnDiscardSession = findViewById(R.id.btnDiscardSession)
 
@@ -294,10 +286,6 @@ class CalisthenicsActivity : AppCompatActivity() {
 
         btnChangeExercise.setOnClickListener { selectTab(1) }
 
-        btnOpenCardioPace.setOnClickListener {
-            startActivity(android.content.Intent(this, ActivityStatsActivity::class.java))
-        }
-
         tvFavoriteActive.setOnClickListener {
             val ex = currentExercise ?: return@setOnClickListener
             CalisthenicsPrefs.toggleFavorite(this, ex.id)
@@ -314,13 +302,23 @@ class CalisthenicsActivity : AppCompatActivity() {
             activeSets.add(
                 ActiveWorkoutSet(
                     setNumber = activeSets.size + 1,
-                    previousSummary = "—",
+                    previousSummary = last?.previousSummary ?: "—",
                     reps = last?.reps ?: 12,
-                    holdSeconds = last?.holdSeconds ?: 0
+                    holdSeconds = last?.holdSeconds ?: 0,
+                    prevReps = last?.prevReps ?: -1,
+                    prevHold = last?.prevHold ?: -1
                 )
             )
             setAdapter.notifyItemInserted(activeSets.size - 1)
             refreshSessionUi()
+        }
+
+        btnRepeatSetRow.setOnClickListener {
+            val sourceIdx = activeSets.indexOfLast { it.isCompleted }.takeIf { it >= 0 }
+                ?: activeSets.lastIndex
+            if (sourceIdx >= 0) {
+                repeatSetAt(sourceIdx, markCompleted = true)
+            }
         }
 
         btnRestPlus15.setOnClickListener {
@@ -517,29 +515,17 @@ class CalisthenicsActivity : AppCompatActivity() {
             onSetToggled = { set, isCompleted ->
                 if (isCompleted) {
                     if (sessionStartMs == 0L) sessionStartMs = System.currentTimeMillis()
-                    val ts = sessionStartMs
-                    val exName = currentExercise?.name ?: "Calisthenics"
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        try {
-                            AppDatabase.Companion.getDatabase(this@CalisthenicsActivity).exerciseDao().insertLog(
-                                ExerciseLog(
-                                    id = 0,
-                                    timestamp = ts,
-                                    exerciseType = exName,
-                                    reps = set.reps,
-                                    durationSeconds = set.holdSeconds,
-                                    notes = "Set ${set.setNumber}"
-                                )
-                            )
-                        } catch (_: Exception) {}
-                    }
                     window.decorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                    Toast.makeText(this@CalisthenicsActivity, "Set ${set.setNumber} saved! (${set.reps} reps · ${set.holdSeconds}s)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@CalisthenicsActivity,
+                        "Set ${set.setNumber} completed ✓ (${set.reps} reps · ${set.holdSeconds}s)",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     startRestTimer(totalRestSeconds)
                 }
                 refreshSessionUi()
             },
-            onSetRemoved = { position -> removeSetAt(position) },
+            onSetRemoved = { position -> removeSetAt(position, forceRemoveCompleted = true) },
             onValuesChanged = { refreshSessionStats() }
         )
         rvWorkoutSets.adapter = setAdapter
@@ -548,20 +534,86 @@ class CalisthenicsActivity : AppCompatActivity() {
             override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, t: RecyclerView.ViewHolder) = false
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                 val pos = viewHolder.bindingAdapterPosition
-                if (pos == RecyclerView.NO_POSITION) return
-                if (!removeSetAt(pos)) setAdapter.notifyItemChanged(pos)
+                if (pos == RecyclerView.NO_POSITION || pos !in activeSets.indices) return
+
+                if (direction == ItemTouchHelper.RIGHT) {
+                    // Swipe Right: Repeat / Duplicate this set without deleting the swiped row
+                    setAdapter.notifyItemChanged(pos)
+                    repeatSetAt(pos, markCompleted = activeSets[pos].isCompleted)
+                } else {
+                    // Swipe Left: Protect already-completed (✓) sets from accidentally vanishing!
+                    val target = activeSets[pos]
+                    if (target.isCompleted) {
+                        setAdapter.notifyItemChanged(pos)
+                        Snackbar.make(
+                            rvWorkoutSets,
+                            "Completed Set ${target.setNumber} kept · Swipe right to repeat or tap Remove",
+                            Snackbar.LENGTH_LONG
+                        ).setAction("Remove") {
+                            removeSetAt(pos, forceRemoveCompleted = true)
+                        }.show()
+                    } else {
+                        if (!removeSetAt(pos, forceRemoveCompleted = false)) {
+                            setAdapter.notifyItemChanged(pos)
+                        }
+                    }
+                }
             }
         }
         ItemTouchHelper(swipe).attachToRecyclerView(rvWorkoutSets)
     }
 
+    /**
+     * Duplicates the set at [position] (copying its exact reps & holdSeconds) so the user can
+     * smoothly repeat a set without losing their completed set count.
+     */
+    private fun repeatSetAt(position: Int, markCompleted: Boolean) {
+        if (position !in activeSets.indices) return
+        val source = activeSets[position]
+        if (markCompleted && sessionStartMs == 0L) {
+            sessionStartMs = System.currentTimeMillis()
+        }
+        val insertIndex = (position + 1).coerceAtMost(activeSets.size)
+        val repeated = ActiveWorkoutSet(
+            setNumber = insertIndex + 1,
+            previousSummary = source.previousSummary,
+            reps = source.reps,
+            holdSeconds = source.holdSeconds,
+            isCompleted = markCompleted,
+            prevReps = source.prevReps,
+            prevHold = source.prevHold
+        )
+        activeSets.add(insertIndex, repeated)
+        activeSets.forEachIndexed { idx, s -> s.setNumber = idx + 1 }
+        setAdapter.notifyDataSetChanged()
+        refreshSessionUi()
+        window.decorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        if (markCompleted) {
+            startRestTimer(totalRestSeconds)
+            Toast.makeText(
+                this,
+                "Repeated Set ${repeated.setNumber} ✓ (${repeated.reps} reps · ${repeated.holdSeconds}s)",
+                Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            Toast.makeText(
+                this,
+                "Duplicated Set ${repeated.setNumber} (${repeated.reps} reps · ${repeated.holdSeconds}s)",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     /** @return true if the set was removed */
-    private fun removeSetAt(position: Int): Boolean {
+    private fun removeSetAt(position: Int, forceRemoveCompleted: Boolean = false): Boolean {
         if (activeSets.size <= 1) {
             Toast.makeText(this, "A workout needs at least one set", Toast.LENGTH_SHORT).show()
             return false
         }
         if (position !in activeSets.indices) return false
+        if (activeSets[position].isCompleted && !forceRemoveCompleted) {
+            return false
+        }
         val removed = activeSets.removeAt(position)
         activeSets.forEachIndexed { idx, s -> s.setNumber = idx + 1 }
         setAdapter.notifyItemRemoved(position)
@@ -676,28 +728,10 @@ class CalisthenicsActivity : AppCompatActivity() {
         val doneExercises = session.values.count { it.sets.any { s -> s.isCompleted } }
         val sets = completedSetCount()
         val reps = session.values.sumOf { it.sets.filter { s -> s.isCompleted }.sumOf { s -> s.reps } }
-        val totalHoldSec = session.values.sumOf { it.sets.filter { s -> s.isCompleted }.sumOf { s -> s.holdSeconds } }
         tvStatExercises.text = doneExercises.toString()
         tvStatSets.text = sets.toString()
         tvStatReps.text = reps.toString()
         renderElapsed()
-
-        val elapsedSec = if (sessionStartMs > 0L) {
-            ((System.currentTimeMillis() - sessionStartMs) / 1000L).toInt().coerceAtLeast(1)
-        } else {
-            (sets * 45).coerceAtLeast(1)
-        }
-        val elapsedMin = elapsedSec / 60f
-        val repsPerMin = if (sets > 0 && elapsedMin > 0.05f) reps / elapsedMin else 0f
-        val avgSetSec = if (sets > 0) elapsedSec / sets else 0
-        // Calisthenics MET ~ 6.0 (approx 0.42 kcal per rep + 0.12 kcal per hold second + base active time)
-        val estKcal = if (sets > 0) {
-            (reps * 0.42f + totalHoldSec * 0.14f + sets * 2.5f).toInt().coerceAtLeast(1)
-        } else 0
-
-        tvStatPaceRepsMin.text = String.format(Locale.US, "%.1f /min", repsPerMin)
-        tvStatAvgSetPace.text = if (sets > 0) "${avgSetSec}s /set" else "0s /set"
-        tvStatCalories.text = "$estKcal kcal"
 
         // High-contrast Finish button styling (never dark text on dark button)
         btnFinishSession.setTextColor(Color.WHITE)
@@ -705,30 +739,6 @@ class CalisthenicsActivity : AppCompatActivity() {
             if (sets > 0) Color.parseColor("#10B981") else Color.parseColor("#334155")
         )
         btnFinishSession.text = if (sets > 0) "Finish & log workout ($sets ${if (sets == 1) "set" else "sets"})" else "Finish & log workout"
-
-        // Update Strava-style set tempo curve
-        val targetSets = if (activeSets.any { it.isCompleted }) {
-            activeSets.filter { it.isCompleted }
-        } else {
-            activeSets
-        }
-        val splitPoints = targetSets.mapIndexed { idx, s ->
-            val effectiveWorkUnits = (s.reps + s.holdSeconds / 3).coerceAtLeast(1)
-            // Faster tempo / higher rep output maps to faster equivalent split pace
-            val eqPaceSec = (480f - effectiveWorkUnits * 9f).coerceIn(180f, 540f)
-            val eqSpeed = (3600f / eqPaceSec).coerceIn(6f, 20f)
-            StravaPaceChartView.SplitPoint(
-                splitLabel = "S${idx + 1}",
-                paceSecondsPerKm = eqPaceSec,
-                speedKmh = eqSpeed,
-                durationSeconds = (s.reps * 3 + s.holdSeconds).coerceAtLeast(15),
-                cadenceSpm = s.reps * 2
-            )
-        }
-        calisthenicsPaceChart.setSplits(
-            splitPoints,
-            subtitle = "SET TEMPO & WORKLOAD SPLIT CURVE (${currentExercise?.name ?: "Workout"})"
-        )
     }
 
     private fun renderSessionChips() {

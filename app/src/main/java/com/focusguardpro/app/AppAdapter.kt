@@ -92,13 +92,17 @@ class AppAdapter(
 
         holder.icon.setImageDrawable(app.icon)
 
+        val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
         val usedMinutesToday = usedMinutesByPkg[app.packageName] ?: 0
         val totalBrowserMins = totalBrowserMinutesByPkg[app.packageName] ?: usedMinutesToday
-        val studyBrowserMins = (totalBrowserMins - usedMinutesToday).coerceAtLeast(0)
+        val studyBrowserMins = if (isBrowser) {
+            BlockPolicyEngine.getStudyBrowserMinutesForPackage(context, app.packageName).toInt()
+        } else {
+            0
+        }
         val launchesToday = launchCountByPkg[app.packageName] ?: 0
         val limitMins = limitMinsByPkg[app.packageName] ?: 0
         val hardBlocked = hardBlockedApps.contains(app.packageName)
-        val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
         val isStudy = studyApps.contains(app.packageName)
         val isImprove = improveApps.contains(app.packageName)
         val isIgnored = ignoredApps.contains(app.packageName)
@@ -122,7 +126,7 @@ class AppAdapter(
         val showBadgeDetails = UiThemePrefs.isShowBlueTickStatusEnabled(context)
         val blueTickColor = if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
         val opensSuffix = if (launchesToday > 0) " • $launchesToday opens" else ""
-        val browserStudySuffix = if (isBrowser && studyBrowserMins > 0) " · Study ${studyBrowserMins}m" else ""
+        val browserStudySuffix = if (isBrowser) " · Study ${studyBrowserMins}m" else ""
         val quotaBar = buildInlineQuotaBar(usedMinutesToday, effectiveLimit, isWhitelisted)
 
         if (showBlueTick && showBadgeDetails) {
@@ -290,9 +294,16 @@ class AppAdapter(
     private fun buildInlineQuotaBar(usedMins: Int, limitMins: Int, isWhitelisted: Boolean): String {
         if (isWhitelisted || limitMins <= 0) return ""
         val ratio = (usedMins.toFloat() / limitMins.toFloat()).coerceIn(0f, 1f)
-        val filled = (ratio * 5f).roundToInt().coerceIn(0, 5)
+        val rawFilled = (ratio * 5f).roundToInt()
+        val filled = when {
+            usedMins <= 0 -> 0
+            usedMins >= limitMins -> 5
+            rawFilled == 0 -> 1
+            else -> rawFilled.coerceIn(1, 5)
+        }
         val empty = 5 - filled
-        return "[" + "▰".repeat(filled) + "▱".repeat(empty) + "]"
+        val pct = (ratio * 100f).roundToInt().coerceIn(0, 100)
+        return "[" + "▰".repeat(filled) + "▱".repeat(empty) + " ${pct}%]"
     }
 
     override fun getItemCount(): Int = apps.size

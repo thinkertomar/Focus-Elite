@@ -202,6 +202,7 @@
                 android:background="@drawable/bg_fitness_surface"
                 android:clickable="true"
                 android:focusable="true"
+                android:minHeight="88dp"
                 android:orientation="vertical"
                 android:padding="12dp">
 
@@ -262,7 +263,7 @@
                     style="?android:progressBarStyleHorizontal"
                     android:layout_width="match_parent"
                     android:layout_height="4dp"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="10dp"
                     android:max="100"
                     android:progress="0"
                     android:progressBackgroundTint="#17212B"
@@ -273,12 +274,13 @@
             <LinearLayout
                 android:id="@id/btnDistanceDetail"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_fitness_surface"
                 android:clickable="true"
                 android:focusable="true"
+                android:minHeight="88dp"
                 android:orientation="vertical"
                 android:padding="12dp">
 
@@ -335,12 +337,14 @@
 
                 <TextView
                     android:id="@+id/tvDistanceSub"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="Hourly windows &amp; pace"
                     android:textColor="#8995A3"
-                    android:textSize="10sp" />
+                    android:textSize="10.5sp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -361,6 +365,7 @@
                 android:background="@drawable/bg_fitness_surface"
                 android:clickable="true"
                 android:focusable="true"
+                android:minHeight="88dp"
                 android:orientation="vertical"
                 android:padding="12dp">
 
@@ -421,7 +426,7 @@
                     style="?android:progressBarStyleHorizontal"
                     android:layout_width="match_parent"
                     android:layout_height="4dp"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="10dp"
                     android:max="100"
                     android:progress="0"
                     android:progressBackgroundTint="#17212B"
@@ -432,12 +437,13 @@
             <LinearLayout
                 android:id="@id/btnWeightDetail"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
                 android:layout_weight="1"
                 android:background="@drawable/bg_fitness_surface"
                 android:clickable="true"
                 android:focusable="true"
+                android:minHeight="88dp"
                 android:orientation="vertical"
                 android:padding="12dp">
 
@@ -477,12 +483,14 @@
                     android:textStyle="bold" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:text="Body mass history"
                     android:textColor="#8995A3"
-                    android:textSize="10sp" />
+                    android:textSize="10.5sp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -519,6 +527,21 @@
                     android:text="Walking &amp; Running Performance"
                     android:textColor="#F1F5F9"
                     android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvOutdoorGpsPill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/bg_fitness_pill"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="3dp"
+                    android:text="📍 GPS Off"
+                    android:textColor="#27C7C9"
+                    android:textSize="10.5sp"
                     android:textStyle="bold" />
 
                 <TextView

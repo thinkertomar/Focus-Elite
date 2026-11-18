@@ -233,9 +233,14 @@ class FocusForegroundMonitorService : Service() {
                     a11y.evaluateActiveBrowserFromMonitor(fgPkg)
                 } else {
                     val lastHost = BlockPolicyEngine.getLastActiveBrowserHost(this, fgPkg, nowMs)
-                    if (!lastHost.isNullOrBlank()) {
-                        BlockPolicyEngine.recordBrowserWebsiteSample(this, fgPkg, lastHost, nowMs)
-                        val urlDecision = BlockPolicyEngine.evaluateBrowserUrl(this, fgPkg, lastHost, nowMs)
+                    val hostToEval = when {
+                        !lastHost.isNullOrBlank() -> lastHost
+                        !BlockPolicyEngine.isBrowserMarkedAsStudyOrImprove(this, fgPkg) -> "non-study-browsing.local"
+                        else -> null
+                    }
+                    if (!hostToEval.isNullOrBlank()) {
+                        BlockPolicyEngine.recordBrowserWebsiteSample(this, fgPkg, hostToEval, nowMs)
+                        val urlDecision = BlockPolicyEngine.evaluateBrowserUrl(this, fgPkg, hostToEval, nowMs)
                         if (urlDecision is BlockDecision.Blocked) {
                             triggerEnforcement(urlDecision.target, urlDecision.reason.wireKey, nowMs, isWebsite = true, blockedPkgName = fgPkg)
                             return

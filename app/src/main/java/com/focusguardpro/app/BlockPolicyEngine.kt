@@ -478,12 +478,17 @@ object BlockPolicyEngine {
             return false
         }
 
-        // User-configured Fair / Study websites in Web Shield
+        // User-configured Fair / Study websites explicitly fed into Web Shield
         if (WebsitePrefs.isFair(context, host)) {
             return true
         }
 
-        // Educational & academic TLD suffixes
+        return false
+    }
+
+    private fun isBuiltInAcademicOrStudyDomain(rawHost: String?): Boolean {
+        val host = normalizeHost(rawHost)
+        if (host.isBlank()) return false
         if (host.endsWith(".edu") ||
             host.endsWith(".edu.in") ||
             host.endsWith(".ac.in") ||
@@ -494,34 +499,38 @@ object BlockPolicyEngine {
         ) {
             return true
         }
-
-        // Match built-in study domains or any subdomain of them
         for (studyDomain in STUDY_WEBSITE_DOMAINS) {
             if (host == studyDomain || host.endsWith(".$studyDomain")) {
                 return true
             }
         }
-
         return false
     }
 
     /**
      * Context-aware study website check for a specific [browserPackage]:
-     * - If the domain is in [isStudyWebsite], always true.
+     * - If the user did NOT select a Study/Improve category for [browserPackage], ONLY websites
+     *   explicitly fed into Web Shield ([WebsitePrefs.isFair]) are treated as Study websites.
      * - If the user explicitly selected [browserPackage] as a Study or Improvement app in Category Settings,
-     *   then any domain (college portal, coaching site, PDF, docs, article) is treated as Study UNLESS
-     *   it is explicitly blocked or is a known social/entertainment distraction domain!
+     *   then Web Shield Fair sites, built-in academic domains, and non-distraction domains are treated as Study.
      */
     fun isStudyWebsiteForBrowser(context: Context, browserPackage: String, rawHost: String?): Boolean {
-        if (isStudyWebsite(context, rawHost)) return true
         val host = normalizeHost(rawHost)
         if (host.isBlank()) return false
         if (WebsitePrefs.isBlocked(context, host)) return false
         if (host == "non-study-browsing.local") return false
-        if (isBrowserMarkedAsStudyOrImprove(context, browserPackage) && !isKnownDistractionDomain(context, host)) {
-            return true
+
+        // 1. Explicitly fed into Web Shield ("Fair / Study Websites") -> always Study 24/7
+        if (WebsitePrefs.isFair(context, host)) return true
+
+        // 2. If browser has NO category selected (neither Study nor Improve), unlisted websites are Non-Study
+        if (!isBrowserMarkedAsStudyOrImprove(context, browserPackage)) {
+            return false
         }
-        return false
+
+        // 3. Browser IS categorized as Study or Improve: allow academic/study domains and non-distraction domains
+        if (isBuiltInAcademicOrStudyDomain(host)) return true
+        return !isKnownDistractionDomain(context, host)
     }
 
     fun isNeutralNavigationWebsite(context: Context, rawHost: String?): Boolean {
@@ -557,8 +566,9 @@ object BlockPolicyEngine {
 
     /**
      * Records active foreground time on a browser URL.
-     * - Study websites and neutral search pages NEVER increment non-study time; they increment verified study time.
-     * - Non-study websites increment per-browser and global non-study millisecond counters.
+     * - Verified Study websites increment verified study time (`study_ms_*`).
+     * - Neutral search pages allow quick navigation without crediting `study_ms_*`.
+     * - Non-study websites increment per-browser and global non-study millisecond counters (`non_study_ms_*`).
      */
     fun recordBrowserWebsiteSample(
         context: Context,
@@ -586,14 +596,19 @@ object BlockPolicyEngine {
             1_000L
         }
 
+        val prevHost = prefs.getString("active_host_$browserPackage", null)
+        val prevHostSince = prefs.getLong("active_host_since_$browserPackage", nowMs)
+        val hostSince = if (prevHost == host && prevHostSince > 0L) prevHostSince else nowMs
+
         val editor = prefs.edit()
             .putString("active_host_$browserPackage", host)
             .putLong("active_host_ts_$browserPackage", nowMs)
-            .putBoolean("active_is_study_$browserPackage", isStudy || isNeutral)
+            .putLong("active_host_since_$browserPackage", hostSince)
+            .putBoolean("active_is_study_$browserPackage", isStudy)
             .putLong("last_browser_tick_ms_$browserPackage", nowMs)
 
-        if (isStudy || isNeutral) {
-            // Study website or neutral navigation: credit to study/exempt browser time
+        if (isStudy) {
+            // Verified Study website: credit to study browser time
             val prevStudyPkgMs = prefs.getLong("study_ms_${browserPackage}_$dayKey", 0L)
             val prevStudyAllMs = prefs.getLong("study_ms_all_$dayKey", 0L)
             editor
@@ -604,6 +619,23 @@ object BlockPolicyEngine {
             try {
                 BrowserFairTimeTracker.sample(context, host)
             } catch (_: Throwable) {}
+            return
+        }
+
+        if (isNeutral) {
+            // Neutral navigation page (e.g., google.com search or newtab):
+            // Never credit to Study time! If user lingers > 15s on a search page in an uncategorized browser,
+            // count additional time toward non-study browsing so it cannot be used as an infinite loophole.
+            val lingeredMs = nowMs - hostSince
+            if (!isBrowserMarkedAsStudyOrImprove(context, browserPackage) && lingeredMs > 15_000L) {
+                val prevNonStudyPkgMs = prefs.getLong("non_study_ms_${browserPackage}_$dayKey", 0L)
+                val prevNonStudyAllMs = prefs.getLong("non_study_ms_$dayKey", 0L)
+                editor
+                    .putLong("last_non_study_tick_ms", nowMs)
+                    .putLong("non_study_ms_${browserPackage}_$dayKey", prevNonStudyPkgMs + deltaMs)
+                    .putLong("non_study_ms_$dayKey", prevNonStudyAllMs + deltaMs)
+            }
+            editor.apply()
             return
         }
 
@@ -632,9 +664,16 @@ object BlockPolicyEngine {
     fun getLastActiveBrowserHost(context: Context, browserPackage: String, nowMs: Long = System.currentTimeMillis()): String? {
         val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
         val ts = prefs.getLong("active_host_ts_$browserPackage", 0L)
-        // Valid for up to 2 hours while staying inside the browser (e.g. long lecture or reading with hidden toolbar)
+        val host = prefs.getString("active_host_$browserPackage", null) ?: return null
+        // Neutral search hosts expire quickly (12s) so a collapsed URL bar after clicking a search result
+        // never masquerades as remaining on google.com
+        if (isNeutralNavigationWebsite(context, host)) {
+            if (nowMs - ts > 12_000L) return null
+            return host
+        }
+        // Verified hosts remain valid while staying inside the browser (e.g. reading with hidden toolbar)
         if (nowMs - ts > 7_200_000L) return null
-        return prefs.getString("active_host_$browserPackage", null)
+        return host
     }
 
     fun isLastActiveBrowserHostStudy(context: Context, browserPackage: String, nowMs: Long = System.currentTimeMillis()): Boolean {
@@ -644,13 +683,48 @@ object BlockPolicyEngine {
             return !isKnownDistractionDomain(context, host)
         }
         val host = getLastActiveBrowserHost(context, browserPackage, nowMs) ?: return false
-        return isStudyWebsiteForBrowser(context, browserPackage, host) || isNeutralNavigationWebsite(context, host)
+        return isStudyWebsiteForBrowser(context, browserPackage, host)
+    }
+
+    /**
+     * Returns verified Study Browser usage minutes today for [browserPackage].
+     * - For an uncategorized browser, ONLY counts time spent on websites explicitly fed into Web Shield (`study_ms_*`).
+     * - For a browser explicitly categorized as Study/Improve, counts total browser time minus confirmed non-study time.
+     */
+    fun getStudyBrowserMinutesForPackage(
+        context: Context,
+        browserPackage: String,
+        nowMs: Long = System.currentTimeMillis()
+    ): Long {
+        val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
+        val dayKey = todayDateKey(nowMs)
+        val isToday = prefs.getString("day_key", null) == dayKey
+        val verifiedPkgStudyMs = if (isToday) {
+            prefs.getLong("study_ms_${browserPackage}_$dayKey", 0L)
+        } else {
+            0L
+        }
+        if (isBrowserMarkedAsStudyOrImprove(context, browserPackage)) {
+            val totalBrowserMs = try {
+                UsageStatsHelper.getTodayScreenTimeForPackage(context, browserPackage)
+            } catch (_: Throwable) {
+                0L
+            }
+            val sampledNonStudyMs = if (isToday) {
+                prefs.getLong("non_study_ms_${browserPackage}_$dayKey", 0L)
+            } else {
+                0L
+            }
+            return maxOf(verifiedPkgStudyMs, (totalBrowserMs - sampledNonStudyMs).coerceAtLeast(0L)) / 60_000L
+        }
+        return verifiedPkgStudyMs / 60_000L
     }
 
     /**
      * Computes today's Non-Study Browser usage minutes for a specific [browserPackage].
-     * Uses verified non-study website samples so fullscreen lectures, PDFs, or Study-designated
-     * browsers with hidden address bars are never falsely penalized as non-study browsing.
+     * - If the browser is marked as Study/Improve, only counts confirmed non-study samples.
+     * - If the browser has NO category selected, reconciles with OS UsageStats (`totalBrowserMs - verifiedStudyMs`)
+     *   so any website not fed into Web Shield counts as Non-Study time, fills the progress bar, and blocks at 30m.
      */
     fun getNonStudyBrowserMinutesForPackage(
         context: Context,
@@ -678,22 +752,16 @@ object BlockPolicyEngine {
             0L
         }
 
-        // Only reconcile with OS UsageStats if the user was actively confirmed on a non-study host
-        val lastHost = getLastActiveBrowserHost(context, browserPackage, nowMs)
-        val confirmedOnNonStudy = !lastHost.isNullOrBlank() &&
-            !isStudyWebsiteForBrowser(context, browserPackage, lastHost) &&
-            !isNeutralNavigationWebsite(context, lastHost)
-
-        val reconciledMs = if (confirmedOnNonStudy) {
-            val usageAccessBrowserMs = try {
-                UsageStatsHelper.getTodayScreenTimeForPackage(context, browserPackage)
-            } catch (_: Throwable) {
-                0L
-            }
-            maxOf(sampledPkgNonStudyMs, (usageAccessBrowserMs - verifiedPkgStudyMs).coerceAtLeast(0L))
-        } else {
-            sampledPkgNonStudyMs
+        // Uncategorized browser: reconcile with OS UsageStats so all non-Web-Shield browsing counts toward Non-Study
+        val usageAccessBrowserMs = try {
+            UsageStatsHelper.getTodayScreenTimeForPackage(context, browserPackage)
+        } catch (_: Throwable) {
+            0L
         }
+        val reconciledMs = maxOf(
+            sampledPkgNonStudyMs,
+            (usageAccessBrowserMs - verifiedPkgStudyMs).coerceAtLeast(0L)
+        )
 
         return reconciledMs / 60_000L
     }
@@ -712,6 +780,7 @@ object BlockPolicyEngine {
         } catch (_: Throwable) {
             0L
         }
+        var sumUncategorizedBrowserMinutes = 0L
         var maxBrowserPkgMinutes = 0L
         for (pkg in EXTRA_BROWSER_PACKAGES) {
             val pkgMins = try {
@@ -722,8 +791,11 @@ object BlockPolicyEngine {
             if (pkgMins > maxBrowserPkgMinutes) {
                 maxBrowserPkgMinutes = pkgMins
             }
+            if (pkgMins > 0L) {
+                sumUncategorizedBrowserMinutes += pkgMins
+            }
         }
-        return maxOf(localMinutes, roomMinutes, maxBrowserPkgMinutes)
+        return maxOf(localMinutes, roomMinutes, maxBrowserPkgMinutes, sumUncategorizedBrowserMinutes)
     }
 
     /**

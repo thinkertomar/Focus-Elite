@@ -752,9 +752,14 @@ object UsageStatsHelper {
                     "STUDY" -> studyMs += ms
                     "IMPROVE" -> improveMs += ms
                     "BROWSER" -> {
-                        val nonStudyMs = (nonStudyBrowserMinutesToday * 60_000L).coerceAtMost(ms)
-                        val browserStudyMs = (ms - nonStudyMs).coerceAtLeast(0L)
-                        studyMs += browserStudyMs
+                        val verifiedStudyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(context, pkg)
+                        val pkgNonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(context, pkg)
+                        val browserStudyMs = (verifiedStudyMins * 60_000L).coerceIn(0L, ms)
+                        val nonStudyMs = maxOf(
+                            (pkgNonStudyMins * 60_000L).coerceAtMost(ms),
+                            (ms - browserStudyMs).coerceAtLeast(0L)
+                        )
+                        studyMs += (ms - nonStudyMs).coerceAtLeast(0L)
                         distractMs += nonStudyMs
                     }
                     "IGNORED", "UTILITY" -> utilityMs += ms

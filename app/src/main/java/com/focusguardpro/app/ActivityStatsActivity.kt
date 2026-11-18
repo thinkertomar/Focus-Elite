@@ -147,6 +147,17 @@ class ActivityStatsActivity : AppCompatActivity() {
         }
     }
 
+    private val requestLocationPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        refreshLocationPermissionButtons()
+        if (GpsWalkTracker.hasPermission(this) && !GpsWalkTracker.isTracking) {
+            try {
+                GpsWalkTracker.start(applicationContext)
+            } catch (_: Throwable) {}
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_activity_stats)
@@ -301,10 +312,13 @@ class ActivityStatsActivity : AppCompatActivity() {
             promptPhysicalActivitySensorPermission()
         }
 
+        findViewById<View>(R.id.tvOutdoorGpsPill)?.setOnClickListener {
+            promptOutdoorGpsPermission()
+        }
+
         findViewById<Button>(R.id.grantLocationForegroundButton)?.setOnClickListener {
-            requestPermissions(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                101
+            requestLocationPermissions.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )
         }
 
@@ -454,16 +468,82 @@ class ActivityStatsActivity : AppCompatActivity() {
         }
     }
 
-    private fun refreshLocationPermissionButtons() {
+    private fun promptOutdoorGpsPermission() {
         val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasBg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
         } else true
 
-        findViewById<View>(R.id.tvGpsExplainer)?.visibility = if (hasFine && hasBg) View.GONE else View.VISIBLE
-        findViewById<View>(R.id.grantLocationForegroundButton)?.visibility = if (hasFine) View.GONE else View.VISIBLE
-        findViewById<View>(R.id.grantLocationBackgroundButton)?.visibility = if (hasFine && !hasBg) View.VISIBLE else View.GONE
-        findViewById<View>(R.id.tvOpenLocationSettings)?.visibility = if (hasFine && hasBg) View.GONE else View.VISIBLE
+        if (!hasFine && !hasCoarse) {
+            requestLocationPermissions.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        } else if (!hasBg && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            AlertDialog.Builder(this)
+                .setTitle("Outdoor Walk GPS Active")
+                .setMessage("Foreground GPS is enabled for outdoor walks. For pocket/screen-off outdoor walk tracking, allow 'All the time' Background Location.")
+                .setPositiveButton("Allow Background GPS") { _, _ ->
+                    requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), 102)
+                }
+                .setNegativeButton("Keep Foreground Only", null)
+                .show()
+        } else {
+            if (!GpsWalkTracker.isTracking) {
+                try {
+                    GpsWalkTracker.start(applicationContext)
+                } catch (_: Throwable) {}
+            }
+            Toast.makeText(
+                this,
+                "📍 Outdoor GPS Ready — Automatically verifies satellite distance when you walk outside.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        refreshLocationPermissionButtons()
+        if (GpsWalkTracker.hasPermission(this) && !GpsWalkTracker.isTracking) {
+            try {
+                GpsWalkTracker.start(applicationContext)
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun refreshLocationPermissionButtons() {
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasFg = hasFine || hasCoarse
+        val hasBg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        } else true
+
+        val gpsPill = findViewById<TextView>(R.id.tvOutdoorGpsPill)
+        when {
+            hasFg && hasBg -> {
+                gpsPill?.text = if (GpsWalkTracker.isTracking) "📍 GPS Live" else "📍 GPS Ready"
+                gpsPill?.setTextColor(Color.parseColor("#16D99A"))
+            }
+            hasFg -> {
+                gpsPill?.text = "📍 GPS On"
+                gpsPill?.setTextColor(Color.parseColor("#16D99A"))
+            }
+            else -> {
+                gpsPill?.text = "📍 Enable GPS"
+                gpsPill?.setTextColor(Color.parseColor("#27C7C9"))
+            }
+        }
+
+        findViewById<View>(R.id.tvGpsExplainer)?.visibility = if (hasFg && hasBg) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.grantLocationForegroundButton)?.visibility = if (hasFg) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.grantLocationBackgroundButton)?.visibility = if (hasFg && !hasBg) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.tvOpenLocationSettings)?.visibility = if (hasFg && hasBg) View.GONE else View.VISIBLE
     }
 
     private fun refreshHealthConnectUi() {
@@ -777,22 +857,24 @@ class ActivityStatsActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val today = LocalDate.now()
-            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
             val daySteps = withContext(Dispatchers.IO) {
-                StepPrefs.rolloverCheck(this@ActivityStatsActivity)
-                val todayCount = StepPrefs.getDailySteps(this@ActivityStatsActivity)
+                val ctx = this@ActivityStatsActivity
+                StepPrefs.rolloverCheck(ctx)
+                if (HealthConnectManager.isSupported(ctx)) {
+                    try {
+                        if (HealthConnectManager.hasStepsPermission(ctx)) {
+                            HealthConnectManager.syncPastDaysSteps(ctx, 7)
+                        }
+                    } catch (_: Exception) {}
+                }
                 (6 downTo 0).map { offset ->
                     val d = today.minusDays(offset.toLong())
                     val cal = Calendar.getInstance().apply {
                         set(d.year, d.monthValue - 1, d.dayOfMonth, 0, 0, 0)
+                        set(Calendar.MILLISECOND, 0)
                     }
-                    val key = fmt.format(cal.time)
-                    val count = if (offset == 0) {
-                        todayCount
-                    } else {
-                        StepHistoryManager.getStepsForDay(this@ActivityStatsActivity, key) ?: 0
-                    }
+                    val count = ActivityTelemetryEngine.getHistoricalStepsForDay(ctx, cal.timeInMillis)
                     d to count
                 }
             }

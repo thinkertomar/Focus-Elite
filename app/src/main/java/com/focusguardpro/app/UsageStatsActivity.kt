@@ -21,7 +21,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.graphics.Canvas
+import android.graphics.DashPathEffect
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PointF
+import android.graphics.RectF
+import android.graphics.Shader
+import android.view.MotionEvent
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 class UsageStatsActivity : AppCompatActivity() {
@@ -52,8 +63,9 @@ class UsageStatsActivity : AppCompatActivity() {
     private var segDistractBar: View? = null
     private var segUtilityBar: View? = null
     private var hourlyHeaderTv: TextView? = null
+    private var hourlySubtitleTv: TextView? = null
     private var byAppHeaderTv: TextView? = null
-    private var hourlyChartView: SimpleBarChartView? = null
+    private var hourlyChartView: HourlyScreenTimeCurveView? = null
 
     private var weeklyRanges: List<UsageStatsHelper.WeeklyDayRange> = emptyList()
     private var selectedDayIndex: Int = 6 // Default to Today (index 6 in 7-day list)
@@ -334,7 +346,7 @@ class UsageStatsActivity : AppCompatActivity() {
         rootContainer.addView(hero, catIndex)
         wellbeingHeroCard = hero
 
-        // 2. 24-Hour Hourly Activity Breakdown Section (inserted right above "Today by App")
+        // 2. 24-Hour Hourly Activity Curve Section (inserted right above "Today by App")
         val hourlyHeader = TextView(this).apply {
             text = "Hourly Activity Timeline (Today)"
             textSize = 15f
@@ -351,7 +363,7 @@ class UsageStatsActivity : AppCompatActivity() {
 
         val hourlyCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+            setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
             background = UiThemePrefs.createCardBackground(this@UsageStatsActivity, cornerDp = 16f, isHero = false)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -360,11 +372,38 @@ class UsageStatsActivity : AppCompatActivity() {
                 bottomMargin = dp(18f)
             }
         }
-        val hChart = SimpleBarChartView(this).apply {
+
+        val hSub = TextView(this).apply {
+            text = "Drag across the curve to inspect 3-hour screen time windows"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#8995A3"))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(145f)
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(6f)
+            }
+        }
+        hourlySubtitleTv = hSub
+        hourlyCard.addView(hSub)
+
+        val hChart = HourlyScreenTimeCurveView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(176f)
             )
+            onWindowSelected = { pt ->
+                val hrs = pt.minutes / 60
+                val mins = pt.minutes % 60
+                val durStr = if (hrs > 0) "${hrs}h ${mins}m (${pt.minutes}m)" else "${pt.minutes}m"
+                val intensity = when {
+                    pt.minutes >= 90 -> "High screen load"
+                    pt.minutes >= 45 -> "Moderate usage"
+                    pt.minutes > 0 -> "Light usage"
+                    else -> "Zero screen time"
+                }
+                hourlySubtitleTv?.text = "${pt.rangeLabel}: $durStr • $intensity"
+            }
         }
         hourlyChartView = hChart
         hourlyCard.addView(hChart)
@@ -472,7 +511,13 @@ class UsageStatsActivity : AppCompatActivity() {
             val catTag = when (stat.category) {
                 "STUDY" -> "STUDY"
                 "IMPROVE" -> "IMPROVE"
-                "BROWSER" -> "WEB 24/7"
+                "BROWSER" -> {
+                    val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
+                    val cap = if (customLimit > 0) customLimit else defaultCap
+                    val nonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, stat.packageName)
+                    val studyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(this, stat.packageName)
+                    "WEB • Non-Study ${nonStudyMins}m/${cap}m · Study ${studyMins}m"
+                }
                 "IGNORED" -> {
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit in 1..29) customLimit else 30
@@ -724,28 +769,301 @@ class UsageStatsActivity : AppCompatActivity() {
 
     private fun bindHourlyTimeline(snapshot: UsageStatsHelper.WellbeingSnapshot) {
         val chart = hourlyChartView ?: return
-        val palette = UiThemePrefs.getSelectedPalette(this)
-        val entries = ArrayList<SimpleBarChartView.BarEntry>()
         val blockLabels = arrayOf("12A", "3A", "6A", "9A", "12P", "3P", "6P", "9P")
+        val rangeLabels = arrayOf(
+            "12–3 AM",
+            "3–6 AM",
+            "6–9 AM",
+            "9 AM–12 PM",
+            "12–3 PM",
+            "3–6 PM",
+            "6–9 PM",
+            "9 PM–12 AM"
+        )
+        val pts = ArrayList<HourlyScreenTimeCurveView.WindowPoint>(8)
         for (block in 0 until 8) {
             val hStart = block * 3
             val blockMins = snapshot.hourlyMinutes[hStart] +
                 snapshot.hourlyMinutes[hStart + 1] +
                 snapshot.hourlyMinutes[hStart + 2]
-            val barColor = when {
-                blockMins >= 90 -> Color.parseColor("#F43F5E")
-                blockMins >= 45 -> Color.parseColor("#F59E0B")
-                else -> palette.accentColor
-            }
-            entries.add(
-                SimpleBarChartView.BarEntry(
-                    blockLabels[block],
-                    blockMins.toFloat(),
-                    if (blockMins > 0) "${blockMins}m" else "",
-                    barColor
+            pts.add(
+                HourlyScreenTimeCurveView.WindowPoint(
+                    shortLabel = blockLabels[block],
+                    rangeLabel = rangeLabels[block],
+                    minutes = blockMins
                 )
             )
         }
-        chart.entries = entries
+        chart.setWindows(pts)
+        val peak = pts.maxByOrNull { it.minutes }
+        if (peak != null && peak.minutes > 0) {
+            val hrs = peak.minutes / 60
+            val mins = peak.minutes % 60
+            val durStr = if (hrs > 0) "${hrs}h ${mins}m (${peak.minutes}m)" else "${peak.minutes}m"
+            hourlySubtitleTv?.text = "Peak window ${peak.rangeLabel}: $durStr • Drag curve to inspect"
+        } else {
+            hourlySubtitleTv?.text = "No screen activity recorded in this day's windows yet"
+        }
+    }
+
+    /**
+     * Smooth Cubic-Bezier Curve + Synchronized Window Distribution Strip for Hourly Activity Timeline.
+     */
+    private class HourlyScreenTimeCurveView(context: android.content.Context) : View(context) {
+
+        data class WindowPoint(
+            val shortLabel: String,
+            val rangeLabel: String,
+            val minutes: Int
+        )
+
+        private var windows: List<WindowPoint> = emptyList()
+        private var selectedIndex: Int = -1
+        var onWindowSelected: ((WindowPoint) -> Unit)? = null
+
+        private val density = resources.displayMetrics.density
+        private val scaledDensity = resources.displayMetrics.scaledDensity
+
+        private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f * density
+        }
+        private val guidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.2f * density
+            pathEffect = DashPathEffect(floatArrayOf(4f * density, 4f * density), 0f)
+        }
+        private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 6.5f * density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val curvePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3f * density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        private val stripPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        private val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 10.5f * scaledDensity
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        private val calloutTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 11f * scaledDensity
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        private val calloutBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        private val calloutStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.2f * density
+        }
+
+        private val curvePath = Path()
+        private val fillPath = Path()
+        private val rect = RectF()
+
+        fun setWindows(list: List<WindowPoint>) {
+            windows = list
+            val peakIdx = list.indices.maxByOrNull { list[it].minutes } ?: -1
+            selectedIndex = if (peakIdx >= 0 && list[peakIdx].minutes > 0) peakIdx else list.lastIndex
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f || windows.isEmpty()) return
+
+            val isLight = UiThemePrefs.isWhiteBackgroundActive(context)
+            val accentColor = Color.parseColor("#27C7C9") // Teal performance curve
+            val emeraldColor = Color.parseColor("#16D99A")
+            val warnColor = Color.parseColor("#F59E0B")
+            val highColor = Color.parseColor("#F43F5E")
+            val textPrimary = if (isLight) Color.parseColor("#0F172A") else Color.parseColor("#F1F5F9")
+            val textSecondary = if (isLight) Color.parseColor("#64748B") else Color.parseColor("#8995A3")
+            gridPaint.color = if (isLight) Color.parseColor("#E2E8F0") else Color.parseColor("#1E293B")
+
+            val padL = 18f * density
+            val padR = 18f * density
+            val padTop = 36f * density
+            val stripH = 22f * density
+            val labelH = 20f * density
+            val curveBottom = h - stripH - labelH
+            val curveH = (curveBottom - padTop).coerceAtLeast(36f * density)
+            val chartW = (w - padL - padR).coerceAtLeast(1f)
+
+            for (i in 0..2) {
+                val gy = padTop + (curveH * i / 2f)
+                canvas.drawLine(padL, gy, w - padR, gy, gridPaint)
+            }
+
+            val maxMins = (windows.maxOfOrNull { it.minutes } ?: 1).coerceAtLeast(15).toFloat()
+            val count = windows.size
+            val stepX = if (count > 1) chartW / (count - 1).toFloat() else 0f
+
+            val coords = windows.mapIndexed { idx, pt ->
+                val x = padL + idx * stepX
+                val ratio = (pt.minutes.toFloat() / (maxMins * 1.12f)).coerceIn(0f, 1f)
+                val y = curveBottom - ratio * curveH
+                PointF(x, y)
+            }
+
+            curvePath.reset()
+            fillPath.reset()
+            curvePath.moveTo(coords[0].x, coords[0].y)
+            fillPath.moveTo(coords[0].x, curveBottom)
+            fillPath.lineTo(coords[0].x, coords[0].y)
+
+            for (i in 0 until coords.size - 1) {
+                val p0 = coords[i]
+                val p1 = coords[i + 1]
+                val cx1 = p0.x + (p1.x - p0.x) * 0.45f
+                val cx2 = p0.x + (p1.x - p0.x) * 0.55f
+                curvePath.cubicTo(cx1, p0.y, cx2, p1.y, p1.x, p1.y)
+                fillPath.cubicTo(cx1, p0.y, cx2, p1.y, p1.x, p1.y)
+            }
+            fillPath.lineTo(coords.last().x, curveBottom)
+            fillPath.close()
+
+            fillPaint.shader = LinearGradient(
+                0f, padTop, 0f, curveBottom,
+                intArrayOf(
+                    Color.argb(115, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
+                    Color.argb(35, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)),
+                    Color.argb(0, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+                ),
+                floatArrayOf(0f, 0.65f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawPath(fillPath, fillPaint)
+
+            glowPaint.color = Color.argb(50, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+            canvas.drawPath(curvePath, glowPaint)
+
+            curvePaint.color = accentColor
+            canvas.drawPath(curvePath, curvePaint)
+
+            // Bottom synchronized mini intensity capsules + X-axis labels
+            val labelY = curveBottom + 14f * density
+            val stripTop = curveBottom + labelH + 3f * density
+            val stripBottom = h - 3f * density
+            val maxBarH = (stripBottom - stripTop).coerceAtLeast(8f * density)
+            val barW = 14f * density
+
+            coords.forEachIndexed { idx, pt ->
+                val mins = windows[idx].minutes
+                val isSel = idx == selectedIndex
+                val ptColor = when {
+                    mins >= 90 -> highColor
+                    mins >= 45 -> warnColor
+                    mins > 0 -> emeraldColor
+                    else -> accentColor
+                }
+
+                axisPaint.color = if (isSel) accentColor else textSecondary
+                canvas.drawText(windows[idx].shortLabel, pt.x, labelY, axisPaint)
+
+                val barRatio = if (mins > 0) (mins.toFloat() / maxMins).coerceIn(0.22f, 1f) else 0.14f
+                val bh = barRatio * maxBarH
+                stripPaint.color = when {
+                    isSel -> ptColor
+                    mins > 0 -> Color.argb(150, Color.red(ptColor), Color.green(ptColor), Color.blue(ptColor))
+                    isLight -> Color.parseColor("#E2E8F0")
+                    else -> Color.parseColor("#17212B")
+                }
+                rect.set(pt.x - barW / 2f, stripBottom - bh, pt.x + barW / 2f, stripBottom)
+                canvas.drawRoundRect(rect, 4f * density, 4f * density, stripPaint)
+
+                if (isSel) {
+                    guidePaint.color = Color.argb(130, Color.red(ptColor), Color.green(ptColor), Color.blue(ptColor))
+                    canvas.drawLine(pt.x, padTop * 0.8f, pt.x, curveBottom, guidePaint)
+
+                    dotPaint.color = Color.argb(75, Color.red(ptColor), Color.green(ptColor), Color.blue(ptColor))
+                    canvas.drawCircle(pt.x, pt.y, 7.5f * density, dotPaint)
+                    dotPaint.color = ptColor
+                    canvas.drawCircle(pt.x, pt.y, 4.2f * density, dotPaint)
+                    dotPaint.color = if (isLight) Color.WHITE else Color.parseColor("#080D12")
+                    canvas.drawCircle(pt.x, pt.y, 1.8f * density, dotPaint)
+                } else if (mins > 0) {
+                    dotPaint.color = ptColor
+                    canvas.drawCircle(pt.x, pt.y, 2.8f * density, dotPaint)
+                }
+            }
+
+            // Floating callout pill for selected window
+            val selIdx = selectedIndex.coerceIn(0, windows.lastIndex)
+            val selWin = windows[selIdx]
+            val selPt = coords[selIdx]
+            val durLabel = if (selWin.minutes >= 60) {
+                "${selWin.minutes / 60}h ${selWin.minutes % 60}m (${selWin.minutes}m)"
+            } else {
+                "${selWin.minutes}m"
+            }
+            val pillText = "${selWin.rangeLabel} • $durLabel"
+            val textW = calloutTextPaint.measureText(pillText)
+            val pillW = textW + 20f * density
+            val pillH = 22f * density
+            val pillLeft = (selPt.x - pillW / 2f).coerceIn(padL / 2f, w - padR / 2f - pillW)
+            val pillTop = 4f * density
+            rect.set(pillLeft, pillTop, pillLeft + pillW, pillTop + pillH)
+
+            val selColor = when {
+                selWin.minutes >= 90 -> highColor
+                selWin.minutes >= 45 -> warnColor
+                selWin.minutes > 0 -> emeraldColor
+                else -> accentColor
+            }
+            calloutBgPaint.color = if (isLight) Color.parseColor("#F1F5F9") else Color.parseColor("#111923")
+            calloutStrokePaint.color = selColor
+            canvas.drawRoundRect(rect, pillH / 2f, pillH / 2f, calloutBgPaint)
+            canvas.drawRoundRect(rect, pillH / 2f, pillH / 2f, calloutStrokePaint)
+
+            calloutTextPaint.color = textPrimary
+            val fm = calloutTextPaint.fontMetrics
+            val textY = rect.centerY() - (fm.ascent + fm.descent) / 2f
+            canvas.drawText(pillText, rect.centerX(), textY, calloutTextPaint)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (windows.isEmpty()) return false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN,
+                MotionEvent.ACTION_MOVE -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    val padL = 18f * density
+                    val padR = 18f * density
+                    val chartW = (width - padL - padR).coerceAtLeast(1f)
+                    val ratio = ((event.x - padL) / chartW).coerceIn(0f, 1f)
+                    val idx = (ratio * (windows.size - 1)).roundToInt().coerceIn(0, windows.lastIndex)
+                    if (idx != selectedIndex) {
+                        selectedIndex = idx
+                        onWindowSelected?.invoke(windows[idx])
+                        invalidate()
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    return true
+                }
+            }
+            return super.onTouchEvent(event)
+        }
     }
 }

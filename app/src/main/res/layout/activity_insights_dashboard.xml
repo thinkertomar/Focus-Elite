@@ -1,27 +1,471 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout android:orientation="vertical" android:background="#ff121212" android:padding="16.0dip" android:layout_width="fill_parent" android:layout_height="fill_parent"
-  xmlns:android="http://schemas.android.com/apk/res/android">
-    <LinearLayout android:gravity="center_vertical" android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content">
-        <TextView android:textSize="20.0sp" android:textStyle="bold" android:textColor="#ffffffff" android:layout_width="0.0dip" android:layout_height="wrap_content" android:text="Discipline Insights" android:layout_weight="1.0" />
-        <RadioGroup android:orientation="horizontal" android:id="@id/rg_time_range" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checkedButton="@id/rb_7_days">
-            <RadioButton android:textSize="12.0sp" android:textColor="#ffcfd8dc" android:id="@id/rb_7_days" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="7D" />
-            <RadioButton android:textSize="12.0sp" android:textColor="#ffcfd8dc" android:id="@id/rb_30_days" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="30D" />
-        </RadioGroup>
-    </LinearLayout>
-    <LinearLayout android:gravity="center" android:orientation="vertical" android:background="@drawable/bg_card" android:padding="18.0dip" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="16.0dip">
-        <TextView android:textSize="11.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="DISCIPLINE SYNERGY SCORE" />
-        <TextView android:textSize="38.0sp" android:textStyle="bold" android:textColor="#ff00e5ff" android:id="@id/tv_synergy_score" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" android:text="--/100" />
-    </LinearLayout>
-    <LinearLayout android:orientation="horizontal" android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_marginTop="12.0dip">
-        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginEnd="6.0dip">
-            <TextView android:textSize="10.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="AVG DAILY FOCUS" />
-            <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="#ffffffff" android:id="@id/tv_avg_focus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" />
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scrollInsightsDashboard"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#080D12"
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="24dp">
+
+        <!-- A. COMPACT HEADER + SEGMENTED 7D / 30D PILL SWITCHER -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/btnInsightsBack"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:paddingEnd="12dp"
+                android:text="←"
+                android:textColor="#F1F5F9"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Discipline Insights"
+                    android:textColor="#F1F5F9"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvInsightsSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Screen control • Daily steps • Strength sets"
+                    android:textColor="#8995A3"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- Modern Segmented Pill Toggle (preserves rg_time_range / rb_7_days / rb_30_days IDs) -->
+            <RadioGroup
+                android:id="@id/rg_time_range"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_fitness_surface_secondary"
+                android:checkedButton="@id/rb_7_days"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="2dp">
+
+                <RadioButton
+                    android:id="@id/rb_7_days"
+                    android:layout_width="46dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_fitness_pill"
+                    android:button="@null"
+                    android:gravity="center"
+                    android:text="7D"
+                    android:textColor="#16D99A"
+                    android:textSize="11.5sp"
+                    android:textStyle="bold" />
+
+                <RadioButton
+                    android:id="@id/rb_30_days"
+                    android:layout_width="48dp"
+                    android:layout_height="match_parent"
+                    android:button="@null"
+                    android:gravity="center"
+                    android:text="30D"
+                    android:textColor="#8995A3"
+                    android:textSize="11.5sp"
+                    android:textStyle="bold" />
+            </RadioGroup>
         </LinearLayout>
-        <LinearLayout android:orientation="vertical" android:background="@drawable/bg_card" android:padding="12.0dip" android:layout_width="0.0dip" android:layout_height="wrap_content" android:layout_weight="1.0" android:layout_marginStart="6.0dip">
-            <TextView android:textSize="10.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="AVG DAILY STEPS" />
-            <TextView android:textSize="16.0sp" android:textStyle="bold" android:textColor="#ffffffff" android:id="@id/tv_avg_steps" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4.0dip" />
+
+        <!-- B. EXECUTIVE DISCIPLINE SYNERGY HERO (Score Ring + 3-Pillar Breakdown) -->
+        <LinearLayout
+            android:id="@+id/cardSynergyHero"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/bg_fitness_surface"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="14dp">
+
+            <!-- Left: Score Ring + Grade Pill -->
+            <LinearLayout
+                android:layout_width="124dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <FrameLayout
+                    android:layout_width="112dp"
+                    android:layout_height="112dp">
+
+                    <com.focusguardpro.app.RingProgressView
+                        android:id="@+id/synergyHeroRing"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:gravity="center"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@id/tv_synergy_score"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="--/100"
+                            android:textColor="#F1F5F9"
+                            android:textSize="22sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:letterSpacing="0.06"
+                            android:text="SYNERGY"
+                            android:textColor="#8995A3"
+                            android:textSize="9sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/tvSynergyGradeBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_fitness_pill"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="3dp"
+                    android:text="Grade —"
+                    android:textColor="#16D99A"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Right: 3-Pillar Synergy Breakdown -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.05"
+                    android:text="3-PILLAR SYNERGY BREAKDOWN"
+                    android:textColor="#8995A3"
+                    android:textSize="9.5sp"
+                    android:textStyle="bold" />
+
+                <!-- Pillar 1: Screen Hygiene (/40) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Screen Hygiene"
+                        android:textColor="#F1F5F9"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvPillarScreenScore"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0 / 40"
+                        android:textColor="#27C7C9"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/pbPillarScreen"
+                    style="?android:progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="3dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressBackgroundTint="#17212B"
+                    android:progressTint="#27C7C9" />
+
+                <!-- Pillar 2: Daily Movement (/35) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Step Target"
+                        android:textColor="#F1F5F9"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvPillarStepScore"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0 / 35"
+                        android:textColor="#16D99A"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/pbPillarStep"
+                    style="?android:progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="3dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressBackgroundTint="#17212B"
+                    android:progressTint="#16D99A" />
+
+                <!-- Pillar 3: Strength & Sets (/25) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Workout Sets"
+                        android:textColor="#F1F5F9"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvPillarWorkoutScore"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0 / 25"
+                        android:textColor="#F59E0B"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/pbPillarWorkout"
+                    style="?android:progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="3dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressBackgroundTint="#17212B"
+                    android:progressTint="#F59E0B" />
+            </LinearLayout>
         </LinearLayout>
+
+        <!-- C. COMPACT 3-COLUMN KPI SUMMARY STRIP -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:orientation="horizontal"
+            android:weightSum="3">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_fitness_surface"
+                android:orientation="vertical"
+                android:padding="11dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.04"
+                    android:text="AVG SCREEN"
+                    android:textColor="#8995A3"
+                    android:textSize="9.5sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@id/tv_avg_focus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="0h 0m"
+                    android:textColor="#F1F5F9"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="2dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_fitness_surface"
+                android:orientation="vertical"
+                android:padding="11dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.04"
+                    android:text="AVG STEPS"
+                    android:textColor="#8995A3"
+                    android:textSize="9.5sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@id/tv_avg_steps"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="0"
+                    android:textColor="#16D99A"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_fitness_surface"
+                android:orientation="vertical"
+                android:padding="11dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.04"
+                    android:text="PEAK DAY"
+                    android:textColor="#8995A3"
+                    android:textSize="9.5sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvAvgBestDay"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="— pts"
+                    android:textColor="#27C7C9"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- D. INTERACTIVE DISCIPLINE TREND CURVE CARD -->
+        <LinearLayout
+            android:id="@+id/cardSynergyTrendCurve"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_fitness_surface"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvTrendCurveTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Discipline Synergy Curve"
+                    android:textColor="#F1F5F9"
+                    android:textSize="13.5sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvTrendCurveCallout"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Drag curve to inspect"
+                    android:textColor="#27C7C9"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/synergyTrendCurveContainer"
+                android:layout_width="match_parent"
+                android:layout_height="136dp"
+                android:layout_marginTop="8dp" />
+        </LinearLayout>
+
+        <!-- E. DAY-BY-DAY AUDIT LIST -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:letterSpacing="0.05"
+                android:text="DAY-BY-DAY AUDIT"
+                android:textColor="#8995A3"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tap any day for full report ›"
+                android:textColor="#27C7C9"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@id/rv_insights_breakdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:nestedScrollingEnabled="false" />
+
     </LinearLayout>
-    <TextView android:textSize="11.0sp" android:textStyle="bold" android:textColor="#ff90a4ae" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="18.0dip" android:layout_marginBottom="8.0dip" android:text="DAY-BY-DAY AUDIT" />
-    <androidx.recyclerview.widget.RecyclerView android:id="@id/rv_insights_breakdown" android:layout_width="fill_parent" android:layout_height="0.0dip" android:layout_weight="1.0" />
-</LinearLayout>
+</androidx.core.widget.NestedScrollView>

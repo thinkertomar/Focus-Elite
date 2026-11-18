@@ -964,24 +964,21 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (BlockPolicyEngine.isBrowserMarkedAsStudyOrImprove(this, browserPackage)) {
             return
         }
-        if (forceSample && !BlockPolicyEngine.isLastActiveBrowserHostStudy(this, browserPackage, now)) {
-            val customLimit = TimeLimitManager.getLimitMinutes(this, browserPackage)
-            val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
-            val effectiveLimit = if (customLimit > 0) customLimit else defaultCap
-            val usedNonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, browserPackage, now)
-            if (effectiveLimit > 0 && usedNonStudyMins >= effectiveLimit && !BlockPolicyEngine.isUnblockedForToday(this, browserPackage, now)) {
-                val fallbackDecision = BlockPolicyEngine.evaluateBrowserUrl(this, browserPackage, "non-study-browsing.local", now)
-                if (fallbackDecision is BlockDecision.Blocked) {
-                    if ("non-study-browsing.local" != lastBlockedHost || (now - lastBlockedAtMs) > 1800L) {
-                        lastBlockedHost = "non-study-browsing.local"
-                        lastBlockedAtMs = now
-                        enforceBlockNow(
-                            target = browserPackage,
-                            reasonWireKey = fallbackDecision.reason.wireKey,
-                            isWebsite = true,
-                            blockedPackageName = browserPackage
-                        )
-                    }
+        if (!BlockPolicyEngine.isLastActiveBrowserHostStudy(this, browserPackage, now)) {
+            if (forceSample) {
+                BlockPolicyEngine.recordBrowserWebsiteSample(this, browserPackage, "non-study-browsing.local", now)
+            }
+            val fallbackDecision = BlockPolicyEngine.evaluateBrowserUrl(this, browserPackage, "non-study-browsing.local", now)
+            if (fallbackDecision is BlockDecision.Blocked) {
+                if ("non-study-browsing.local" != lastBlockedHost || (now - lastBlockedAtMs) > 1800L) {
+                    lastBlockedHost = "non-study-browsing.local"
+                    lastBlockedAtMs = now
+                    enforceBlockNow(
+                        target = browserPackage,
+                        reasonWireKey = fallbackDecision.reason.wireKey,
+                        isWebsite = true,
+                        blockedPackageName = browserPackage
+                    )
                 }
             }
         }
