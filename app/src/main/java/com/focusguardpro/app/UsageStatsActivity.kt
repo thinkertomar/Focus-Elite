@@ -71,10 +71,7 @@ class UsageStatsActivity : AppCompatActivity() {
     private var tvKpiUnlocks: TextView? = null
     private var tvKpiLaunches: TextView? = null
     private var tvKpiPeakHour: TextView? = null
-    private var segStudyBar: View? = null
-    private var segImproveBar: View? = null
-    private var segDistractBar: View? = null
-    private var segUtilityBar: View? = null
+    private var heroProportionBar: SegmentedProportionBarView? = null
     private var hourlyHeaderTv: TextView? = null
     private var hourlySubtitleTv: TextView? = null
     private var byAppHeaderTv: TextView? = null
@@ -299,47 +296,17 @@ class UsageStatsActivity : AppCompatActivity() {
         dayNavRow.addView(nextBtn)
         hero.addView(dayNavRow)
 
-        // Multi-segment Category Proportion Bar
-        val barContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        // Multi-segment Category Proportion Bar (Canvas-drawn, exact 100% normalization, smooth 60fps animation)
+        val proportionBar = SegmentedProportionBarView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(8f)
+                dp(9f)
             ).apply {
                 bottomMargin = dp(14f)
             }
-            background = GradientDrawable().apply {
-                cornerRadius = dp(4f).toFloat()
-                setColor(Color.parseColor("#1E293B"))
-            }
-            clipToOutline = true
         }
-
-        val sBar = View(this).apply {
-            setBackgroundColor(Color.parseColor("#10B981")) // Study Emerald
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-        }
-        val iBar = View(this).apply {
-            setBackgroundColor(Color.parseColor("#38BDF8")) // Improve Cyan
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-        }
-        val dBar = View(this).apply {
-            setBackgroundColor(Color.parseColor("#F43F5E")) // Distract Coral
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-        }
-        val uBar = View(this).apply {
-            setBackgroundColor(Color.parseColor("#64748B")) // Utility Slate
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-        }
-        segStudyBar = sBar
-        segImproveBar = iBar
-        segDistractBar = dBar
-        segUtilityBar = uBar
-        barContainer.addView(sBar)
-        barContainer.addView(iBar)
-        barContainer.addView(dBar)
-        barContainer.addView(uBar)
-        hero.addView(barContainer)
+        heroProportionBar = proportionBar
+        hero.addView(proportionBar)
 
         // 3-Column Structural KPI Strip (Unlocks, App Opens, Peak Hour)
         val kpiRow = LinearLayout(this).apply {
@@ -507,9 +474,11 @@ class UsageStatsActivity : AppCompatActivity() {
         }
         filterChipContainer = chipRow
         filterScroll.addView(chipRow)
-        val listIdx = rootContainer.indexOfChild(appUsageList)
-        if (listIdx >= 0) {
-            rootContainer.addView(filterScroll, listIdx)
+        // appUsageList lives inside its own card LinearLayout — insert filter chips directly above that card!
+        val appListCard = appUsageList.parent as? View
+        val listCardIdx = if (appListCard != null) rootContainer.indexOfChild(appListCard) else -1
+        if (listCardIdx >= 0) {
+            rootContainer.addView(filterScroll, listCardIdx)
         } else {
             rootContainer.addView(filterScroll)
         }
@@ -650,7 +619,11 @@ class UsageStatsActivity : AppCompatActivity() {
         val sharePct: Int,
         val category: String,
         val isBrowser: Boolean,
-        val accentColor: Int
+        val accentColor: Int,
+        val primaryBarFraction: Float,
+        val primaryBarColor: Int,
+        val secondaryBarFraction: Float = 0f,
+        val secondaryBarColor: Int = Color.TRANSPARENT
     )
 
     private data class PreparedDayData(
@@ -711,51 +684,123 @@ class UsageStatsActivity : AppCompatActivity() {
                 AppMetadataCache.getIcon(pm, stat.packageName)
             }
             val sharePct = ((stat.durationMs * 100f) / totalMs).roundToInt().coerceIn(1, 100)
-            val catTag = when {
-                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_STUDY -> "STUDY • FOCUS ELITE"
-                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_IMPROVE -> "IMPROVE • FOCUS ELITE"
-                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_UTILITY -> "UTILITY • FOCUS ELITE"
+            val opensPart = if (stat.launchCount > 0) " · ${stat.launchCount} ${if (stat.launchCount == 1) "open" else "opens"}" else ""
+
+            var primaryFrac = (sharePct / 100f).coerceIn(0.03f, 1f)
+            var primaryColor = Color.parseColor("#94A3B8")
+            var secondaryFrac = 0f
+            var secondaryColor = Color.TRANSPARENT
+            var accentColor = Color.parseColor("#94A3B8")
+            val subtitle: String
+
+            when {
+                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_STUDY -> {
+                    accentColor = Color.parseColor("#10B981")
+                    primaryColor = accentColor
+                    subtitle = "STUDY • FOCUS ELITE$opensPart · $sharePct%"
+                }
+                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_IMPROVE -> {
+                    accentColor = Color.parseColor("#38BDF8")
+                    primaryColor = accentColor
+                    subtitle = "IMPROVE • FOCUS ELITE$opensPart · $sharePct%"
+                }
+                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_UTILITY -> {
+                    accentColor = Color.parseColor("#94A3B8")
+                    primaryColor = accentColor
+                    subtitle = "UTILITY • FOCUS ELITE$opensPart · $sharePct%"
+                }
                 isBrowser -> {
                     val siteCount = BrowserWebsiteTracker.getWebsitesForBrowserOnDay(this, stat.packageName, dayStartMs).size
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
-                    val cap = if (customLimit > 0) customLimit else defaultCap
+                    val cap = (if (customLimit > 0) customLimit else defaultCap).coerceAtLeast(1)
+                    val siteWord = if (siteCount == 1) "1 site" else "$siteCount sites"
+                    val siteLabel = if (siteCount > 0) " · $siteWord" else ""
+
                     if (dayRange == null || dayRange.isToday) {
-                        val nonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, stat.packageName)
-                        val studyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(this, stat.packageName)
-                        val siteLabel = if (siteCount > 0) " · $siteCount sites" else ""
-                        "WEB • Study ${studyMins}m · Non-Study ${nonStudyMins}m/${cap}m$siteLabel"
+                        val nonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, stat.packageName).coerceAtLeast(0)
+                        val studyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(this, stat.packageName).coerceAtLeast(0)
+                        val quotaPct = ((nonStudyMins * 100f) / cap.toFloat()).roundToInt()
+                        val overCap = nonStudyMins >= cap
+                        val nearCap = nonStudyMins >= (cap * 0.75f).roundToInt()
+                        val nonStudyColor = when {
+                            overCap -> Color.parseColor("#F43F5E")
+                            nearCap -> Color.parseColor("#F59E0B")
+                            else -> Color.parseColor("#A78BFA")
+                        }
+                        accentColor = when {
+                            overCap -> Color.parseColor("#F43F5E")
+                            nearCap -> Color.parseColor("#F59E0B")
+                            studyMins > nonStudyMins && studyMins > 0 -> Color.parseColor("#10B981")
+                            else -> Color.parseColor("#A78BFA")
+                        }
+
+                        // Dual-segment animated bar: Study (Emerald) + Non-Study (Violet/Amber/Coral) scaled cleanly against cap or total
+                        val totalTrackedMins = (studyMins + nonStudyMins).coerceAtLeast(0L)
+                        if (totalTrackedMins > 0L) {
+                            val denominator = max(cap.toLong(), totalTrackedMins).toFloat()
+                            primaryFrac = (studyMins / denominator).coerceIn(0f, 1f)
+                            primaryColor = Color.parseColor("#10B981")
+                            secondaryFrac = (nonStudyMins / denominator).coerceIn(0f, 1f - primaryFrac)
+                            secondaryColor = nonStudyColor
+                        } else {
+                            primaryFrac = (sharePct / 100f).coerceIn(0.04f, 1f)
+                            primaryColor = accentColor
+                        }
+
+                        val capNote = if (overCap) " (${quotaPct}%)" else ""
+                        subtitle = "Study ${studyMins}m · Non-Study ${nonStudyMins}m/${cap}m$capNote$siteLabel$opensPart"
                     } else {
-                        if (siteCount > 0) "WEB • $siteCount websites logged" else "WEB • Tap for websites"
+                        accentColor = Color.parseColor("#A78BFA")
+                        primaryColor = accentColor
+                        primaryFrac = (sharePct / 100f).coerceIn(0.04f, 1f)
+                        subtitle = if (siteCount > 0) {
+                            "WEB · $siteWord$opensPart · $sharePct%"
+                        } else {
+                            "WEB · Tap for sites$opensPart · $sharePct%"
+                        }
                     }
                 }
-                stat.category == "STUDY" -> "STUDY"
-                stat.category == "IMPROVE" -> "IMPROVE"
-                stat.category == "IGNORED" -> {
-                    val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
-                    val cap = if (customLimit in 1..29) customLimit else 30
-                    if (stat.durationMs >= cap * 60_000L) "IGNORED • ${cap}m CAP REACHED" else "IGNORED • ${cap}m CAP"
+                stat.category == "STUDY" -> {
+                    accentColor = Color.parseColor("#10B981")
+                    primaryColor = accentColor
+                    subtitle = "STUDY$opensPart · $sharePct%"
                 }
-                stat.category == "UTILITY" -> "SYSTEM"
+                stat.category == "IMPROVE" -> {
+                    accentColor = Color.parseColor("#38BDF8")
+                    primaryColor = accentColor
+                    subtitle = "IMPROVE$opensPart · $sharePct%"
+                }
+                stat.category == "UTILITY" -> {
+                    accentColor = Color.parseColor("#94A3B8")
+                    primaryColor = accentColor
+                    subtitle = "SYSTEM$opensPart · $sharePct%"
+                }
                 else -> {
+                    // Distract or Ignored app with a daily timeline limit (cap)
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
-                    val cap = if (customLimit > 0) customLimit else defaultCap
-                    "${cap}m CAP"
+                    val cap = if (stat.category == "IGNORED") {
+                        if (customLimit in 1..29) customLimit else 30
+                    } else {
+                        if (customLimit > 0) customLimit else defaultCap
+                    }.coerceAtLeast(1)
+                    val usedMins = (stat.durationMs / 60_000L).toInt()
+                    val capRatio = (stat.durationMs.toFloat() / (cap * 60_000f)).coerceAtLeast(0f)
+                    val capPct = (capRatio * 100f).roundToInt()
+
+                    accentColor = when {
+                        capRatio >= 1f -> Color.parseColor("#F43F5E")
+                        capRatio >= 0.7f -> Color.parseColor("#F59E0B")
+                        else -> Color.parseColor("#38BDF8")
+                    }
+                    primaryColor = accentColor
+                    primaryFrac = capRatio.coerceIn(0.04f, 1f)
+
+                    val tag = if (stat.category == "IGNORED") "IGNORED" else "LIMIT"
+                    val capStatus = if (capRatio >= 1f) "${usedMins}m/${cap}m (${capPct}%)" else "${usedMins}m/${cap}m cap"
+                    subtitle = "$tag · $capStatus$opensPart · $sharePct%"
                 }
             }
-            val opensPart = if (stat.launchCount > 0) " · ${stat.launchCount} opens" else ""
-            val subtitle = "$catTag$opensPart · $sharePct%"
-            val accentColor = when {
-                isBrowser -> Color.parseColor("#A78BFA")
-                stat.category == "STUDY" -> Color.parseColor("#10B981")
-                stat.category == "IMPROVE" -> Color.parseColor("#38BDF8")
-                stat.category == "IGNORED" -> {
-                    val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
-                    val cap = if (customLimit in 1..29) customLimit else 30
-                    if (stat.durationMs >= cap * 60_000L) Color.parseColor("#F43F5E") else Color.parseColor("#F59E0B")
-                }
-                stat.category == "UTILITY" -> Color.parseColor("#94A3B8")
-                else -> Color.parseColor("#F43F5E")
-            }
+
             RichUsageRow(
                 packageName = stat.packageName,
                 displayName = rawName,
@@ -766,7 +811,11 @@ class UsageStatsActivity : AppCompatActivity() {
                 sharePct = sharePct,
                 category = stat.category,
                 isBrowser = isBrowser,
-                accentColor = accentColor
+                accentColor = accentColor,
+                primaryBarFraction = primaryFrac,
+                primaryBarColor = primaryColor,
+                secondaryBarFraction = secondaryFrac,
+                secondaryBarColor = secondaryColor
             )
         }
 
@@ -1338,47 +1387,234 @@ class UsageStatsActivity : AppCompatActivity() {
             tvVsYesterday.text = "Up $diffFormatted vs yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any browser for websites"
         }
 
-        // Update Category Summary Row
+        // Update Category Summary Row with exact percentage breakdown matching the Hero Bar 1:1
+        val catTotalMs = snapshot.studyMs + snapshot.improveMs + snapshot.distractMs + snapshot.utilityMs
+        val denom = max(1L, catTotalMs).toFloat()
+        val studyPct = if (catTotalMs > 0L) ((snapshot.studyMs * 100f) / denom).roundToInt() else 0
+        val improvePct = if (catTotalMs > 0L) ((snapshot.improveMs * 100f) / denom).roundToInt() else 0
+        val distractPct = if (catTotalMs > 0L) ((snapshot.distractMs * 100f) / denom).roundToInt() else 0
+        val utilityPct = if (catTotalMs > 0L) (100 - studyPct - improvePct - distractPct).coerceAtLeast(0) else 0
+
         findViewById<TextView>(R.id.tvStudyMinutes)?.text = UsageStatsHelper.formatDuration(snapshot.studyMs)
         findViewById<TextView>(R.id.tvImproveMinutes)?.text = UsageStatsHelper.formatDuration(snapshot.improveMs)
         findViewById<TextView>(R.id.tvDistractMinutes)?.text = UsageStatsHelper.formatDuration(snapshot.distractMs)
         findViewById<TextView>(R.id.tvIgnoreMinutes)?.text = UsageStatsHelper.formatDuration(snapshot.utilityMs)
 
-        // Smoothly animate Segmented Proportion Bar weights (60 FPS Decelerate transition)
-        val total = max(1L, snapshot.studyMs + snapshot.improveMs + snapshot.distractMs + snapshot.utilityMs).toFloat()
-        val targetStudy = if (snapshot.totalScreenTimeMs <= 0L) 1f else (snapshot.studyMs / total).coerceAtLeast(if (snapshot.studyMs > 0L) 0.05f else 0.0f)
-        val targetImprove = if (snapshot.totalScreenTimeMs <= 0L) 0f else (snapshot.improveMs / total).coerceAtLeast(if (snapshot.improveMs > 0L) 0.05f else 0.0f)
-        val targetDistract = if (snapshot.totalScreenTimeMs <= 0L) 0f else (snapshot.distractMs / total).coerceAtLeast(if (snapshot.distractMs > 0L) 0.05f else 0.0f)
-        val targetUtility = if (snapshot.totalScreenTimeMs <= 0L) 0f else (snapshot.utilityMs / total).coerceAtLeast(if (snapshot.utilityMs > 0L) 0.05f else 0.0f)
+        findViewById<TextView>(R.id.tvStudyLabel)?.text =
+            if (catTotalMs > 0L) "${getString(R.string.category_study)} · $studyPct%" else getString(R.string.category_study)
+        findViewById<TextView>(R.id.tvImproveLabel)?.text =
+            if (catTotalMs > 0L) "${getString(R.string.category_improve)} · $improvePct%" else getString(R.string.category_improve)
+        findViewById<TextView>(R.id.tvDistractLabel)?.text =
+            if (catTotalMs > 0L) "${getString(R.string.category_distract)} · $distractPct%" else getString(R.string.category_distract)
+        findViewById<TextView>(R.id.tvIgnoreLabel)?.text =
+            if (catTotalMs > 0L) "${getString(R.string.category_ignore)} · $utilityPct%" else getString(R.string.category_ignore)
 
-        val sLp = segStudyBar?.layoutParams as? LinearLayout.LayoutParams
-        val iLp = segImproveBar?.layoutParams as? LinearLayout.LayoutParams
-        val dLp = segDistractBar?.layoutParams as? LinearLayout.LayoutParams
-        val uLp = segUtilityBar?.layoutParams as? LinearLayout.LayoutParams
-        if (sLp != null && iLp != null && dLp != null && uLp != null) {
-            val startS = sLp.weight
-            val startI = iLp.weight
-            val startD = dLp.weight
-            val startU = uLp.weight
-            proportionBarAnimator?.cancel()
-            proportionBarAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 260L
-                interpolator = DecelerateInterpolator()
-                addUpdateListener { anim ->
-                    val t = anim.animatedValue as Float
-                    sLp.weight = startS + (targetStudy - startS) * t
-                    iLp.weight = startI + (targetImprove - startI) * t
-                    dLp.weight = startD + (targetDistract - startD) * t
-                    uLp.weight = startU + (targetUtility - startU) * t
-                    segStudyBar?.parent?.requestLayout()
-                }
-                start()
-            }
+        // Smooth 60 FPS Canvas animation of exact normalized Hero Proportion Bar
+        if (catTotalMs > 0L) {
+            heroProportionBar?.setFractions(
+                study = snapshot.studyMs / denom,
+                improve = snapshot.improveMs / denom,
+                distract = snapshot.distractMs / denom,
+                utility = snapshot.utilityMs / denom
+            )
+        } else {
+            heroProportionBar?.setFractions(0f, 0f, 0f, 0f)
         }
     }
 
     /**
-     * DiffUtil-backed persistent RecyclerView adapter with rich 2-line cards, micro proportion bars,
+     * Smooth Canvas-drawn 4-segment Hero Proportion Bar (Study / Improve / Distract / Utility).
+     * Strictly normalized to 100% with animated transitions and zero requestLayout() jitter.
+     */
+    private class SegmentedProportionBarView(context: android.content.Context) : View(context) {
+        private val density = resources.displayMetrics.density
+        private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val segPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val rect = RectF()
+        private val clipPath = Path()
+
+        private var curS = 0f
+        private var curI = 0f
+        private var curD = 0f
+        private var curU = 0f
+        private var animator: ValueAnimator? = null
+
+        private val colors = intArrayOf(
+            Color.parseColor("#10B981"), // Study Emerald
+            Color.parseColor("#38BDF8"), // Improve Cyan
+            Color.parseColor("#F43F5E"), // Distract Coral
+            Color.parseColor("#64748B")  // Utility Slate
+        )
+
+        fun setFractions(study: Float, improve: Float, distract: Float, utility: Float) {
+            val sum = (study + improve + distract + utility)
+            val tS = if (sum > 0f) (study / sum).coerceIn(0f, 1f) else 0f
+            val tI = if (sum > 0f) (improve / sum).coerceIn(0f, 1f) else 0f
+            val tD = if (sum > 0f) (distract / sum).coerceIn(0f, 1f) else 0f
+            val tU = if (sum > 0f) (utility / sum).coerceIn(0f, 1f) else 0f
+
+            val s0 = curS
+            val i0 = curI
+            val d0 = curD
+            val u0 = curU
+
+            animator?.cancel()
+            animator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 320L
+                interpolator = DecelerateInterpolator()
+                addUpdateListener { anim ->
+                    val f = anim.animatedValue as Float
+                    curS = s0 + (tS - s0) * f
+                    curI = i0 + (tI - i0) * f
+                    curD = d0 + (tD - d0) * f
+                    curU = u0 + (tU - u0) * f
+                    invalidate()
+                }
+                start()
+            }
+        }
+
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            animator?.cancel()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+
+            val radius = h / 2f
+            val isLight = UiThemePrefs.isWhiteBackgroundActive(context)
+            trackPaint.color = if (isLight) Color.parseColor("#E2E8F0") else Color.parseColor("#1E293B")
+
+            clipPath.reset()
+            rect.set(0f, 0f, w, h)
+            clipPath.addRoundRect(rect, radius, radius, Path.Direction.CW)
+
+            val save = canvas.save()
+            canvas.clipPath(clipPath)
+            canvas.drawRect(0f, 0f, w, h, trackPaint)
+
+            val fracs = floatArrayOf(curS, curI, curD, curU)
+            val activeIndices = fracs.indices.filter { fracs[it] > 0.002f }
+            val gap = if (activeIndices.size > 1) 2f * density else 0f
+            val totalGap = gap * (activeIndices.size - 1).coerceAtLeast(0)
+            val usableW = (w - totalGap).coerceAtLeast(0f)
+
+            var x = 0f
+            activeIndices.forEachIndexed { pos, idx ->
+                val segW = if (pos == activeIndices.lastIndex) {
+                    (w - x).coerceAtLeast(0f)
+                } else {
+                    (usableW * fracs[idx]).coerceAtLeast(3f * density)
+                }
+                segPaint.color = colors[idx]
+                canvas.drawRect(x, 0f, (x + segW).coerceAtMost(w), h, segPaint)
+                x += segW + gap
+            }
+            canvas.restoreToCount(save)
+        }
+    }
+
+    /**
+     * Hardware-accelerated Canvas progress/breakdown bar for per-app cards.
+     * Supports single-segment quota/share fill AND dual-segment Study + Non-Study browser breakdown
+     * with smooth ValueAnimator interpolation and zero RecyclerView requestLayout() jank.
+     */
+    private class AppUsageBarView(context: android.content.Context) : View(context) {
+        private val density = resources.displayMetrics.density
+        private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val primaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val secondaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val rect = RectF()
+        private val clipPath = Path()
+
+        private var curPrimary = 0f
+        private var curSecondary = 0f
+        private var animator: ValueAnimator? = null
+        private var boundKey: String = ""
+
+        fun bind(
+            key: String,
+            primaryFrac: Float,
+            primaryColor: Int,
+            secondaryFrac: Float,
+            secondaryColor: Int,
+            isLight: Boolean
+        ) {
+            trackPaint.color = if (isLight) Color.parseColor("#E2E8F0") else Color.parseColor("#182232")
+            primaryPaint.color = primaryColor
+            secondaryPaint.color = secondaryColor
+
+            val targetP = primaryFrac.coerceIn(0f, 1f)
+            val targetS = secondaryFrac.coerceIn(0f, (1f - targetP).coerceAtLeast(0f))
+
+            animator?.cancel()
+            val startP = if (boundKey == key) curPrimary else 0f
+            val startS = if (boundKey == key) curSecondary else 0f
+            boundKey = key
+
+            if (abs(targetP - startP) < 0.005f && abs(targetS - startS) < 0.005f) {
+                curPrimary = targetP
+                curSecondary = targetS
+                invalidate()
+                return
+            }
+
+            animator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 280L
+                interpolator = DecelerateInterpolator()
+                addUpdateListener { anim ->
+                    val f = anim.animatedValue as Float
+                    curPrimary = startP + (targetP - startP) * f
+                    curSecondary = startS + (targetS - startS) * f
+                    invalidate()
+                }
+                start()
+            }
+        }
+
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            animator?.cancel()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+
+            val r = h / 2f
+            clipPath.reset()
+            rect.set(0f, 0f, w, h)
+            clipPath.addRoundRect(rect, r, r, Path.Direction.CW)
+
+            val save = canvas.save()
+            canvas.clipPath(clipPath)
+            canvas.drawRect(0f, 0f, w, h, trackPaint)
+
+            var x = 0f
+            if (curPrimary > 0.002f) {
+                val pw = (w * curPrimary).coerceAtLeast(3f * density).coerceAtMost(w)
+                canvas.drawRect(0f, 0f, pw, h, primaryPaint)
+                x = pw
+            }
+            if (curSecondary > 0.002f && x < w) {
+                val gap = if (curPrimary > 0.002f) 1.5f * density else 0f
+                val startX = (x + gap).coerceAtMost(w)
+                val sw = (w * curSecondary).coerceAtLeast(3f * density)
+                val endX = (startX + sw).coerceAtMost(w)
+                canvas.drawRect(startX, 0f, endX, h, secondaryPaint)
+            }
+            canvas.restoreToCount(save)
+        }
+    }
+
+    /**
+     * DiffUtil-backed persistent RecyclerView adapter with rich 2-line cards, animated quota/breakdown bars,
      * and interactive browser website drilldown pills.
      */
     private class SmoothAppUsageAdapter(
@@ -1402,7 +1638,11 @@ class UsageStatsActivity : AppCompatActivity() {
                         o.durationLabel == n.durationLabel &&
                         o.sharePct == n.sharePct &&
                         o.accentColor == n.accentColor &&
-                        o.isBrowser == n.isBrowser
+                        o.isBrowser == n.isBrowser &&
+                        o.primaryBarFraction == n.primaryBarFraction &&
+                        o.secondaryBarFraction == n.secondaryBarFraction &&
+                        o.primaryBarColor == n.primaryBarColor &&
+                        o.secondaryBarColor == n.secondaryBarColor
                 }
             })
             items = newItems
@@ -1416,9 +1656,7 @@ class UsageStatsActivity : AppCompatActivity() {
             val subtitleView: TextView,
             val sitesPill: TextView,
             val badgeView: TextView,
-            val barFill: View,
-            val barEmpty: View,
-            val barTrack: LinearLayout
+            val barView: AppUsageBarView
         ) : RecyclerView.ViewHolder(container)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SmoothRowHolder {
@@ -1463,7 +1701,7 @@ class UsageStatsActivity : AppCompatActivity() {
             }
 
             val sub = TextView(ctx).apply {
-                textSize = 11.2f
+                textSize = 11f
                 maxLines = 2
                 ellipsize = TextUtils.TruncateAt.END
                 setPadding(0, dp(2f), 0, 0)
@@ -1503,29 +1741,17 @@ class UsageStatsActivity : AppCompatActivity() {
             mainRow.addView(textCol)
             mainRow.addView(rightCol)
 
-            // Micro usage proportion bar
-            val barTrack = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
+            val barView = AppUsageBarView(ctx).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(3.5f)
-                ).apply { topMargin = dp(8f) }
-                clipToOutline = true
+                    dp(5f)
+                ).apply { topMargin = dp(9f) }
             }
-            val barFill = View(ctx).apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-            }
-            val barEmpty = View(ctx).apply {
-                setBackgroundColor(Color.TRANSPARENT)
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 99f)
-            }
-            barTrack.addView(barFill)
-            barTrack.addView(barEmpty)
 
             card.addView(mainRow)
-            card.addView(barTrack)
+            card.addView(barView)
 
-            return SmoothRowHolder(card, icon, title, sub, sitesPill, badge, barFill, barEmpty, barTrack)
+            return SmoothRowHolder(card, icon, title, sub, sitesPill, badge, barView)
         }
 
         override fun onBindViewHolder(holder: SmoothRowHolder, position: Int) {
@@ -1566,15 +1792,14 @@ class UsageStatsActivity : AppCompatActivity() {
                 holder.container.isClickable = false
             }
 
-            holder.barTrack.background = GradientDrawable().apply {
-                cornerRadius = 2f * density
-                setColor(if (isWhite) Color.parseColor("#E2E8F0") else Color.parseColor("#182232"))
-            }
-            holder.barFill.setBackgroundColor(accentColor)
-            val pct = row.sharePct.coerceIn(2, 100)
-            (holder.barFill.layoutParams as? LinearLayout.LayoutParams)?.weight = pct.toFloat()
-            (holder.barEmpty.layoutParams as? LinearLayout.LayoutParams)?.weight = (100 - pct).toFloat()
-            holder.barTrack.requestLayout()
+            holder.barView.bind(
+                key = row.packageName,
+                primaryFrac = row.primaryBarFraction,
+                primaryColor = row.primaryBarColor,
+                secondaryFrac = row.secondaryBarFraction,
+                secondaryColor = row.secondaryBarColor,
+                isLight = isWhite
+            )
         }
 
         override fun getItemCount(): Int = items.size

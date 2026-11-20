@@ -270,27 +270,33 @@ class DistanceHistoryActivity : AppCompatActivity() {
         val cardStroke = if (isLight) Color.parseColor("#CBD5E1") else Color.parseColor("#1E344D")
 
         if (session == null || session.splits.isEmpty()) {
-            tvAutoStravaTitle.text = "Walking & Running Performance"
-            tvAutoStravaSubtitle.text = "No continuous walk or jog recorded in this period • Auto-detects 1+ min sessions with Auto-Pause"
+            tvAutoStravaTitle.text = "Activity Pace & Splits"
+            tvAutoStravaSubtitle.text = "No continuous activity recorded in this period"
             distancePaceChart.visibility = View.GONE
             return
         }
 
         distancePaceChart.visibility = View.VISIBLE
-        tvAutoStravaTitle.text = session.title
+        tvAutoStravaTitle.text = session.activityType
+        val gpsLabel = if (session.gpsRecorded) "GPS Recorded" else "Motion Sensor"
+        val cadencePart = if (session.cadenceSpm > 0) " · ${session.cadenceSpm} spm" else ""
+        val calPart = if (session.caloriesKcal > 0) " · ${session.caloriesKcal} kcal" else ""
         tvAutoStravaSubtitle.text = String.format(
             Locale.US,
-            "%s  •  %.2f km  •  Moving Pace %s/km  •  %.1f km/h  •  %d spm",
+            "%s · %s · %s\n%.2f km · %s /km · %.1f km/h%s%s",
+            session.sourceType,
             session.timeRangeLabel,
+            gpsLabel,
             session.distanceKm,
             StravaPaceChartView.formatPace(session.avgPaceSecPerKm),
             session.avgSpeedKmh,
-            session.cadenceSpm
+            cadencePart,
+            calPart
         )
 
         distancePaceChart.setSplits(
             session.splits,
-            subtitle = "PACE CURVE (min/km) & KILOMETER SPLITS"
+            subtitle = "PACE TREND (min/km · lower is faster)"
         )
 
         // 1. Moving Time vs Elapsed Time + Auto-Pause Telemetry Strip
@@ -338,17 +344,18 @@ class DistanceHistoryActivity : AppCompatActivity() {
         addMetricTile("MOVING TIME", formatMinSec(session.movingSeconds), "#16D99A")
         addMetricTile("ELAPSED TIME", formatMinSec(session.elapsedSeconds), "#38BDF8")
         val pauseSummary = if (session.pausedSeconds > 0) {
-            "${formatMinSec(session.pausedSeconds)} (${session.pauseCount})"
+            val suffix = if (session.pauseCount > 0) " (${session.pauseCount})" else ""
+            "${formatMinSec(session.pausedSeconds)}$suffix"
         } else {
-            "0s (Fluid)"
+            "None"
         }
-        addMetricTile("AUTO-PAUSED", pauseSummary, if (session.pausedSeconds > 0) "#F59E0B" else "#94A3B8")
+        addMetricTile("PAUSED", pauseSummary, if (session.pausedSeconds > 0) "#F59E0B" else "#94A3B8")
         llAutoStravaSplits.addView(timeStrip)
 
-        // 2. Fastest Split Highlight Badge
-        if (session.fastestSplitLabel.isNotBlank()) {
+        // 2. Fastest Split Highlight Badge (only when 2+ verified splits exist)
+        if (session.hasVerifiedSplits && session.splits.size >= 2 && session.fastestSplitLabel.isNotBlank()) {
             llAutoStravaSplits.addView(TextView(this).apply {
-                text = "⚡ Fastest Split: ${session.fastestSplitLabel} @ ${StravaPaceChartView.formatPace(session.fastestSplitPaceSec)} /km"
+                text = "Fastest Split: ${session.fastestSplitLabel} @ ${StravaPaceChartView.formatPace(session.fastestSplitPaceSec)} /km"
                 textSize = 11.5f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(Color.parseColor("#34D399"))
@@ -411,7 +418,7 @@ class DistanceHistoryActivity : AppCompatActivity() {
 
         // 4. Detailed Kilometer Split Timeline Rows
         session.splits.take(10).forEach { sp ->
-            val isFastest = sp.splitLabel == session.fastestSplitLabel
+            val isFastest = session.splits.size >= 2 && sp.splitLabel == session.fastestSplitLabel
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -433,13 +440,14 @@ class DistanceHistoryActivity : AppCompatActivity() {
                 setTextColor(if (isFastest) Color.parseColor("#34D399") else Color.parseColor("#16D99A"))
                 layoutParams = LinearLayout.LayoutParams((72 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
             })
+            val spCadence = if (sp.cadenceSpm > 0) "  •  ${sp.cadenceSpm} spm" else ""
             row.addView(TextView(this).apply {
                 text = String.format(
                     Locale.US,
-                    "Pace %s /km  •  %.1f km/h  •  %d spm",
+                    "%s /km  •  %.1f km/h%s",
                     StravaPaceChartView.formatPace(sp.paceSecondsPerKm),
                     sp.speedKmh,
-                    sp.cadenceSpm
+                    spCadence
                 )
                 textSize = 11.8f
                 setTextColor(textPrimary)

@@ -54,14 +54,28 @@ class ActivityStatsActivity : AppCompatActivity() {
     private lateinit var tvHeroPeakWindow: TextView
     private lateinit var tvDistanceSub: TextView
 
-    // Running & Walking Performance Views
+    // Latest Activity Card Views
+    private lateinit var cardStravaTelemetry: LinearLayout
     private lateinit var tvWalkJogStatusDot: TextView
     private lateinit var tvAutoWalkJogHeader: TextView
     private lateinit var tvAutoWalkJogSummaryLine: TextView
+    private lateinit var tvSessionGpsBadge: TextView
+    private lateinit var tvActivityHeroDistance: TextView
+    private lateinit var tvActivityHeroUnit: TextView
     private lateinit var tvAvgPace: TextView
     private lateinit var tvAvgSpeed: TextView
     private lateinit var tvMovingTime: TextView
+    private lateinit var tvMetric1Label: TextView
+    private lateinit var tvMetric2Label: TextView
+    private lateinit var tvMetric3Label: TextView
+    private lateinit var llActivityDetailsDrawer: LinearLayout
+    private lateinit var tvDetailElapsed: TextView
+    private lateinit var tvDetailPaused: TextView
+    private lateinit var tvDetailCalories: TextView
     private lateinit var tvStepCadence: TextView
+    private lateinit var tvDetailGpsStatus: TextView
+    private lateinit var tvDetailSource: TextView
+    private lateinit var llDetailsPaceSection: LinearLayout
     private lateinit var stravaPaceChart: StravaPaceChartView
     private lateinit var llKmSplitsContainer: LinearLayout
 
@@ -76,7 +90,7 @@ class ActivityStatsActivity : AppCompatActivity() {
     private var sensorManager: SensorManager? = null
     private var lastCounterBaseline: Int = -1
     private var hasAutoPromptedSensorOnOpen = false
-    private var isSplitsExpanded = false
+    private var isDetailsExpanded = false
     private var isWorkoutHistoryExpanded = false
     private var isDataSourcesExpanded = false
 
@@ -175,13 +189,27 @@ class ActivityStatsActivity : AppCompatActivity() {
         tvHeroPeakWindow = findViewById(R.id.tvHeroPeakWindow)
         tvDistanceSub = findViewById(R.id.tvDistanceSub)
 
+        cardStravaTelemetry = findViewById(R.id.cardStravaTelemetry)
         tvWalkJogStatusDot = findViewById(R.id.tvWalkJogStatusDot)
         tvAutoWalkJogHeader = findViewById(R.id.tvAutoWalkJogHeader)
         tvAutoWalkJogSummaryLine = findViewById(R.id.tvAutoWalkJogSummaryLine)
+        tvSessionGpsBadge = findViewById(R.id.tvSessionGpsBadge)
+        tvActivityHeroDistance = findViewById(R.id.tvActivityHeroDistance)
+        tvActivityHeroUnit = findViewById(R.id.tvActivityHeroUnit)
         tvAvgPace = findViewById(R.id.tvAvgPace)
         tvAvgSpeed = findViewById(R.id.tvAvgSpeed)
         tvMovingTime = findViewById(R.id.tvMovingTime)
+        tvMetric1Label = findViewById(R.id.tvMetric1Label)
+        tvMetric2Label = findViewById(R.id.tvMetric2Label)
+        tvMetric3Label = findViewById(R.id.tvMetric3Label)
+        llActivityDetailsDrawer = findViewById(R.id.llActivityDetailsDrawer)
+        tvDetailElapsed = findViewById(R.id.tvDetailElapsed)
+        tvDetailPaused = findViewById(R.id.tvDetailPaused)
+        tvDetailCalories = findViewById(R.id.tvDetailCalories)
         tvStepCadence = findViewById(R.id.tvStepCadence)
+        tvDetailGpsStatus = findViewById(R.id.tvDetailGpsStatus)
+        tvDetailSource = findViewById(R.id.tvDetailSource)
+        llDetailsPaceSection = findViewById(R.id.llDetailsPaceSection)
         stravaPaceChart = findViewById(R.id.stravaPaceChart)
         llKmSplitsContainer = findViewById(R.id.llKmSplitsContainer)
 
@@ -224,17 +252,21 @@ class ActivityStatsActivity : AppCompatActivity() {
             startActivity(Intent(this, DistanceHistoryActivity::class.java))
         }
 
-        // Running & Walking Performance: View Details
-        findViewById<View>(R.id.tvOpenFullPaceHistory)?.setOnClickListener {
-            if (llKmSplitsContainer.childCount > 0 && !isSplitsExpanded) {
-                isSplitsExpanded = true
-                llKmSplitsContainer.visibility = View.VISIBLE
-                findViewById<TextView>(R.id.tvOpenFullPaceHistory)?.text = "Full Analysis ›"
-            } else {
-                startActivity(Intent(this, DistanceHistoryActivity::class.java))
-            }
+        // Latest Activity Card: Smooth expandable Details drawer + dedicated Full History button
+        val toggleDetailsAction: (View) -> Unit = { v ->
+            SensoryFeedbackEngine.tap(this, v)
+            isDetailsExpanded = !isDetailsExpanded
+            try {
+                android.transition.TransitionManager.beginDelayedTransition(cardStravaTelemetry)
+            } catch (_: Throwable) {}
+            llActivityDetailsDrawer.visibility = if (isDetailsExpanded) View.VISIBLE else View.GONE
+            findViewById<TextView>(R.id.tvOpenFullPaceHistory)?.text =
+                if (isDetailsExpanded) "Hide ⌃" else "Details ⌄"
         }
-        findViewById<View>(R.id.cardStravaTelemetry)?.setOnClickListener {
+        findViewById<View>(R.id.tvOpenFullPaceHistory)?.setOnClickListener(toggleDetailsAction)
+        cardStravaTelemetry.setOnClickListener(toggleDetailsAction)
+        findViewById<View>(R.id.btnOpenDistanceHistory)?.setOnClickListener { v ->
+            SensoryFeedbackEngine.tap(this, v)
             startActivity(Intent(this, DistanceHistoryActivity::class.java))
         }
 
@@ -678,76 +710,146 @@ class ActivityStatsActivity : AppCompatActivity() {
         renderAutoStravaCard(telemetry)
     }
 
+    private fun formatDurationCompact(totalSec: Int): String {
+        if (totalSec <= 0) return "—"
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        return when {
+            h > 0 -> String.format(Locale.US, "%dh %02dm", h, m)
+            m > 0 -> String.format(Locale.US, "%dm %02ds", m, s)
+            else -> "${s}s"
+        }
+    }
+
     private fun renderAutoStravaCard(telemetry: ActivityTelemetryEngine.DayUnifiedTelemetry) {
-        val autoSession = telemetry.autoDetectedSessions.firstOrNull()
+        val session = telemetry.autoDetectedSessions.firstOrNull()
         val viewDetailsTv = findViewById<TextView>(R.id.tvOpenFullPaceHistory)
 
-        if (autoSession != null && autoSession.splits.isNotEmpty()) {
-            tvWalkJogStatusDot.setTextColor(Color.parseColor("#16D99A"))
-            tvAutoWalkJogHeader.text = autoSession.title
-            val m = autoSession.movingSeconds / 60
-            val s = autoSession.movingSeconds % 60
-            val pausePart = if (autoSession.pausedSeconds > 0) {
-                val pm = autoSession.pausedSeconds / 60
-                val ps = autoSession.pausedSeconds % 60
-                val pStr = if (pm > 0) "${pm}m ${ps}s" else "${ps}s"
-                "  •  Auto-Paused $pStr (${autoSession.pauseCount})"
-            } else {
-                ""
+        if (session != null && session.distanceKm >= 0.05 && session.movingSeconds > 0) {
+            val typeLower = session.activityType.lowercase(Locale.US)
+            tvWalkJogStatusDot.text = when {
+                typeLower.contains("cycl") || typeLower.contains("bike") -> "🚴"
+                typeLower.contains("run") || typeLower.contains("jog") -> "🏃"
+                else -> "🚶"
             }
-            val bestPart = if (autoSession.fastestSplitLabel.isNotBlank()) {
-                "  •  ⚡ Best ${autoSession.fastestSplitLabel} @ ${StravaPaceChartView.formatPace(autoSession.fastestSplitPaceSec)}/km"
-            } else {
-                ""
-            }
-            tvAutoWalkJogSummaryLine.text = String.format(
-                Locale.US,
-                "%s  •  %.2f km  •  %d kcal%s%s",
-                autoSession.timeRangeLabel,
-                autoSession.distanceKm,
-                autoSession.caloriesKcal,
-                pausePart,
-                bestPart
-            )
-            tvAvgPace.text = StravaPaceChartView.formatPace(autoSession.avgPaceSecPerKm)
-            tvAvgSpeed.text = String.format(Locale.US, "%.1f", autoSession.avgSpeedKmh)
-            tvMovingTime.text = String.format(Locale.US, "%dm %02ds", m, s)
-            tvStepCadence.text = "${autoSession.cadenceSpm} spm"
 
-            stravaPaceChart.visibility = View.VISIBLE
-            stravaPaceChart.setSplits(
-                autoSession.splits,
-                subtitle = "MOVING PACE CURVE (min/km) • ${autoSession.splits.size} SPLITS"
+            // Compact header: clean simple activity name + secondary source/time subtitle
+            tvAutoWalkJogHeader.text = session.activityType
+            tvAutoWalkJogSummaryLine.text = "${session.sourceType} · ${session.timeRangeLabel}"
+
+            // Show subtle "GPS" status pill ONLY when GPS data was actually recorded for this activity
+            tvSessionGpsBadge.visibility = if (session.gpsRecorded) View.VISIBLE else View.GONE
+            tvSessionGpsBadge.text = "GPS"
+
+            // Hero distance (most prominent element)
+            tvActivityHeroDistance.text = String.format(Locale.US, "%.2f", session.distanceKm)
+            tvActivityHeroUnit.text = "km"
+            tvActivityHeroUnit.visibility = View.VISIBLE
+
+            // Consistent pace & speed from the same distance & moving duration
+            val paceText = if (session.avgPaceSecPerKm > 0f) {
+                "${StravaPaceChartView.formatPace(session.avgPaceSecPerKm)} /km"
+            } else {
+                "—"
+            }
+            val speedText = if (session.avgSpeedKmh > 0f) {
+                String.format(Locale.US, "%.1f km/h", session.avgSpeedKmh)
+            } else {
+                "—"
+            }
+
+            // Activity-specific 3-column metrics
+            if (typeLower.contains("cycl") || typeLower.contains("bike")) {
+                tvMetric1Label.text = "Moving Time"
+                tvMovingTime.text = formatDurationCompact(session.movingSeconds)
+                tvMetric2Label.text = "Avg Speed"
+                tvAvgPace.text = speedText
+                tvMetric3Label.text = "Calories"
+                tvAvgSpeed.text = if (session.caloriesKcal > 0) "${session.caloriesKcal} kcal" else "—"
+            } else {
+                tvMetric1Label.text = "Moving Time"
+                tvMovingTime.text = formatDurationCompact(session.movingSeconds)
+                tvMetric2Label.text = "Avg Pace"
+                tvAvgPace.text = paceText
+                tvMetric3Label.text = "Avg Speed"
+                tvAvgSpeed.text = speedText
+            }
+
+            // Populate secondary expandable Details drawer
+            tvDetailElapsed.text = formatDurationCompact(session.elapsedSeconds)
+            tvDetailPaused.text = if (session.pausedSeconds > 0) {
+                val countSuffix = if (session.pauseCount > 0) " (${session.pauseCount})" else ""
+                "${formatDurationCompact(session.pausedSeconds)}$countSuffix"
+            } else {
+                "None"
+            }
+            tvDetailCalories.text = if (session.caloriesKcal > 0) "${session.caloriesKcal} kcal" else "—"
+            tvStepCadence.text = if (session.cadenceSpm > 0) "${session.cadenceSpm} spm" else "—"
+            tvDetailGpsStatus.text = if (session.gpsRecorded) "GPS Recorded" else "Motion Sensor Only"
+            tvDetailGpsStatus.setTextColor(
+                if (session.gpsRecorded) Color.parseColor("#16D99A") else Color.parseColor("#8995A3")
             )
-            renderKmSplitRows(autoSession.splits, autoSession.avgPaceSecPerKm)
-            llKmSplitsContainer.visibility = if (isSplitsExpanded) View.VISIBLE else View.GONE
-            viewDetailsTv?.text = if (isSplitsExpanded) "Full Analysis ›" else "View Details ›"
+            tvDetailSource.text = session.sourceType
+
+            if (session.hasVerifiedSplits && session.splits.isNotEmpty()) {
+                llDetailsPaceSection.visibility = View.VISIBLE
+                stravaPaceChart.setSplits(
+                    session.splits,
+                    subtitle = "PACE TREND (min/km · lower is faster)"
+                )
+                renderKmSplitRows(session.splits, session.avgPaceSecPerKm)
+            } else {
+                llDetailsPaceSection.visibility = View.GONE
+                llKmSplitsContainer.removeAllViews()
+            }
+
+            llActivityDetailsDrawer.visibility = if (isDetailsExpanded) View.VISIBLE else View.GONE
+            viewDetailsTv?.text = if (isDetailsExpanded) "Hide ⌃" else "Details ⌄"
         } else {
-            // Professional compact empty state — hide empty chart and splits so zero screen space is wasted
-            tvWalkJogStatusDot.setTextColor(Color.parseColor("#8995A3"))
-            tvAutoWalkJogHeader.text = "Walking & Running Performance"
+            // Clean compact empty / light-movement state without fabricated zeros
+            tvWalkJogStatusDot.text = "🚶"
+            tvAutoWalkJogHeader.text = if (telemetry.totalSteps > 0) "Daily Movement" else "Activity"
             tvAutoWalkJogSummaryLine.text = if (telemetry.totalSteps > 0) {
-                "Light intermittent movement today • Walk continuously for 1+ min to generate pace splits"
+                "Auto-detected · Short walks today"
             } else {
-                "No continuous walk or run recorded today • Auto-detects pace, speed & splits as you move"
+                "No continuous activity recorded yet today"
             }
-            tvAvgPace.text = if (telemetry.avgPaceSecPerKm > 0f && telemetry.totalDistanceKm >= 0.05) {
-                StravaPaceChartView.formatPace(telemetry.avgPaceSecPerKm)
-            } else {
-                "—:—"
-            }
-            tvAvgSpeed.text = if (telemetry.totalDistanceKm >= 0.05) {
-                String.format(Locale.US, "%.1f", telemetry.avgSpeedKmh)
-            } else {
-                "0.0"
-            }
-            tvMovingTime.text = if (telemetry.totalMoveMinutes > 0) "${telemetry.totalMoveMinutes}m 00s" else "0m 00s"
-            tvStepCadence.text = if (telemetry.totalSteps > 0) "${telemetry.cadenceSpm} spm" else "— spm"
+            tvSessionGpsBadge.visibility = View.GONE
 
-            stravaPaceChart.visibility = View.GONE
+            if (telemetry.totalDistanceKm >= 0.05) {
+                tvActivityHeroDistance.text = String.format(Locale.US, "%.2f", telemetry.totalDistanceKm)
+                tvActivityHeroUnit.text = "km"
+                tvActivityHeroUnit.visibility = View.VISIBLE
+            } else if (telemetry.totalSteps > 0) {
+                tvActivityHeroDistance.text = formatSteps(telemetry.totalSteps)
+                tvActivityHeroUnit.text = "steps"
+                tvActivityHeroUnit.visibility = View.VISIBLE
+            } else {
+                tvActivityHeroDistance.text = "—"
+                tvActivityHeroUnit.visibility = View.GONE
+            }
+
+            // Activity-appropriate fallback columns (no misleading 0.0 km/h or 0m 00s)
+            tvMetric1Label.text = "Active Time"
+            tvMovingTime.text = if (telemetry.totalMoveMinutes > 0) "${telemetry.totalMoveMinutes}m" else "—"
+            tvMetric2Label.text = "Steps"
+            tvAvgPace.text = if (telemetry.totalSteps > 0) formatSteps(telemetry.totalSteps) else "—"
+            tvMetric3Label.text = "Calories"
+            tvAvgSpeed.text = if (telemetry.totalCaloriesKcal > 0) "${telemetry.totalCaloriesKcal} kcal" else "—"
+
+            tvDetailElapsed.text = if (telemetry.totalMoveMinutes > 0) "${telemetry.totalMoveMinutes}m" else "—"
+            tvDetailPaused.text = "—"
+            tvDetailCalories.text = if (telemetry.totalCaloriesKcal > 0) "${telemetry.totalCaloriesKcal} kcal" else "—"
+            tvStepCadence.text = if (telemetry.cadenceSpm > 0) "${telemetry.cadenceSpm} spm" else "—"
+            tvDetailGpsStatus.text = "Motion Sensor Only"
+            tvDetailGpsStatus.setTextColor(Color.parseColor("#8995A3"))
+            tvDetailSource.text = "Auto-detected"
+
+            llDetailsPaceSection.visibility = View.GONE
             llKmSplitsContainer.removeAllViews()
-            llKmSplitsContainer.visibility = View.GONE
-            viewDetailsTv?.text = "View Details ›"
+            llActivityDetailsDrawer.visibility = if (isDetailsExpanded) View.VISIBLE else View.GONE
+            viewDetailsTv?.text = if (isDetailsExpanded) "Hide ⌃" else "Details ⌄"
         }
     }
 

@@ -494,16 +494,19 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- D. RUNNING & WALKING PERFORMANCE (Compact + Dynamic Empty/Active State) -->
+        <!-- D. LATEST ACTIVITY CARD (Minimal 2-Second Hierarchy + Expandable Details) -->
         <LinearLayout
             android:id="@+id/cardStravaTelemetry"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="10dp"
             android:background="@drawable/bg_fitness_surface"
+            android:clickable="true"
+            android:focusable="true"
             android:orientation="vertical"
-            android:padding="14dp">
+            android:padding="16dp">
 
+            <!-- Compact Header: Icon + Simple Activity Name + Source/Time + GPS Recorded Pill + Details Toggle -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -512,37 +515,58 @@
 
                 <TextView
                     android:id="@+id/tvWalkJogStatusDot"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:text="●"
-                    android:textColor="#8995A3"
-                    android:textSize="11sp" />
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="11dp"
+                    android:background="@drawable/bg_fitness_surface_secondary"
+                    android:gravity="center"
+                    android:text="🚶"
+                    android:textColor="#16D99A"
+                    android:textSize="16sp" />
 
-                <TextView
-                    android:id="@+id/tvAutoWalkJogHeader"
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Walking &amp; Running Performance"
-                    android:textColor="#F1F5F9"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvAutoWalkJogHeader"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Activity"
+                        android:textColor="#F1F5F9"
+                        android:textSize="15.5sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvAutoWalkJogSummaryLine"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Auto-detected · No session yet today"
+                        android:textColor="#8995A3"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
 
                 <TextView
-                    android:id="@+id/tvOutdoorGpsPill"
+                    android:id="@+id/tvSessionGpsBadge"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
                     android:background="@drawable/bg_fitness_pill"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:paddingHorizontal="8dp"
+                    android:paddingHorizontal="7dp"
                     android:paddingVertical="3dp"
-                    android:text="📍 GPS Off"
-                    android:textColor="#27C7C9"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold" />
+                    android:text="GPS"
+                    android:textColor="#16D99A"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/tvOpenFullPaceHistory"
@@ -550,32 +574,83 @@
                     android:layout_height="wrap_content"
                     android:clickable="true"
                     android:focusable="true"
-                    android:padding="2dp"
-                    android:text="View Details ›"
+                    android:minHeight="32dp"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="4dp"
+                    android:text="Details ⌄"
                     android:textColor="#27C7C9"
                     android:textSize="11.5sp"
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvAutoWalkJogSummaryLine"
+            <!-- Primary Hero Metric: Distance -->
+            <LinearLayout
+                android:id="@+id/llHeroDistanceRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:layout_marginBottom="10dp"
-                android:text="No continuous walk or jog detected yet today • Auto-detects 1+ min sessions"
-                android:textColor="#8995A3"
-                android:textSize="11.5sp" />
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="12dp"
+                android:gravity="bottom"
+                android:orientation="horizontal">
 
-            <!-- Compact 4-Column Performance Strip -->
+                <TextView
+                    android:id="@+id/tvActivityHeroDistance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFeatureSettings="tnum"
+                    android:includeFontPadding="false"
+                    android:text="—"
+                    android:textColor="#F1F5F9"
+                    android:textSize="30sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvActivityHeroUnit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
+                    android:layout_marginBottom="3dp"
+                    android:text="km"
+                    android:textColor="#8995A3"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Essential 3-Column Metrics Strip -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_fitness_surface_secondary"
                 android:orientation="horizontal"
-                android:paddingHorizontal="10dp"
-                android:paddingVertical="8dp"
-                android:weightSum="4">
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="10dp"
+                android:weightSum="3">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvMovingTime"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="—"
+                        android:textColor="#F1F5F9"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvMetric1Label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Moving Time"
+                        android:textColor="#8995A3"
+                        android:textSize="10.5sp" />
+                </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -587,17 +662,20 @@
                         android:id="@+id/tvAvgPace"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="—:—"
-                        android:textColor="#F1F5F9"
+                        android:fontFeatureSettings="tnum"
+                        android:text="—"
+                        android:textColor="#16D99A"
                         android:textSize="15sp"
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/tvMetric2Label"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Pace /km"
+                        android:layout_marginTop="2dp"
+                        android:text="Avg Pace"
                         android:textColor="#8995A3"
-                        android:textSize="9.5sp" />
+                        android:textSize="10.5sp" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -610,82 +688,251 @@
                         android:id="@+id/tvAvgSpeed"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0.0"
+                        android:fontFeatureSettings="tnum"
+                        android:text="—"
                         android:textColor="#27C7C9"
                         android:textSize="15sp"
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/tvMetric3Label"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Speed km/h"
+                        android:layout_marginTop="2dp"
+                        android:text="Avg Speed"
                         android:textColor="#8995A3"
-                        android:textSize="9.5sp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/tvMovingTime"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0m 00s"
-                        android:textColor="#F1F5F9"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Moving Time"
-                        android:textColor="#8995A3"
-                        android:textSize="9.5sp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/tvStepCadence"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0 spm"
-                        android:textColor="#16D99A"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Cadence"
-                        android:textColor="#8995A3"
-                        android:textSize="9.5sp" />
+                        android:textSize="10.5sp" />
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Compact Pace Curve Preview: Hidden when there is no session data so there is zero wasted empty space -->
-            <com.focusguardpro.app.StravaPaceChartView
-                android:id="@+id/stravaPaceChart"
-                android:layout_width="match_parent"
-                android:layout_height="96dp"
-                android:layout_marginTop="10dp"
-                android:visibility="gone" />
-
-            <!-- Expandable Kilometer Splits Container (Shown when user taps View Details or when splits are expanded) -->
+            <!-- Secondary Expandable Details Drawer (Collapsed by default) -->
             <LinearLayout
-                android:id="@+id/llKmSplitsContainer"
+                android:id="@+id/llActivityDetailsDrawer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:orientation="vertical"
-                android:visibility="gone" />
+                android:visibility="gone">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginBottom="12dp"
+                    android:background="#1E2B38" />
+
+                <!-- Timing & Supporting Metrics Row 1 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp"
+                    android:orientation="horizontal"
+                    android:weightSum="2">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Elapsed Time"
+                            android:textColor="#8995A3"
+                            android:textSize="10.5sp" />
+
+                        <TextView
+                            android:id="@+id/tvDetailElapsed"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFeatureSettings="tnum"
+                            android:text="—"
+                            android:textColor="#F1F5F9"
+                            android:textSize="13.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Paused"
+                            android:textColor="#8995A3"
+                            android:textSize="10.5sp" />
+
+                        <TextView
+                            android:id="@+id/tvDetailPaused"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFeatureSettings="tnum"
+                            android:text="—"
+                            android:textColor="#F1F5F9"
+                            android:textSize="13.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Supporting Metrics Row 2 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp"
+                    android:orientation="horizontal"
+                    android:weightSum="2">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Calories"
+                            android:textColor="#8995A3"
+                            android:textSize="10.5sp" />
+
+                        <TextView
+                            android:id="@+id/tvDetailCalories"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFeatureSettings="tnum"
+                            android:text="—"
+                            android:textColor="#F1F5F9"
+                            android:textSize="13.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Cadence"
+                            android:textColor="#8995A3"
+                            android:textSize="10.5sp" />
+
+                        <TextView
+                            android:id="@+id/tvStepCadence"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFeatureSettings="tnum"
+                            android:text="—"
+                            android:textColor="#F1F5F9"
+                            android:textSize="13.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Recording Metadata Row 3 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp"
+                    android:orientation="horizontal"
+                    android:weightSum="2">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="GPS Data"
+                            android:textColor="#8995A3"
+                            android:textSize="10.5sp" />
+
+                        <TextView
+                            android:id="@+id/tvDetailGpsStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="—"
+                            android:textColor="#F1F5F9"
+                            android:textSize="12.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Recording Source"
+                            android:textColor="#8995A3"
+                            android:textSize="10.5sp" />
+
+                        <TextView
+                            android:id="@+id/tvDetailSource"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="—"
+                            android:textColor="#F1F5F9"
+                            android:textSize="12.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Pace Analysis (Shown inside Details ONLY when verified splits exist) -->
+                <LinearLayout
+                    android:id="@+id/llDetailsPaceSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <com.focusguardpro.app.StravaPaceChartView
+                        android:id="@+id/stravaPaceChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="128dp"
+                        android:layout_marginTop="4dp" />
+
+                    <LinearLayout
+                        android:id="@+id/llKmSplitsContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/btnOpenDistanceHistory"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_fitness_surface_secondary"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:minHeight="40dp"
+                    android:paddingVertical="9dp"
+                    android:text="Open Full Pace &amp; Activity History ›"
+                    android:textColor="#27C7C9"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- E. WEEKLY ACTIVITY VISUALIZATION (Compact & Proportional) -->
@@ -1022,6 +1269,37 @@
                 </LinearLayout>
 
                 <!-- 3. Optional GPS Configuration -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Outdoor GPS Verification"
+                        android:textColor="#F1F5F9"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvOutdoorGpsPill"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_fitness_pill"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:paddingHorizontal="9dp"
+                        android:paddingVertical="4dp"
+                        android:text="GPS Off"
+                        android:textColor="#27C7C9"
+                        android:textSize="10.5sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
                 <TextView
                     android:id="@id/tvGpsExplainer"
                     android:layout_width="match_parent"

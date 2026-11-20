@@ -117,9 +117,9 @@ class StravaPaceChartView @JvmOverloads constructor(
         gridPaint.color = gridColor
         avgLinePaint.color = accentTeal
 
-        val padLeft = 10f * density
-        val padRight = 10f * density
-        val padTop = 28f * density
+        val padLeft = 44f * density
+        val padRight = 12f * density
+        val padTop = 30f * density
         val padBottom = 22f * density
 
         val chartW = (w - padLeft - padRight).coerceAtLeast(1f)
@@ -127,16 +127,10 @@ class StravaPaceChartView @JvmOverloads constructor(
 
         labelPaint.color = textSecondary
         labelPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText(chartSubtitle, padLeft, 15f * density, labelPaint)
+        canvas.drawText(chartSubtitle, 6f * density, 15f * density, labelPaint)
 
         if (splits.isEmpty()) {
             return
-        }
-
-        // Subtle 2-line horizontal reference grid
-        for (i in 0..2) {
-            val y = padTop + (chartH * i / 2f)
-            canvas.drawLine(padLeft, y, w - padRight, y, gridPaint)
         }
 
         val paces = splits.map { it.paceSecondsPerKm.coerceIn(120f, 1800f) }
@@ -147,9 +141,20 @@ class StravaPaceChartView @JvmOverloads constructor(
         val maxBound = slowestPace + paceSpan * 0.22f
         val avgPace = paces.average().toFloat()
 
+        // Lower min/km = faster movement = higher position on the Y-axis
         fun paceToY(paceSec: Float): Float {
             val normalized = ((maxBound - paceSec.coerceIn(minBound, maxBound)) / (maxBound - minBound)).coerceIn(0f, 1f)
             return padTop + chartH * (1f - normalized)
+        }
+
+        // Numerical Y-axis reference grid (Top = faster pace / lower min/km, Bottom = slower pace)
+        val yTicks = floatArrayOf(minBound, (minBound + maxBound) / 2f, maxBound)
+        labelPaint.textAlign = Paint.Align.RIGHT
+        yTicks.forEachIndexed { i, tickPace ->
+            val y = padTop + (chartH * i / 2f)
+            canvas.drawLine(padLeft, y, w - padRight, y, gridPaint)
+            labelPaint.color = if (i == 0) accentEmerald else textSecondary
+            canvas.drawText(formatPace(tickPace), padLeft - 6f * density, y + 3.5f * density, labelPaint)
         }
 
         val count = splits.size
@@ -183,6 +188,9 @@ class StravaPaceChartView @JvmOverloads constructor(
 
         val avgY = paceToY(avgPace)
         canvas.drawLine(padLeft, avgY, w - padRight, avgY, avgLinePaint)
+        labelPaint.color = accentTeal
+        labelPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("Avg ${formatPace(avgPace)}", w - padRight, avgY - 4f * density, labelPaint)
 
         curvePath.reset()
         fillPath.reset()

@@ -126,8 +126,8 @@ object ActivityTelemetryEngine {
     )
 
     data class AutoDetectedJogSession(
-        val title: String,            // e.g. "Auto-Detected Morning Walk / Jog"
-        val timeRangeLabel: String,   // e.g. "6:00 – 6:22 AM"
+        val title: String,            // Clean simple name: "Walking", "Jogging", "Running", "Cycling"
+        val timeRangeLabel: String,   // e.g. "4:49 PM – 5:38 PM"
         val distanceKm: Double,
         val durationSeconds: Int,
         val avgPaceSecPerKm: Float,
@@ -141,7 +141,12 @@ object ActivityTelemetryEngine {
         val pauseCount: Int = 0,
         val fastestSplitLabel: String = "",
         val fastestSplitPaceSec: Float = avgPaceSecPerKm,
-        val paceZones: PaceZoneBreakdown = PaceZoneBreakdown()
+        val paceZones: PaceZoneBreakdown = PaceZoneBreakdown(),
+        val activityType: String = "Walking",
+        val sourceType: String = "Auto-detected",
+        val gpsRecorded: Boolean = false,
+        val steps: Int = 0,
+        val hasVerifiedSplits: Boolean = false
     )
 
     data class DayUnifiedTelemetry(
@@ -461,12 +466,14 @@ object ActivityTelemetryEngine {
         val pausedMillis: Long,
         val pauseCount: Int,
         val steps: Int,
-        val distanceKm: Double
+        val distanceKm: Double,
+        val hasGpsData: Boolean
     )
 
     /**
      * Stitches consecutive movement bursts separated by short stops (<= 3 min) into a single
-     * continuous run/walk while preserving exact Moving Time, Elapsed Time, and Auto-Pause count.
+     * continuous run/walk while preserving exact Moving Time, Elapsed Time, Auto-Pause count,
+     * and whether actual GPS distance data was recorded during the session.
      * Also clamps physically impossible GPS multipath jumps (> 24 km/h) back to calibrated stride distance.
      */
     private fun stitchWalkSessions(rawSessions: List<DistanceHelper.WalkSession>): List<StitchedSession> {
@@ -495,12 +502,14 @@ object ActivityTelemetryEngine {
         var curPauses = 0
         var curSteps = sorted[0].steps
         var curKm = sanitizeDistanceKm(sorted[0])
+        var curHasGps = (sorted[0].gpsDistanceMeters ?: 0.0) >= 15.0
 
         for (i in 1 until sorted.size) {
             val next = sorted[i]
             val nextDur = next.durationMillis.coerceAtLeast(15_000L)
             val nextEnd = next.startTime + nextDur
             val nextKm = sanitizeDistanceKm(next)
+            val nextHasGps = (next.gpsDistanceMeters ?: 0.0) >= 15.0
             val gap = next.startTime - curEnd
 
             if (gap in -10_000L..maxPauseGapMs) {
@@ -512,8 +521,9 @@ object ActivityTelemetryEngine {
                 curEnd = max(curEnd, nextEnd)
                 curSteps += next.steps
                 curKm += nextKm
+                curHasGps = curHasGps || nextHasGps
             } else {
-                stitched.add(StitchedSession(curStart, curEnd, curMoving, curPaused, curPauses, curSteps, curKm))
+                stitched.add(StitchedSession(curStart, curEnd, curMoving, curPaused, curPauses, curSteps, curKm, curHasGps))
                 curStart = next.startTime
                 curMoving = nextDur
                 curEnd = nextEnd
@@ -521,9 +531,10 @@ object ActivityTelemetryEngine {
                 curPauses = 0
                 curSteps = next.steps
                 curKm = nextKm
+                curHasGps = nextHasGps
             }
         }
-        stitched.add(StitchedSession(curStart, curEnd, curMoving, curPaused, curPauses, curSteps, curKm))
+        stitched.add(StitchedSession(curStart, curEnd, curMoving, curPaused, curPauses, curSteps, curKm, curHasGps))
         return stitched
     }
 
@@ -558,35 +569,64 @@ object ActivityTelemetryEngine {
 
         // 1. Stitch nearby bursts (auto-pause <= 3 min) and convert qualifying walks/runs
         val stitchedList = stitchWalkSessions(rawSessions)
-        stitchedList.filter { it.distanceKm >= 0.25 || it.movingMillis >= 180_000L }
+        stitchedList.filter { it.distanceKm >= 0.15 || it.movingMillis >= 120_000L }
             .sortedByDescending { it.distanceKm }
             .take(3)
             .forEach { s ->
-                val km = s.distanceKm.coerceAtLeast(0.1)
-                val movingSec = (s.movingMillis / 1000L).toInt().coerceAtLeast(60)
-                val pausedSec = (s.pausedMillis / 1000L).toInt().coerceAtLeast(0)
-                val elapsedSec = max(movingSec + pausedSec, ((s.endTime - s.startTime) / 1000L).toInt())
-                // Strava-grade pace uses MOVING time so stoplights/water breaks never inflate pace!
-                val paceSec = (movingSec / km).toFloat().coerceIn(180f, 1100f)
-                val speedKmh = (3600f / paceSec).coerceIn(2.5f, 24f)
-                val cadence = ((s.steps * 60.0) / movingSec).roundToInt().coerceIn(80, 195)
-                val kcal = (km * 58.0).roundToInt().coerceAtLeast(15)
-                val isRun = paceSec < 360f || cadence >= 152
-                val isJog = paceSec < 450f || cadence >= 130
-                val title = when {
-                    isRun -> "Auto-Detected Run (Strava Telemetry)"
-                    isJog -> "Auto-Detected Continuous Jog (Strava Telemetry)"
-                    else -> "Auto-Detected Continuous Walk (Strava Telemetry)"
+                val km = s.distanceKm.coerceAtLeast(0.0)
+                val movingSec = (s.movingMillis / 1000L).toInt().coerceAtLeast(15)
+                val rawElapsedSec = ((s.endTime - s.startTime) / 1000L).toInt().coerceAtLeast(movingSec)
+                val trackedPausedSec = (s.pausedMillis / 1000L).toInt().coerceAtLeast(0)
+                val elapsedSec = max(movingSec + trackedPausedSec, rawElapsedSec)
+                // Always keep elapsed == moving + paused mathematically consistent
+                val pausedSec = (elapsedSec - movingSec).coerceAtLeast(0)
+
+                // Derive pace and speed consistently from the exact same distance & moving time
+                val paceSec = if (km >= 0.05 && movingSec > 0) {
+                    (movingSec / km).toFloat().coerceIn(150f, 1800f)
+                } else {
+                    0f
                 }
+                val speedKmh = if (paceSec > 0f) {
+                    3600f / paceSec
+                } else {
+                    0f
+                }
+                // Only compute cadence when genuine step count exists (never invent cadence)
+                val cadence = if (s.steps > 0 && movingSec >= 30) {
+                    ((s.steps * 60.0) / movingSec).roundToInt().coerceIn(40, 220)
+                } else {
+                    0
+                }
+                // Only compute calories when distance or steps are meaningful
+                val kcal = when {
+                    km >= 0.05 -> (km * 58.0).roundToInt().coerceAtLeast(1)
+                    s.steps > 0 -> (s.steps * 0.045).roundToInt().coerceAtLeast(1)
+                    else -> 0
+                }
+
+                val isRun = paceSec in 150f..359f || cadence >= 152
+                val isJog = paceSec in 360f..449f || cadence >= 130
+                val activityName = when {
+                    isRun -> "Running"
+                    isJog -> "Jogging"
+                    else -> "Walking"
+                }
+
                 val startStr = DistanceHelper.formatSessionTime(s.startTime)
                 val endStr = DistanceHelper.formatSessionTime(s.endTime)
-                val splits = generateSplitsForSession(km, paceSec, cadence)
+                val hasVerifiedSplits = km >= 0.35 && paceSec > 0f
+                val splits = if (hasVerifiedSplits) {
+                    generateSplitsForSession(km, paceSec, if (cadence > 0) cadence else 100)
+                } else {
+                    emptyList()
+                }
                 val fastest = splits.minByOrNull { it.paceSecondsPerKm }
                 val zones = computePaceZones(splits)
 
                 result.add(
                     AutoDetectedJogSession(
-                        title = title,
+                        title = activityName,
                         timeRangeLabel = "$startStr – $endStr",
                         distanceKm = km,
                         durationSeconds = movingSec,
@@ -598,10 +638,15 @@ object ActivityTelemetryEngine {
                         movingSeconds = movingSec,
                         elapsedSeconds = elapsedSec,
                         pausedSeconds = pausedSec,
-                        pauseCount = s.pauseCount,
+                        pauseCount = if (pausedSec > 0) s.pauseCount.coerceAtLeast(1) else 0,
                         fastestSplitLabel = fastest?.splitLabel ?: "",
                         fastestSplitPaceSec = fastest?.paceSecondsPerKm ?: paceSec,
-                        paceZones = zones
+                        paceZones = zones,
+                        activityType = activityName,
+                        sourceType = "Auto-detected",
+                        gpsRecorded = s.hasGpsData,
+                        steps = s.steps,
+                        hasVerifiedSplits = hasVerifiedSplits
                     )
                 )
             }
@@ -613,21 +658,35 @@ object ActivityTelemetryEngine {
                 .take(2)
                 .forEach { w ->
                     val durSec = (w.moveMinutes * 60).coerceAtLeast(60)
-                    val paceSec = (durSec / w.distanceKm).toFloat().coerceIn(210f, 1050f)
-                    val speedKmh = (3600f / paceSec).coerceIn(2.5f, 22f)
-                    val cadence = (w.steps / w.moveMinutes.coerceAtLeast(1)).coerceIn(85, 185)
-                    val isJog = paceSec < 450f || cadence >= 130
-                    val title = if (isJog) {
-                        "Auto-Detected Continuous Jog (${w.windowRangeLabel})"
+                    val paceSec = if (w.distanceKm >= 0.05) {
+                        (durSec / w.distanceKm).toFloat().coerceIn(180f, 1800f)
                     } else {
-                        "Auto-Detected Continuous Walk (${w.windowRangeLabel})"
+                        0f
                     }
-                    val splits = generateSplitsForSession(w.distanceKm, paceSec, cadence)
+                    val speedKmh = if (paceSec > 0f) 3600f / paceSec else 0f
+                    val cadence = if (w.steps > 0 && w.moveMinutes > 0) {
+                        (w.steps / w.moveMinutes).coerceIn(40, 220)
+                    } else {
+                        0
+                    }
+                    val isRun = paceSec in 150f..359f || cadence >= 152
+                    val isJog = paceSec in 360f..449f || cadence >= 130
+                    val activityName = when {
+                        isRun -> "Running"
+                        isJog -> "Jogging"
+                        else -> "Walking"
+                    }
+                    val hasVerifiedSplits = w.distanceKm >= 0.35 && paceSec > 0f
+                    val splits = if (hasVerifiedSplits) {
+                        generateSplitsForSession(w.distanceKm, paceSec, if (cadence > 0) cadence else 100)
+                    } else {
+                        emptyList()
+                    }
                     val fastest = splits.minByOrNull { it.paceSecondsPerKm }
                     val zones = computePaceZones(splits)
                     result.add(
                         AutoDetectedJogSession(
-                            title = title,
+                            title = activityName,
                             timeRangeLabel = w.windowRangeLabel,
                             distanceKm = w.distanceKm,
                             durationSeconds = durSec,
@@ -642,7 +701,12 @@ object ActivityTelemetryEngine {
                             pauseCount = 0,
                             fastestSplitLabel = fastest?.splitLabel ?: "",
                             fastestSplitPaceSec = fastest?.paceSecondsPerKm ?: paceSec,
-                            paceZones = zones
+                            paceZones = zones,
+                            activityType = activityName,
+                            sourceType = "Auto-detected",
+                            gpsRecorded = false,
+                            steps = w.steps,
+                            hasVerifiedSplits = hasVerifiedSplits
                         )
                     )
                 }

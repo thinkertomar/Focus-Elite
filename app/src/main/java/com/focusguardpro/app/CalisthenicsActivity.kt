@@ -101,6 +101,16 @@ class CalisthenicsActivity : AppCompatActivity() {
     private lateinit var btnRepeatSetRow: Button
     private lateinit var setAdapter: WorkoutSetAdapter
 
+    // Start Workout + 3-2-1-GO! Countdown Overlay
+    private lateinit var btnStartWorkoutCountdown: Button
+    private lateinit var btnQuickCountdown: Button
+    private lateinit var layoutCountdownOverlay: View
+    private lateinit var viewCountdownRing: View
+    private lateinit var tvCountdownExercise: TextView
+    private lateinit var tvCountdownNumber: TextView
+    private lateinit var tvCountdownSub: TextView
+    private var countdownJob: Job? = null
+
     // Rest timer
     private lateinit var layoutRestTimer: View
     private lateinit var tvRestTimerStatus: TextView
@@ -147,6 +157,9 @@ class CalisthenicsActivity : AppCompatActivity() {
     private val session = LinkedHashMap<String, SessionExercise>()
     private var activeSets: MutableList<ActiveWorkoutSet> = mutableListOf()
     private var sessionStartMs = 0L
+    private var accumulatedWorkoutMs = 0L
+    private var isWorkoutActive = false
+    private var isWorkoutPaused = false
     private var isInstructionsExpanded = false
 
     private var activeEquipmentFilter = "All"
@@ -206,6 +219,7 @@ class CalisthenicsActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         restTimerJob?.cancel()
+        countdownJob?.cancel()
     }
 
     // ------------------------------------------------------------------
@@ -244,6 +258,14 @@ class CalisthenicsActivity : AppCompatActivity() {
         rvWorkoutSets = findViewById(R.id.rvWorkoutSets)
         btnAddSetRow = findViewById(R.id.btnAddSetRow)
         btnRepeatSetRow = findViewById(R.id.btnRepeatSetRow)
+
+        btnStartWorkoutCountdown = findViewById(R.id.btnStartWorkoutCountdown)
+        btnQuickCountdown = findViewById(R.id.btnQuickCountdown)
+        layoutCountdownOverlay = findViewById(R.id.layoutCountdownOverlay)
+        viewCountdownRing = findViewById(R.id.viewCountdownRing)
+        tvCountdownExercise = findViewById(R.id.tvCountdownExercise)
+        tvCountdownNumber = findViewById(R.id.tvCountdownNumber)
+        tvCountdownSub = findViewById(R.id.tvCountdownSub)
 
         layoutRestTimer = findViewById(R.id.layoutRestTimer)
         tvRestTimerStatus = findViewById(R.id.tvRestTimerStatus)
@@ -319,6 +341,22 @@ class CalisthenicsActivity : AppCompatActivity() {
             if (sourceIdx >= 0) {
                 repeatSetAt(sourceIdx, markCompleted = true)
             }
+        }
+
+        btnStartWorkoutCountdown.setOnClickListener { v ->
+            SensoryFeedbackEngine.tap(this, v)
+            when {
+                !isWorkoutActive -> launchWorkoutCountdown(startClockAfter = true)
+                !isWorkoutPaused -> pauseWorkoutClock()
+                else -> resumeWorkoutClock()
+            }
+        }
+        btnQuickCountdown.setOnClickListener { v ->
+            SensoryFeedbackEngine.tap(this, v)
+            launchWorkoutCountdown(startClockAfter = !isWorkoutActive || isWorkoutPaused)
+        }
+        layoutCountdownOverlay.setOnClickListener {
+            skipWorkoutCountdown()
         }
 
         btnRestPlus15.setOnClickListener {
@@ -514,7 +552,7 @@ class CalisthenicsActivity : AppCompatActivity() {
             sets = activeSets,
             onSetToggled = { set, isCompleted ->
                 if (isCompleted) {
-                    if (sessionStartMs == 0L) sessionStartMs = System.currentTimeMillis()
+                    ensureWorkoutClockRunning()
                     window.decorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     Toast.makeText(
                         this@CalisthenicsActivity,
@@ -570,8 +608,8 @@ class CalisthenicsActivity : AppCompatActivity() {
     private fun repeatSetAt(position: Int, markCompleted: Boolean) {
         if (position !in activeSets.indices) return
         val source = activeSets[position]
-        if (markCompleted && sessionStartMs == 0L) {
-            sessionStartMs = System.currentTimeMillis()
+        if (markCompleted) {
+            ensureWorkoutClockRunning()
         }
         val insertIndex = (position + 1).coerceAtMost(activeSets.size)
         val repeated = ActiveWorkoutSet(
@@ -696,6 +734,154 @@ class CalisthenicsActivity : AppCompatActivity() {
         pbRest.progress = remainingRestSeconds.coerceAtLeast(0)
     }
 
+    private fun ensureWorkoutClockRunning() {
+        if (!isWorkoutActive) {
+            isWorkoutActive = true
+            isWorkoutPaused = false
+            sessionStartMs = System.currentTimeMillis()
+            updateStartWorkoutButtonUi()
+        } else if (isWorkoutPaused) {
+            resumeWorkoutClock()
+        }
+    }
+
+    private fun pauseWorkoutClock() {
+        if (!isWorkoutActive || isWorkoutPaused) return
+        if (sessionStartMs > 0L) {
+            accumulatedWorkoutMs += (System.currentTimeMillis() - sessionStartMs).coerceAtLeast(0L)
+        }
+        sessionStartMs = 0L
+        isWorkoutPaused = true
+        updateStartWorkoutButtonUi()
+        renderElapsed()
+    }
+
+    private fun resumeWorkoutClock() {
+        isWorkoutActive = true
+        isWorkoutPaused = false
+        sessionStartMs = System.currentTimeMillis()
+        updateStartWorkoutButtonUi()
+        renderElapsed()
+    }
+
+    private fun updateStartWorkoutButtonUi() {
+        if (!::btnStartWorkoutCountdown.isInitialized) return
+        btnStartWorkoutCountdown.setTextColor(Color.WHITE)
+        when {
+            !isWorkoutActive -> {
+                btnStartWorkoutCountdown.text = "▶  Start Workout (3·2·1)"
+                btnStartWorkoutCountdown.backgroundTintList =
+                    android.content.res.ColorStateList.valueOf(Color.parseColor("#10B981"))
+                btnQuickCountdown.visibility = View.GONE
+            }
+            isWorkoutPaused -> {
+                btnStartWorkoutCountdown.text = "▶  Resume Workout"
+                btnStartWorkoutCountdown.backgroundTintList =
+                    android.content.res.ColorStateList.valueOf(Color.parseColor("#10B981"))
+                btnQuickCountdown.visibility = View.VISIBLE
+            }
+            else -> {
+                btnStartWorkoutCountdown.text = "⏸  Pause Workout  ·  LIVE"
+                btnStartWorkoutCountdown.backgroundTintList =
+                    android.content.res.ColorStateList.valueOf(Color.parseColor("#F59E0B"))
+                btnQuickCountdown.visibility = View.VISIBLE
+            }
+        }
+    }
+
+    private fun launchWorkoutCountdown(startClockAfter: Boolean) {
+        countdownJob?.cancel()
+        val exName = currentExercise?.name?.uppercase(Locale.US) ?: "WORKOUT"
+        tvCountdownExercise.text = "$exName · GET READY"
+        layoutCountdownOverlay.alpha = 0f
+        layoutCountdownOverlay.visibility = View.VISIBLE
+        layoutCountdownOverlay.animate().alpha(1f).setDuration(180L).start()
+
+        val density = resources.displayMetrics.density
+        val steps = listOf(
+            Triple("3", "Get into position", Color.parseColor("#A78BFA")),
+            Triple("2", "Brace your core & focus", Color.parseColor("#38BDF8")),
+            Triple("1", "Deep breath — ready...", Color.parseColor("#F59E0B")),
+            Triple("GO!", "Let's crush this set!", Color.parseColor("#16D99A"))
+        )
+
+        countdownJob = lifecycleScope.launch {
+            steps.forEachIndexed { idx, (label, cue, accentColor) ->
+                tvCountdownNumber.text = label
+                tvCountdownNumber.textSize = if (label == "GO!") 68f else 86f
+                tvCountdownNumber.setTextColor(accentColor)
+                tvCountdownSub.text = cue
+                tvCountdownSub.setTextColor(if (label == "GO!") accentColor else Color.parseColor("#CBD5E1"))
+
+                viewCountdownRing.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(Color.argb(34, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)))
+                    setStroke((4f * density).toInt(), accentColor)
+                }
+
+                // Punchy spring pop-in animation for each beat
+                tvCountdownNumber.animate().cancel()
+                tvCountdownNumber.scaleX = 0.42f
+                tvCountdownNumber.scaleY = 0.42f
+                tvCountdownNumber.alpha = 0f
+                tvCountdownNumber.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .alpha(1f)
+                    .setDuration(320L)
+                    .setInterpolator(android.view.animation.OvershootInterpolator(2.1f))
+                    .start()
+
+                viewCountdownRing.animate().cancel()
+                viewCountdownRing.scaleX = 0.80f
+                viewCountdownRing.scaleY = 0.80f
+                viewCountdownRing.animate()
+                    .scaleX(1.06f)
+                    .scaleY(1.06f)
+                    .setDuration(380L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator())
+                    .start()
+
+                if (idx < 3) {
+                    SensoryFeedbackEngine.restCountdownTick(this@CalisthenicsActivity, 3 - idx)
+                    delay(880L)
+                } else {
+                    SensoryFeedbackEngine.restComplete(this@CalisthenicsActivity, layoutCountdownOverlay)
+                    delay(680L)
+                }
+            }
+
+            layoutCountdownOverlay.animate()
+                .alpha(0f)
+                .setDuration(220L)
+                .withEndAction {
+                    layoutCountdownOverlay.visibility = View.GONE
+                    layoutCountdownOverlay.alpha = 1f
+                    if (startClockAfter) {
+                        ensureWorkoutClockRunning()
+                    }
+                }
+                .start()
+        }
+    }
+
+    private fun skipWorkoutCountdown() {
+        countdownJob?.cancel()
+        layoutCountdownOverlay.animate().cancel()
+        layoutCountdownOverlay.visibility = View.GONE
+        layoutCountdownOverlay.alpha = 1f
+        ensureWorkoutClockRunning()
+    }
+
+    private fun currentWorkoutElapsedMs(): Long {
+        val liveDelta = if (isWorkoutActive && !isWorkoutPaused && sessionStartMs > 0L) {
+            (System.currentTimeMillis() - sessionStartMs).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        return accumulatedWorkoutMs + liveDelta
+    }
+
     private fun startSessionClock() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -708,11 +894,12 @@ class CalisthenicsActivity : AppCompatActivity() {
     }
 
     private fun renderElapsed() {
-        if (sessionStartMs == 0L) {
+        val elapsedMs = currentWorkoutElapsedMs()
+        if (elapsedMs <= 0L) {
             tvStatTime.text = "0:00"
             return
         }
-        val total = ((System.currentTimeMillis() - sessionStartMs) / 1000).toInt()
+        val total = (elapsedMs / 1000L).toInt()
         val h = total / 3600
         val m = (total % 3600) / 60
         val s = total % 60
@@ -826,9 +1013,15 @@ class CalisthenicsActivity : AppCompatActivity() {
 
     private fun resetWorkout() {
         stopRestTimer()
+        countdownJob?.cancel()
+        layoutCountdownOverlay.visibility = View.GONE
         val keep = currentExercise
         session.clear()
         sessionStartMs = 0L
+        accumulatedWorkoutMs = 0L
+        isWorkoutActive = false
+        isWorkoutPaused = false
+        updateStartWorkoutButtonUi()
         if (keep != null) selectExercise(keep, remember = false) else refreshSessionUi()
     }
 
@@ -870,7 +1063,7 @@ class CalisthenicsActivity : AppCompatActivity() {
         }
 
         val now = System.currentTimeMillis()
-        val elapsedSeconds = if (sessionStartMs > 0) ((now - sessionStartMs) / 1000).toInt() else 0
+        val elapsedSeconds = (currentWorkoutElapsedMs() / 1000L).toInt()
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
