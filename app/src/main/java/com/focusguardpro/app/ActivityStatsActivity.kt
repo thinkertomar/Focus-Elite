@@ -685,14 +685,29 @@ class ActivityStatsActivity : AppCompatActivity() {
         if (autoSession != null && autoSession.splits.isNotEmpty()) {
             tvWalkJogStatusDot.setTextColor(Color.parseColor("#16D99A"))
             tvAutoWalkJogHeader.text = autoSession.title
-            val m = autoSession.durationSeconds / 60
-            val s = autoSession.durationSeconds % 60
+            val m = autoSession.movingSeconds / 60
+            val s = autoSession.movingSeconds % 60
+            val pausePart = if (autoSession.pausedSeconds > 0) {
+                val pm = autoSession.pausedSeconds / 60
+                val ps = autoSession.pausedSeconds % 60
+                val pStr = if (pm > 0) "${pm}m ${ps}s" else "${ps}s"
+                "  •  Auto-Paused $pStr (${autoSession.pauseCount})"
+            } else {
+                ""
+            }
+            val bestPart = if (autoSession.fastestSplitLabel.isNotBlank()) {
+                "  •  ⚡ Best ${autoSession.fastestSplitLabel} @ ${StravaPaceChartView.formatPace(autoSession.fastestSplitPaceSec)}/km"
+            } else {
+                ""
+            }
             tvAutoWalkJogSummaryLine.text = String.format(
                 Locale.US,
-                "%s  •  %.2f km  •  %d kcal",
+                "%s  •  %.2f km  •  %d kcal%s%s",
                 autoSession.timeRangeLabel,
                 autoSession.distanceKm,
-                autoSession.caloriesKcal
+                autoSession.caloriesKcal,
+                pausePart,
+                bestPart
             )
             tvAvgPace.text = StravaPaceChartView.formatPace(autoSession.avgPaceSecPerKm)
             tvAvgSpeed.text = String.format(Locale.US, "%.1f", autoSession.avgSpeedKmh)
@@ -702,7 +717,7 @@ class ActivityStatsActivity : AppCompatActivity() {
             stravaPaceChart.visibility = View.VISIBLE
             stravaPaceChart.setSplits(
                 autoSession.splits,
-                subtitle = "PACE CURVE (min/km) • ${autoSession.splits.size} SPLITS"
+                subtitle = "MOVING PACE CURVE (min/km) • ${autoSession.splits.size} SPLITS"
             )
             renderKmSplitRows(autoSession.splits, autoSession.avgPaceSecPerKm)
             llKmSplitsContainer.visibility = if (isSplitsExpanded) View.VISIBLE else View.GONE

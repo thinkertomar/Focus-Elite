@@ -1383,6 +1383,12 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         limitCard.addView(presetRow)
         contentContainer.addView(limitCard)
 
+        // 3B. SMART FOCUS NOTIFICATION MUTE & OFF-DAY WEB SHIELD STATUS CARD
+        buildSmartNotificationMuteCard(palette)
+
+        // 3C. TACTILE HAPTICS & OFFLINE AUDIO CUES CARD
+        buildSensoryFeedbackCard(palette)
+
         // 4. ALL AUXILIARY LAUNCHERS
         addSectionTitle("ALL AUXILIARY FUNCTIONS & MODULES", palette)
 
@@ -1460,11 +1466,11 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         addAuxiliaryLauncherRow(
             iconEmoji = "📅",
-            title = "Calendar Focus & Holiday Planner",
-            subtitle = "Set holidays (required to unlock active Focus Layer), plan exams & deep-work days",
+            title = "Discipline Calendar & Holiday Planner",
+            subtitle = "Activity dots (Steps • Workouts • Holidays • Notes) + 24h advance Holiday planner",
             palette = palette
         ) {
-            startActivity(Intent(this, CalendarActivity::class.java))
+            startActivity(Intent(this, EliteCalendarActivity::class.java))
         }
 
         addAuxiliaryLauncherRow(
@@ -1540,6 +1546,181 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
                 startActivity(Intent(this, DeactivationActivity::class.java))
             }
         }
+    }
+
+    private fun buildSmartNotificationMuteCard(palette: UiThemePrefs.ThemePalette) {
+        val listenerGranted = FocusNotificationMuteService.isNotificationListenerEnabled(this)
+        val muteEnabled = FocusNotificationMuteService.isSmartMuteEnabled(this)
+        val mutingNow = listenerGranted && FocusNotificationMuteService.isMutingRightNow(this)
+        val mutedToday = FocusNotificationMuteService.getMutedCountToday(this)
+        val isWebOffDay = BlockPolicyEngine.isWebShieldPausedForOffDay(this)
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = UiThemePrefs.createCardBackground(this@AuxiliarySettingsActivity, cornerDp = 16f, isHero = false)
+            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(14f) }
+        }
+
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titleCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleCol.addView(TextView(this).apply {
+            text = "🔕 Smart Focus Notification Mute"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        titleCol.addView(TextView(this).apply {
+            text = when {
+                !listenerGranted -> "Grant Notification Access to silence distracting alerts during Focus Hours & Deep Focus."
+                mutingNow -> "Active now • Silencing distracting alerts (Calls, Alarms, OTPs & Study Apps allowed)"
+                muteEnabled -> "Armed for Focus Hours & Deep Focus • Rests automatically on Off-Days & Holidays"
+                else -> "Paused • Enable switch to mute distracting notifications during Focus Hours"
+            }
+            textSize = 11.8f
+            setTextColor(if (mutingNow) Color.parseColor("#34D399") else Color.parseColor("#94A3B8"))
+            setPadding(0, dp(3f), dp(8f), 0)
+        })
+        topRow.addView(titleCol)
+
+        val muteSwitch = Switch(this).apply {
+            isChecked = muteEnabled
+            setOnCheckedChangeListener { v, isChecked ->
+                SensoryFeedbackEngine.toggle(this@AuxiliarySettingsActivity, v)
+                FocusNotificationMuteService.setSmartMuteEnabled(this@AuxiliarySettingsActivity, isChecked)
+                if (isChecked && !FocusNotificationMuteService.isNotificationListenerEnabled(this@AuxiliarySettingsActivity)) {
+                    Toast.makeText(
+                        this@AuxiliarySettingsActivity,
+                        "Smart Mute enabled — tap 'Grant Notification Access' below to activate.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                renderActiveTab()
+            }
+        }
+        topRow.addView(muteSwitch)
+        card.addView(topRow)
+
+        val badgeText = TextView(this).apply {
+            text = if (isWebOffDay) {
+                "🌿 Off-Day Active: Focus Layer, Smart Mute & ALL Web Shield rules are paused today • Muted today: $mutedToday"
+            } else {
+                "📊 Muted today: $mutedToday distracting alerts • Calls, Alarms, OTPs & Study/Improve apps always pass through • Web Shield auto-pauses on Non-Focus Days"
+            }
+            textSize = 11.2f
+            setTextColor(if (isWebOffDay) Color.parseColor("#34D399") else Color.parseColor("#CBD5E1"))
+            setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                setColor(Color.parseColor("#111A28"))
+                setStroke(dp(1f), Color.parseColor("#243248"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10f) }
+        }
+        card.addView(badgeText)
+
+        if (!listenerGranted) {
+            val grantBtn = Button(this).apply {
+                text = "🔔 Grant Notification Access (3m Setup Grace)"
+                textSize = 12.5f
+                isAllCaps = false
+                setTextColor(Color.WHITE)
+                typeface = Typeface.DEFAULT_BOLD
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(11f).toFloat()
+                    setColor(palette.accentColor)
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(10f) }
+                setOnClickListener { v ->
+                    SensoryFeedbackEngine.toggle(this@AuxiliarySettingsActivity, v)
+                    FocusNotificationMuteService.openNotificationListenerSettings(this@AuxiliarySettingsActivity)
+                }
+            }
+            card.addView(grantBtn)
+        }
+
+        contentContainer.addView(card)
+    }
+
+    private fun buildSensoryFeedbackCard(palette: UiThemePrefs.ThemePalette) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = UiThemePrefs.createCardBackground(this@AuxiliarySettingsActivity, cornerDp = 16f, isHero = false)
+            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(16f) }
+        }
+
+        card.addView(TextView(this).apply {
+            text = "✨ Tactile Haptics & Rest-Timer Audio Cues"
+            textSize = 14.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, 0, dp(8f))
+        })
+
+        fun addToggleRow(title: String, sub: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(4f), 0, dp(4f))
+            }
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            col.addView(TextView(this).apply {
+                text = title
+                textSize = 13.5f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+            })
+            col.addView(TextView(this).apply {
+                text = sub
+                textSize = 11.2f
+                setTextColor(Color.parseColor("#94A3B8"))
+            })
+            row.addView(col)
+            row.addView(Switch(this).apply {
+                isChecked = checked
+                setOnCheckedChangeListener { v, isChecked ->
+                    onToggle(isChecked)
+                    SensoryFeedbackEngine.toggle(this@AuxiliarySettingsActivity, v)
+                }
+            })
+            card.addView(row)
+        }
+
+        addToggleRow(
+            title = "Crisp Tactile Haptics",
+            sub = "Subtle vibration ticks for workout sets, calendar taps, and shield toggles",
+            checked = SensoryFeedbackEngine.isHapticsEnabled(this)
+        ) { SensoryFeedbackEngine.setHapticsEnabled(this, it) }
+
+        addToggleRow(
+            title = "Offline Rest-Timer Sound Cues",
+            sub = "3-2-1 countdown beeps & Go! chime (automatically silenced in Vibrate/Silent mode)",
+            checked = SensoryFeedbackEngine.isAudioCuesEnabled(this)
+        ) { SensoryFeedbackEngine.setAudioCuesEnabled(this, it) }
+
+        contentContainer.addView(card)
     }
 
     /**

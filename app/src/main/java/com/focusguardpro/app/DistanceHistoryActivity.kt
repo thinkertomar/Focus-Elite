@@ -71,7 +71,8 @@ class DistanceHistoryActivity : AppCompatActivity() {
             startActivity(Intent(this, CaloriesHistoryActivity::class.java))
         }
 
-        findViewById<View>(R.id.btnPrevRange)?.setOnClickListener {
+        findViewById<View>(R.id.btnPrevRange)?.setOnClickListener { v ->
+            SensoryFeedbackEngine.tap(this, v)
             when (currentTab) {
                 Tab.DAY -> cursor.add(Calendar.DAY_OF_YEAR, -1)
                 Tab.WEEK -> cursor.add(Calendar.DAY_OF_YEAR, -7)
@@ -80,7 +81,8 @@ class DistanceHistoryActivity : AppCompatActivity() {
             render()
         }
 
-        findViewById<View>(R.id.btnNextRange)?.setOnClickListener {
+        findViewById<View>(R.id.btnNextRange)?.setOnClickListener { v ->
+            SensoryFeedbackEngine.tap(this, v)
             when (currentTab) {
                 Tab.DAY -> cursor.add(Calendar.DAY_OF_YEAR, 1)
                 Tab.WEEK -> cursor.add(Calendar.DAY_OF_YEAR, 7)
@@ -100,6 +102,7 @@ class DistanceHistoryActivity : AppCompatActivity() {
     }
 
     private fun switchTab(tab: Tab) {
+        SensoryFeedbackEngine.tap(this)
         currentTab = tab
         val selectedBg = ContextCompat.getDrawable(this, R.drawable.bg_button_primary)
         val primaryColor = ContextCompat.getColor(this, R.color.text_primary)
@@ -250,32 +253,38 @@ class DistanceHistoryActivity : AppCompatActivity() {
         }
     }
 
+    private fun formatMinSec(totalSec: Int): String {
+        val m = totalSec / 60
+        val s = totalSec % 60
+        return if (m > 0) String.format(Locale.US, "%dm %02ds", m, s) else "${s}s"
+    }
+
     private fun renderAutoStravaSection(telemetry: ActivityTelemetryEngine.DayUnifiedTelemetry) {
         llAutoStravaSplits.removeAllViews()
         val session = telemetry.autoDetectedSessions.firstOrNull()
         val density = resources.displayMetrics.density
         val isLight = UiThemePrefs.isWhiteBackgroundActive(this)
         val textPrimary = if (isLight) Color.parseColor("#0F172A") else Color.parseColor("#F1F5F9")
+        val textSecondary = if (isLight) Color.parseColor("#475569") else Color.parseColor("#94A3B8")
+        val cardBg = if (isLight) Color.parseColor("#F1F5F9") else Color.parseColor("#0D1826")
+        val cardStroke = if (isLight) Color.parseColor("#CBD5E1") else Color.parseColor("#1E344D")
 
         if (session == null || session.splits.isEmpty()) {
             tvAutoStravaTitle.text = "Walking & Running Performance"
-            tvAutoStravaSubtitle.text = "No continuous walk or jog recorded in this period • Auto-detects 1+ min sessions"
+            tvAutoStravaSubtitle.text = "No continuous walk or jog recorded in this period • Auto-detects 1+ min sessions with Auto-Pause"
             distancePaceChart.visibility = View.GONE
             return
         }
 
         distancePaceChart.visibility = View.VISIBLE
         tvAutoStravaTitle.text = session.title
-        val mins = session.durationSeconds / 60
-        val secs = session.durationSeconds % 60
         tvAutoStravaSubtitle.text = String.format(
             Locale.US,
-            "%s  •  %.2f km  •  Pace %s/km  •  %dm %02ds  •  %d spm",
+            "%s  •  %.2f km  •  Moving Pace %s/km  •  %.1f km/h  •  %d spm",
             session.timeRangeLabel,
             session.distanceKm,
             StravaPaceChartView.formatPace(session.avgPaceSecPerKm),
-            mins,
-            secs,
+            session.avgSpeedKmh,
             session.cadenceSpm
         )
 
@@ -284,21 +293,145 @@ class DistanceHistoryActivity : AppCompatActivity() {
             subtitle = "PACE CURVE (min/km) & KILOMETER SPLITS"
         )
 
-        session.splits.take(8).forEach { sp ->
+        // 1. Moving Time vs Elapsed Time + Auto-Pause Telemetry Strip
+        val timeStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (8 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+        }
+        fun addMetricTile(title: String, value: String, accentHex: String) {
+            val tile = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    cornerRadius = 11f * density
+                    setColor(cardBg)
+                    setStroke((1f * density).toInt(), cardStroke)
+                }
+                setPadding((6 * density).toInt(), (7 * density).toInt(), (6 * density).toInt(), (7 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = (5 * density).toInt()
+                }
+            }
+            tile.addView(TextView(this).apply {
+                text = value
+                textSize = 12.5f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.parseColor(accentHex))
+                maxLines = 1
+            })
+            tile.addView(TextView(this).apply {
+                text = title
+                textSize = 9.5f
+                setTextColor(textSecondary)
+                maxLines = 1
+            })
+            timeStrip.addView(tile)
+        }
+
+        addMetricTile("MOVING TIME", formatMinSec(session.movingSeconds), "#16D99A")
+        addMetricTile("ELAPSED TIME", formatMinSec(session.elapsedSeconds), "#38BDF8")
+        val pauseSummary = if (session.pausedSeconds > 0) {
+            "${formatMinSec(session.pausedSeconds)} (${session.pauseCount})"
+        } else {
+            "0s (Fluid)"
+        }
+        addMetricTile("AUTO-PAUSED", pauseSummary, if (session.pausedSeconds > 0) "#F59E0B" else "#94A3B8")
+        llAutoStravaSplits.addView(timeStrip)
+
+        // 2. Fastest Split Highlight Badge
+        if (session.fastestSplitLabel.isNotBlank()) {
+            llAutoStravaSplits.addView(TextView(this).apply {
+                text = "⚡ Fastest Split: ${session.fastestSplitLabel} @ ${StravaPaceChartView.formatPace(session.fastestSplitPaceSec)} /km"
+                textSize = 11.5f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.parseColor("#34D399"))
+                background = GradientDrawable().apply {
+                    cornerRadius = 10f * density
+                    setColor(if (isLight) Color.parseColor("#ECFDF5") else Color.parseColor("#0B2922"))
+                    setStroke((1f * density).toInt(), Color.parseColor("#10B981"))
+                }
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = (8 * density).toInt() }
+            })
+        }
+
+        // 3. Pace Zone Distribution Bar (Sprint / Jog / Brisk Walk / Easy)
+        val z = session.paceZones
+        val zoneBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                cornerRadius = 5f * density
+                setColor(cardBg)
+            }
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (7 * density).toInt()
+            ).apply { bottomMargin = (4 * density).toInt() }
+        }
+        fun addZoneSeg(pct: Int, hex: String) {
+            if (pct <= 0) return
+            zoneBar.addView(View(this).apply {
+                setBackgroundColor(Color.parseColor(hex))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, pct.toFloat())
+            })
+        }
+        addZoneSeg(z.sprintPct, "#F43F5E")
+        addZoneSeg(z.jogPct, "#F59E0B")
+        addZoneSeg(z.briskPct, "#10B981")
+        addZoneSeg(z.easyPct, "#38BDF8")
+        llAutoStravaSplits.addView(zoneBar)
+
+        val zoneLegendParts = mutableListOf<String>()
+        if (z.sprintPct > 0) zoneLegendParts.add("Sprint ${z.sprintPct}%")
+        if (z.jogPct > 0) zoneLegendParts.add("Jog ${z.jogPct}%")
+        if (z.briskPct > 0) zoneLegendParts.add("Brisk ${z.briskPct}%")
+        if (z.easyPct > 0) zoneLegendParts.add("Easy ${z.easyPct}%")
+        if (zoneLegendParts.isNotEmpty()) {
+            llAutoStravaSplits.addView(TextView(this).apply {
+                text = "Pace Zones: ${zoneLegendParts.joinToString("  •  ")}"
+                textSize = 10.5f
+                setTextColor(textSecondary)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = (8 * density).toInt() }
+            })
+        }
+
+        // 4. Detailed Kilometer Split Timeline Rows
+        session.splits.take(10).forEach { sp ->
+            val isFastest = sp.splitLabel == session.fastestSplitLabel
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                background = GradientDrawable().apply {
+                    cornerRadius = 9f * density
+                    setColor(if (isFastest) (if (isLight) Color.parseColor("#ECFDF5") else Color.parseColor("#0C2420")) else cardBg)
+                    setStroke((1f * density).toInt(), if (isFastest) Color.parseColor("#10B981") else cardStroke)
+                }
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = (5 * density).toInt() }
             }
             row.addView(TextView(this).apply {
-                text = sp.splitLabel
+                text = if (isFastest) "★ ${sp.splitLabel}" else sp.splitLabel
                 textSize = 12f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.parseColor("#16D99A"))
-                layoutParams = LinearLayout.LayoutParams((64 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+                setTextColor(if (isFastest) Color.parseColor("#34D399") else Color.parseColor("#16D99A"))
+                layoutParams = LinearLayout.LayoutParams((72 * density).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
             })
             row.addView(TextView(this).apply {
                 text = String.format(
@@ -308,7 +441,7 @@ class DistanceHistoryActivity : AppCompatActivity() {
                     sp.speedKmh,
                     sp.cadenceSpm
                 )
-                textSize = 12f
+                textSize = 11.8f
                 setTextColor(textPrimary)
             })
             llAutoStravaSplits.addView(row)

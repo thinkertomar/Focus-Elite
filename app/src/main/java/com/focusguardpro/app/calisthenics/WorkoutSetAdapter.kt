@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.focusguardpro.app.R
+import com.focusguardpro.app.SensoryFeedbackEngine
 import com.focusguardpro.app.UiThemePrefs
 
 class WorkoutSetAdapter(
@@ -142,6 +143,7 @@ class WorkoutSetAdapter(
         holder.btnRepsMinus.setOnClickListener {
             val pos = holder.bindingAdapterPosition
             if (pos != RecyclerView.NO_POSITION) {
+                SensoryFeedbackEngine.tap(ctx, holder.btnRepsMinus)
                 sets[pos].reps = (sets[pos].reps - 1).coerceAtLeast(0)
                 holder.etRepsValue.setText(sets[pos].reps.toString())
                 onValuesChanged()
@@ -151,6 +153,7 @@ class WorkoutSetAdapter(
         holder.btnRepsPlus.setOnClickListener {
             val pos = holder.bindingAdapterPosition
             if (pos != RecyclerView.NO_POSITION) {
+                SensoryFeedbackEngine.tap(ctx, holder.btnRepsPlus)
                 sets[pos].reps = (sets[pos].reps + 1).coerceAtMost(999)
                 holder.etRepsValue.setText(sets[pos].reps.toString())
                 onValuesChanged()
@@ -160,6 +163,7 @@ class WorkoutSetAdapter(
         holder.btnHoldMinus.setOnClickListener {
             val pos = holder.bindingAdapterPosition
             if (pos != RecyclerView.NO_POSITION) {
+                SensoryFeedbackEngine.tap(ctx, holder.btnHoldMinus)
                 val step = if (sets[pos].holdSeconds <= 15) 1 else 5
                 sets[pos].holdSeconds = (sets[pos].holdSeconds - step).coerceAtLeast(0)
                 holder.etHoldValue.setText(sets[pos].holdSeconds.toString())
@@ -170,6 +174,7 @@ class WorkoutSetAdapter(
         holder.btnHoldPlus.setOnClickListener {
             val pos = holder.bindingAdapterPosition
             if (pos != RecyclerView.NO_POSITION) {
+                SensoryFeedbackEngine.tap(ctx, holder.btnHoldPlus)
                 val step = if (sets[pos].holdSeconds < 15) 1 else 5
                 sets[pos].holdSeconds = (sets[pos].holdSeconds + step).coerceAtMost(3600)
                 holder.etHoldValue.setText(sets[pos].holdSeconds.toString())
@@ -183,6 +188,11 @@ class WorkoutSetAdapter(
                 val target = sets[pos]
                 target.isCompleted = !target.isCompleted
                 applyRowDecoration(holder, target.isCompleted, density, isLight)
+                if (target.isCompleted) {
+                    SensoryFeedbackEngine.setCompleted(ctx, holder.btnCheckSet)
+                } else {
+                    SensoryFeedbackEngine.tap(ctx, holder.btnCheckSet)
+                }
                 onSetToggled(target, target.isCompleted)
                 onValuesChanged()
             }

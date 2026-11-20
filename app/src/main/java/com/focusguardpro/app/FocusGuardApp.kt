@@ -29,6 +29,7 @@ open class FocusGuardApp : Application() {
                 UiThemePrefs.applyWindowAndViewTreeTheme(activity)
             }
             override fun onActivityResumed(activity: Activity) {
+                FocusSelfUsageTracker.onActivityResumed(activity)
                 UiThemePrefs.applyWindowAndViewTreeTheme(activity)
                 activity.window?.decorView?.post {
                     if (!activity.isFinishing && !activity.isDestroyed) {
@@ -36,7 +37,9 @@ open class FocusGuardApp : Application() {
                     }
                 }
             }
-            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {
+                FocusSelfUsageTracker.onActivityPaused(activity)
+            }
             override fun onActivityStopped(activity: Activity) {}
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}

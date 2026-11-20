@@ -113,10 +113,11 @@ class AppAdapter(
             limitMins > 0 -> limitMins
             else -> defaultCap
         }
-        val isLimitReached = usedMinutesToday >= effectiveLimit && !isWhitelisted
+        val isOffDayWebPaused = isBrowser && BlockPolicyEngine.isWebShieldPausedForOffDay(context)
+        val isLimitReached = usedMinutesToday >= effectiveLimit && !isWhitelisted && !isOffDayWebPaused
 
         // Show Blue Tick (✓) whenever app is blocked (hard block, suggestion block, or limit reached)
-        val showBlueTick = app.isBlocked || hardBlocked || isLimitReached
+        val showBlueTick = !isOffDayWebPaused && (app.isBlocked || hardBlocked || isLimitReached)
 
         val isWhiteBg = UiThemePrefs.isWhiteBackgroundActive(context)
         val isBlackBg = UiThemePrefs.isBlackBackgroundActive(context)
@@ -179,6 +180,8 @@ class AppAdapter(
             sb.append(app.appName)
             val subStart = sb.length
             val subText = when {
+                isOffDayWebPaused ->
+                    "\n🌿 Off-Day: Web Shield Paused • All Sites Open (${totalBrowserMins}m today)$opensSuffix"
                 isBrowser && (isStudy || isImprove) && !isIgnored ->
                     "\n🟢 Study Browser 24/7 • Distraction Sites Guarded • ${totalBrowserMins}m today$opensSuffix"
                 isBrowser ->
@@ -194,6 +197,7 @@ class AppAdapter(
             }
             sb.append(subText)
             val subColor = when {
+                isOffDayWebPaused -> if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399")
                 isIgnored -> if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B")
                 isStudy -> if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399")
                 isImprove -> if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
@@ -281,6 +285,7 @@ class AppAdapter(
         holder.toggle.setOnCheckedChangeListener(null)
         holder.toggle.isChecked = showBlueTick
         holder.toggle.setOnCheckedChangeListener { _, isChecked ->
+            SensoryFeedbackEngine.toggle(context, holder.toggle)
             app.isBlocked = isChecked
             onToggle(app, isChecked)
             holder.itemView.post {

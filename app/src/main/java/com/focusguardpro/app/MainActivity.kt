@@ -259,7 +259,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                         .setNegativeButton("📅 Plan Future Holiday") { _, _ ->
-                            startActivity(Intent(this@MainActivity, CalendarActivity::class.java))
+                            startActivity(Intent(this@MainActivity, EliteCalendarActivity::class.java))
                         }
                         .show()
                 } else {
@@ -573,11 +573,26 @@ class MainActivity : AppCompatActivity() {
         val sameDayRejection = FocusLayerManager.getSameDayHolidayRejectionNotice(this)
         val clockTampered = SettingsTamperGuard.isClockTamperActive(this)
 
+        val isWebOffDayPaused = BlockPolicyEngine.isWebShieldPausedForOffDay(this)
+        val isMuteActiveNow = FocusNotificationMuteService.isMutingRightNow(this) &&
+            FocusNotificationMuteService.isNotificationListenerEnabled(this)
+        val mutedToday = FocusNotificationMuteService.getMutedCountToday(this)
+        val muteSuffix = when {
+            isMuteActiveNow && mutedToday > 0 -> " • 🔕 Smart Mute ($mutedToday muted)"
+            isMuteActiveNow -> " • 🔕 Smart Mute On"
+            else -> ""
+        }
+
         when {
             exemptionDetails != null -> {
                 focusLayerStatusTitle?.text = exemptionDetails
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8"))
-                focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) paused • $currentTimeStr"
+                focusLayerStatusSubtitle?.text = "Focus Layer & Web Shield paused • $currentTimeStr"
+            }
+            isWebOffDayPaused -> {
+                focusLayerStatusTitle?.text = "🌿 Off-Day: Focus Layer & Web Shield Paused"
+                focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399"))
+                focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) rests today • All sites open ($currentTimeStr)"
             }
             graceMins > 0 -> {
                 focusLayerStatusTitle?.text = "⚡ Pre-Window Grace Period ($graceMins min left)"
@@ -592,17 +607,17 @@ class MainActivity : AppCompatActivity() {
                 }
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B"))
                 focusLayerStatusSubtitle?.text = sameDayRejection
-                    ?: "Zero-escape active ($currentTimeStr) • Tap for Proof-of-Effort break"
+                    ?: "Zero-escape active ($currentTimeStr)$muteSuffix • Tap for Proof-of-Effort"
             }
             isScheduled -> {
                 focusLayerStatusTitle?.text = "🟢 Focus Layer Active ($windowSummary)"
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399"))
-                focusLayerStatusSubtitle?.text = "Active right now ($currentTimeStr) • Tap to customize"
+                focusLayerStatusSubtitle?.text = "Active right now ($currentTimeStr)$muteSuffix • Tap to customize"
             }
             else -> {
                 focusLayerStatusTitle?.text = "Focus Layer: $windowSummary"
                 focusLayerStatusTitle?.setTextColor(headerTitleColor)
-                focusLayerStatusSubtitle?.text = "$currentTimeStr (Outside Window) • Tap to configure"
+                focusLayerStatusSubtitle?.text = "$currentTimeStr (Outside Window)$muteSuffix • Tap to configure"
             }
         }
         focusLayerStatusSubtitle?.setTextColor(headerSubColor)
@@ -729,8 +744,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.auditSummaryLink)?.setOnClickListener {
             startActivity(Intent(this, AuditSummaryActivity::class.java))
         }
-        findViewById<View>(R.id.calendarLink)?.setOnClickListener {
-            startActivity(Intent(this, CalendarActivity::class.java))
+        findViewById<View>(R.id.calendarLink)?.setOnClickListener { v ->
+            SensoryFeedbackEngine.tap(this, v)
+            startActivity(Intent(this, EliteCalendarActivity::class.java))
         }
         findViewById<View>(R.id.websiteBlockLink)?.setOnClickListener {
             startActivity(Intent(this, WebsiteBlockActivity::class.java))

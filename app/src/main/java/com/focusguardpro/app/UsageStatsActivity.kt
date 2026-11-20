@@ -1,20 +1,27 @@
 package com.focusguardpro.app
 
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
@@ -69,6 +76,8 @@ class UsageStatsActivity : AppCompatActivity() {
 
     private var weeklyRanges: List<UsageStatsHelper.WeeklyDayRange> = emptyList()
     private var selectedDayIndex: Int = 6 // Default to Today (index 6 in 7-day list)
+    private var smoothAdapter: SmoothAppUsageAdapter? = null
+    private var proportionBarAnimator: ValueAnimator? = null
 
     private fun dp(value: Float): Int =
         (value * resources.displayMetrics.density).roundToInt()
@@ -90,6 +99,10 @@ class UsageStatsActivity : AppCompatActivity() {
         tvVsYesterday = findViewById(R.id.tvVsYesterday)
 
         appUsageList.layoutManager = LinearLayoutManager(this)
+        appUsageList.setHasFixedSize(false)
+        appUsageList.itemAnimator = null
+        smoothAdapter = SmoothAppUsageAdapter()
+        appUsageList.adapter = smoothAdapter
 
         findViewById<Button>(R.id.btnGrantUsageAccess)?.setOnClickListener {
             SettingsTamperGuard.grantPermissionSetupGrace(this, 180_000L)
@@ -99,6 +112,7 @@ class UsageStatsActivity : AppCompatActivity() {
         // Interactive Last 7 Days bar click: tapping any day (e.g. Tue Nov 17) loads that day's full breakdown
         weeklyChart.onBarClick = { clickedIndex ->
             if (clickedIndex in weeklyRanges.indices) {
+                SensoryFeedbackEngine.tap(this, weeklyChart)
                 selectDay(clickedIndex, scrollToTop = true)
             }
         }
@@ -209,8 +223,9 @@ class UsageStatsActivity : AppCompatActivity() {
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#38BDF8"))
             setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
-            setOnClickListener {
+            setOnClickListener { v ->
                 if (selectedDayIndex > 0) {
+                    SensoryFeedbackEngine.tap(this@UsageStatsActivity, v)
                     selectDay(selectedDayIndex - 1, scrollToTop = false)
                 }
             }
@@ -233,8 +248,9 @@ class UsageStatsActivity : AppCompatActivity() {
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#38BDF8"))
             setPadding(dp(10f), dp(4f), dp(10f), dp(4f))
-            setOnClickListener {
+            setOnClickListener { v ->
                 if (selectedDayIndex < weeklyRanges.size - 1) {
+                    SensoryFeedbackEngine.tap(this@UsageStatsActivity, v)
                     selectDay(selectedDayIndex + 1, scrollToTop = false)
                 }
             }
@@ -460,6 +476,7 @@ class UsageStatsActivity : AppCompatActivity() {
         super.onPause()
         refreshJob?.cancel()
         daySelectionJob?.cancel()
+        proportionBarAnimator?.cancel()
     }
 
     private data class PreparedDayData(
@@ -481,7 +498,8 @@ class UsageStatsActivity : AppCompatActivity() {
             .sortedByDescending { it.durationMs }
 
         val topBarEntries = sortedStats.take(6).map { stat ->
-            val label = AppMetadataCache.getLabel(pm, stat.packageName).take(8)
+            val label = FocusSelfUsageTracker.getVirtualShortLabel(stat.packageName)
+                ?: AppMetadataCache.getLabel(pm, stat.packageName).take(8)
             val mins = (stat.durationMs / 60_000f).coerceAtLeast(0.5f)
             val color = when (stat.category) {
                 "STUDY" -> Color.parseColor("#10B981")
@@ -504,26 +522,36 @@ class UsageStatsActivity : AppCompatActivity() {
 
         val totalMs = max(1L, snapshot.totalScreenTimeMs)
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
+        val focusEliteIcon: Drawable? = ContextCompat.getDrawable(this, R.mipmap.ic_launcher)
         val rows = sortedStats.map { stat ->
-            val rawName = AppMetadataCache.getLabel(pm, stat.packageName)
-            val icon = AppMetadataCache.getIcon(pm, stat.packageName)
+            val isVirtualSelf = FocusSelfUsageTracker.isVirtualFocusElitePackage(stat.packageName)
+            val rawName = FocusSelfUsageTracker.getVirtualDisplayName(stat.packageName)
+                ?: AppMetadataCache.getLabel(pm, stat.packageName)
+            val icon = if (isVirtualSelf) {
+                focusEliteIcon ?: AppMetadataCache.getIcon(pm, packageName)
+            } else {
+                AppMetadataCache.getIcon(pm, stat.packageName)
+            }
             val sharePct = ((stat.durationMs * 100f) / totalMs).roundToInt().coerceIn(1, 100)
-            val catTag = when (stat.category) {
-                "STUDY" -> "STUDY"
-                "IMPROVE" -> "IMPROVE"
-                "BROWSER" -> {
+            val catTag = when {
+                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_STUDY -> "STUDY • FOCUS ELITE"
+                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_IMPROVE -> "IMPROVE • FOCUS ELITE"
+                stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_UTILITY -> "UTILITY • FOCUS ELITE"
+                stat.category == "STUDY" -> "STUDY"
+                stat.category == "IMPROVE" -> "IMPROVE"
+                stat.category == "BROWSER" -> {
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit > 0) customLimit else defaultCap
                     val nonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, stat.packageName)
                     val studyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(this, stat.packageName)
                     "WEB • Non-Study ${nonStudyMins}m/${cap}m · Study ${studyMins}m"
                 }
-                "IGNORED" -> {
+                stat.category == "IGNORED" -> {
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit in 1..29) customLimit else 30
                     if (stat.durationMs >= cap * 60_000L) "IGNORED • ${cap}m CAP REACHED" else "IGNORED • ${cap}m CAP"
                 }
-                "UTILITY" -> "SYSTEM"
+                stat.category == "UTILITY" -> "SYSTEM"
                 else -> {
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit > 0) customLimit else defaultCap
@@ -581,11 +609,16 @@ class UsageStatsActivity : AppCompatActivity() {
             appUsageEmptyText.visibility = View.VISIBLE
             appUsageList.visibility = View.GONE
             todayChart.entries = emptyList()
+            smoothAdapter?.submitList(emptyList())
         } else {
             appUsageEmptyText.visibility = View.GONE
             appUsageList.visibility = View.VISIBLE
             todayChart.entries = prepared.topBarEntries
-            appUsageList.adapter = AppUsageAdapter(prepared.rows)
+            if (smoothAdapter == null) {
+                smoothAdapter = SmoothAppUsageAdapter()
+                appUsageList.adapter = smoothAdapter
+            }
+            smoothAdapter?.submitList(prepared.rows)
         }
         renderWeeklyChartSelection()
     }
@@ -670,7 +703,7 @@ class UsageStatsActivity : AppCompatActivity() {
 
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch(Dispatchers.IO) {
-            if (cached != null && appUsageList.adapter == null && selectedDayIndex == 6) {
+            if (cached != null && (smoothAdapter?.itemCount ?: 0) == 0 && selectedDayIndex == 6) {
                 val warmPrepared = buildPreparedDayData(cached, null)
                 withContext(Dispatchers.Main) {
                     if (!isFinishing && !isDestroyed) {
@@ -750,21 +783,129 @@ class UsageStatsActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tvDistractMinutes)?.text = UsageStatsHelper.formatDuration(snapshot.distractMs)
         findViewById<TextView>(R.id.tvIgnoreMinutes)?.text = UsageStatsHelper.formatDuration(snapshot.utilityMs)
 
-        // Update Segmented Proportion Bar weights
+        // Smoothly animate Segmented Proportion Bar weights (60 FPS Decelerate transition)
         val total = max(1L, snapshot.studyMs + snapshot.improveMs + snapshot.distractMs + snapshot.utilityMs).toFloat()
-        (segStudyBar?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.studyMs / total).coerceAtLeast(if (snapshot.studyMs > 0L) 0.05f else 0.0f)
-        (segImproveBar?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.improveMs / total).coerceAtLeast(if (snapshot.improveMs > 0L) 0.05f else 0.0f)
-        (segDistractBar?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.distractMs / total).coerceAtLeast(if (snapshot.distractMs > 0L) 0.05f else 0.0f)
-        (segUtilityBar?.layoutParams as? LinearLayout.LayoutParams)?.weight =
-            (snapshot.utilityMs / total).coerceAtLeast(if (snapshot.utilityMs > 0L) 0.05f else 0.0f)
+        val targetStudy = if (snapshot.totalScreenTimeMs <= 0L) 1f else (snapshot.studyMs / total).coerceAtLeast(if (snapshot.studyMs > 0L) 0.05f else 0.0f)
+        val targetImprove = if (snapshot.totalScreenTimeMs <= 0L) 0f else (snapshot.improveMs / total).coerceAtLeast(if (snapshot.improveMs > 0L) 0.05f else 0.0f)
+        val targetDistract = if (snapshot.totalScreenTimeMs <= 0L) 0f else (snapshot.distractMs / total).coerceAtLeast(if (snapshot.distractMs > 0L) 0.05f else 0.0f)
+        val targetUtility = if (snapshot.totalScreenTimeMs <= 0L) 0f else (snapshot.utilityMs / total).coerceAtLeast(if (snapshot.utilityMs > 0L) 0.05f else 0.0f)
 
-        if (snapshot.totalScreenTimeMs <= 0L) {
-            (segStudyBar?.layoutParams as? LinearLayout.LayoutParams)?.weight = 1f
+        val sLp = segStudyBar?.layoutParams as? LinearLayout.LayoutParams
+        val iLp = segImproveBar?.layoutParams as? LinearLayout.LayoutParams
+        val dLp = segDistractBar?.layoutParams as? LinearLayout.LayoutParams
+        val uLp = segUtilityBar?.layoutParams as? LinearLayout.LayoutParams
+        if (sLp != null && iLp != null && dLp != null && uLp != null) {
+            val startS = sLp.weight
+            val startI = iLp.weight
+            val startD = dLp.weight
+            val startU = uLp.weight
+            proportionBarAnimator?.cancel()
+            proportionBarAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 260L
+                interpolator = DecelerateInterpolator()
+                addUpdateListener { anim ->
+                    val t = anim.animatedValue as Float
+                    sLp.weight = startS + (targetStudy - startS) * t
+                    iLp.weight = startI + (targetImprove - startI) * t
+                    dLp.weight = startD + (targetDistract - startD) * t
+                    uLp.weight = startU + (targetUtility - startU) * t
+                    segStudyBar?.parent?.requestLayout()
+                }
+                start()
+            }
         }
-        segStudyBar?.parent?.requestLayout()
+    }
+
+    /**
+     * DiffUtil-backed persistent RecyclerView adapter for butter-smooth 60-120 FPS day switching
+     * and live refresh without recreating ViewHolders or resetting scroll state.
+     */
+    private class SmoothAppUsageAdapter : RecyclerView.Adapter<SmoothAppUsageAdapter.SmoothRowHolder>() {
+        private var items: List<AppUsageRow> = emptyList()
+
+        fun submitList(newItems: List<AppUsageRow>) {
+            val oldItems = items
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize(): Int = oldItems.size
+                override fun getNewListSize(): Int = newItems.size
+                override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean {
+                    return oldItems[oldPos].appName.substringBefore("  •  ") ==
+                        newItems[newPos].appName.substringBefore("  •  ")
+                }
+                override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
+                    val o = oldItems[oldPos]
+                    val n = newItems[newPos]
+                    return o.appName == n.appName && o.minutes == n.minutes && o.colorRes == n.colorRes
+                }
+            })
+            items = newItems
+            diff.dispatchUpdatesTo(this)
+        }
+
+        class SmoothRowHolder(
+            val container: LinearLayout,
+            val iconView: ImageView,
+            val titleView: TextView,
+            val badgeView: TextView
+        ) : RecyclerView.ViewHolder(container)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SmoothRowHolder {
+            val ctx = parent.context
+            val density = ctx.resources.displayMetrics.density
+            fun dp(v: Float) = (v * density).roundToInt()
+
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(8f) }
+            }
+            val icon = ImageView(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(36f), dp(36f)).apply { marginEnd = dp(12f) }
+            }
+            val title = TextView(ctx).apply {
+                textSize = 13f
+                setTypeface(typeface, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(8f)
+                }
+            }
+            val badge = TextView(ctx).apply {
+                textSize = 12f
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(9f), dp(4f), dp(9f), dp(4f))
+            }
+            row.addView(icon)
+            row.addView(title)
+            row.addView(badge)
+            return SmoothRowHolder(row, icon, title, badge)
+        }
+
+        override fun onBindViewHolder(holder: SmoothRowHolder, position: Int) {
+            val row = items[position]
+            val ctx = holder.container.context
+            val density = ctx.resources.displayMetrics.density
+            val accentColor = ContextCompat.getColor(ctx, row.colorRes)
+            holder.container.background = UiThemePrefs.createCardBackground(ctx, cornerDp = 13f, isHero = false)
+            holder.iconView.setImageDrawable(row.icon)
+            holder.titleView.text = row.appName
+            holder.titleView.setTextColor(UiThemePrefs.getScreenHeaderTextColor(ctx))
+
+            val hrs = row.minutes / 60L
+            val mins = row.minutes % 60L
+            holder.badgeView.text = if (hrs > 0L) "${hrs}h ${mins}m" else "${mins}m"
+            holder.badgeView.setTextColor(accentColor)
+            holder.badgeView.background = GradientDrawable().apply {
+                cornerRadius = 10f * density
+                setColor(Color.argb(30, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)))
+                setStroke((1f * density).roundToInt(), accentColor)
+            }
+        }
+
+        override fun getItemCount(): Int = items.size
     }
 
     private fun bindHourlyTimeline(snapshot: UsageStatsHelper.WellbeingSnapshot) {

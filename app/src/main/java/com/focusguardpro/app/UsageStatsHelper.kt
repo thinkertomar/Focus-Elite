@@ -768,7 +768,60 @@ object UsageStatsHelper {
             }
         }
 
-        val effectiveWallClockMs = mergedWallClockTotalMs + recoveredExtraMs
+        // Merge Focus Elite module-split self-usage (Practice/Deep Focus -> STUDY, Fitness/Workouts -> IMPROVE, Config -> UTILITY)
+        var selfProductiveMs = 0L
+        try {
+            val selfSummary = FocusSelfUsageTracker.getDayModuleSummary(context, start)
+            if (selfSummary.studyMs >= 10_000L) {
+                perAppStats[FocusSelfUsageTracker.VIRTUAL_PKG_STUDY] = AppWellbeingStat(
+                    packageName = FocusSelfUsageTracker.VIRTUAL_PKG_STUDY,
+                    durationMs = selfSummary.studyMs,
+                    launchCount = selfSummary.studyOpens.coerceAtLeast(1),
+                    longestSessionMs = selfSummary.studyLongestMs,
+                    lastTimeUsedMs = selfSummary.studyLastUsedMs,
+                    category = "STUDY"
+                )
+                studyMs += selfSummary.studyMs
+                sumAppScreenTimeMs += selfSummary.studyMs
+                selfProductiveMs += selfSummary.studyMs
+                totalLaunches += selfSummary.studyOpens.coerceAtLeast(1)
+            }
+            if (selfSummary.improveMs >= 10_000L) {
+                perAppStats[FocusSelfUsageTracker.VIRTUAL_PKG_IMPROVE] = AppWellbeingStat(
+                    packageName = FocusSelfUsageTracker.VIRTUAL_PKG_IMPROVE,
+                    durationMs = selfSummary.improveMs,
+                    launchCount = selfSummary.improveOpens.coerceAtLeast(1),
+                    longestSessionMs = selfSummary.improveLongestMs,
+                    lastTimeUsedMs = selfSummary.improveLastUsedMs,
+                    category = "IMPROVE"
+                )
+                improveMs += selfSummary.improveMs
+                sumAppScreenTimeMs += selfSummary.improveMs
+                selfProductiveMs += selfSummary.improveMs
+                totalLaunches += selfSummary.improveOpens.coerceAtLeast(1)
+            }
+            if (selfSummary.utilityMs >= 30_000L) {
+                perAppStats[FocusSelfUsageTracker.VIRTUAL_PKG_UTILITY] = AppWellbeingStat(
+                    packageName = FocusSelfUsageTracker.VIRTUAL_PKG_UTILITY,
+                    durationMs = selfSummary.utilityMs,
+                    launchCount = selfSummary.utilityOpens.coerceAtLeast(1),
+                    longestSessionMs = selfSummary.utilityLongestMs,
+                    lastTimeUsedMs = selfSummary.utilityLastUsedMs,
+                    category = "UTILITY"
+                )
+                utilityMs += selfSummary.utilityMs
+                sumAppScreenTimeMs += selfSummary.utilityMs
+                selfProductiveMs += selfSummary.utilityMs
+            }
+            for (h in 0 until 24) {
+                val addMs = selfSummary.hourlyStudyMs[h] + selfSummary.hourlyImproveMs[h] + selfSummary.hourlyUtilityMs[h]
+                if (addMs > 0L) {
+                    hourlyMs[h] = min(3_600_000L, hourlyMs[h] + addMs)
+                }
+            }
+        } catch (_: Throwable) {}
+
+        val effectiveWallClockMs = mergedWallClockTotalMs + recoveredExtraMs + selfProductiveMs
         val totalScreenTimeMs = if (effectiveWallClockMs > 0L) {
             min(sumAppScreenTimeMs, (effectiveWallClockMs * 115L) / 100L)
         } else {

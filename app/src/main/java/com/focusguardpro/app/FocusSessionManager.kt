@@ -91,6 +91,7 @@ object FocusSessionManager {
 
         AmbientFocusAudioEngine.setSoundMode(soundMode)
         startTicker()
+        FocusNotificationMuteService.triggerSweepIfActive()
         EliteCommandWidgetProvider.updateAllWidgets(context)
     }
 
@@ -108,6 +109,7 @@ object FocusSessionManager {
             _snapshot.value = _snapshot.value.copy(state = SessionState.RUNNING)
             AmbientFocusAudioEngine.setSoundMode(_snapshot.value.soundMode)
             startTicker()
+            FocusNotificationMuteService.triggerSweepIfActive()
             appContext?.let { EliteCommandWidgetProvider.updateAllWidgets(it) }
         }
     }
@@ -117,6 +119,9 @@ object FocusSessionManager {
         val current = _snapshot.value
         stopTicker()
         AmbientFocusAudioEngine.stop()
+        if (completed) {
+            SensoryFeedbackEngine.workoutFinished(context)
+        }
 
         val elapsed = (current.totalSeconds - current.remainingSeconds).coerceAtLeast(0)
         val record = SessionRecord(

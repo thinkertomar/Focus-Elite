@@ -664,6 +664,7 @@ class CalisthenicsActivity : AppCompatActivity() {
         remainingRestSeconds = seconds
         pbRest.max = seconds
         layoutRestTimer.visibility = View.VISIBLE
+        SensoryFeedbackEngine.animateFadeSlideIn(layoutRestTimer, offsetYDp = 6f)
         updateRestTimerDisplay()
 
         restTimerJob = lifecycleScope.launch {
@@ -671,8 +672,11 @@ class CalisthenicsActivity : AppCompatActivity() {
                 delay(1000)
                 remainingRestSeconds--
                 updateRestTimerDisplay()
+                if (remainingRestSeconds in 1..3) {
+                    SensoryFeedbackEngine.restCountdownTick(this@CalisthenicsActivity, remainingRestSeconds)
+                }
             }
-            window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            SensoryFeedbackEngine.restComplete(this@CalisthenicsActivity, layoutRestTimer)
             tvRestTimerStatus.text = "Go! ✓"
             delay(2000)
             layoutRestTimer.visibility = View.GONE
@@ -733,12 +737,21 @@ class CalisthenicsActivity : AppCompatActivity() {
         tvStatReps.text = reps.toString()
         renderElapsed()
 
+        val enteredSets = session.values.sumOf { e -> e.sets.count { it.reps > 0 || it.holdSeconds > 0 } }
         // High-contrast Finish button styling (never dark text on dark button)
         btnFinishSession.setTextColor(Color.WHITE)
         btnFinishSession.backgroundTintList = android.content.res.ColorStateList.valueOf(
-            if (sets > 0) Color.parseColor("#10B981") else Color.parseColor("#334155")
+            when {
+                sets > 0 -> Color.parseColor("#10B981")
+                enteredSets > 0 -> Color.parseColor("#0EA5E9")
+                else -> Color.parseColor("#334155")
+            }
         )
-        btnFinishSession.text = if (sets > 0) "Finish & log workout ($sets ${if (sets == 1) "set" else "sets"})" else "Finish & log workout"
+        btnFinishSession.text = when {
+            sets > 0 -> "Finish & log workout ($sets ${if (sets == 1) "set" else "sets"})"
+            enteredSets > 0 -> "Finish & log ($enteredSets entered — tap to confirm)"
+            else -> "Finish & log workout"
+        }
     }
 
     private fun renderSessionChips() {
@@ -819,13 +832,40 @@ class CalisthenicsActivity : AppCompatActivity() {
         if (keep != null) selectExercise(keep, remember = false) else refreshSessionUi()
     }
 
-    private fun finishAndSaveSession() {
+    private fun finishAndSaveSession(autoIncludeEnteredUnchecked: Boolean = false) {
+        if (autoIncludeEnteredUnchecked) {
+            session.values.forEach { entry ->
+                entry.sets.forEach { s ->
+                    if (!s.isCompleted && (s.reps > 0 || s.holdSeconds > 0)) {
+                        s.isCompleted = true
+                    }
+                }
+            }
+            if (::setAdapter.isInitialized) setAdapter.notifyDataSetChanged()
+            refreshSessionUi()
+        }
+
         val toSave = session.values
             .map { entry -> entry.exercise to entry.sets.filter { it.isCompleted } }
             .filter { it.second.isNotEmpty() }
 
         if (toSave.isEmpty()) {
-            Toast.makeText(this, "Tick at least one set (✓) before logging.", Toast.LENGTH_LONG).show()
+            val enteredCandidates = session.values.sumOf { e ->
+                e.sets.count { it.reps > 0 || it.holdSeconds > 0 }
+            }
+            if (enteredCandidates > 0) {
+                SensoryFeedbackEngine.tap(this, btnFinishSession)
+                AlertDialog.Builder(this)
+                    .setTitle("Log $enteredCandidates entered ${if (enteredCandidates == 1) "set" else "sets"}?")
+                    .setMessage("You entered reps/holds on $enteredCandidates sets without ticking ✓ yet. Would you like to mark them done and log your workout now?")
+                    .setPositiveButton("Log All Entered Sets") { _, _ ->
+                        finishAndSaveSession(autoIncludeEnteredUnchecked = true)
+                    }
+                    .setNegativeButton("Keep Editing", null)
+                    .show()
+            } else {
+                Toast.makeText(this, "Enter reps/hold and tick at least one set (✓) before logging.", Toast.LENGTH_LONG).show()
+            }
             return
         }
 
@@ -852,6 +892,7 @@ class CalisthenicsActivity : AppCompatActivity() {
 
                 withContext(Dispatchers.Main) {
                     stopRestTimer()
+                    SensoryFeedbackEngine.workoutFinished(this@CalisthenicsActivity)
 
                     val totalSets = toSave.sumOf { it.second.size }
                     val totalReps = toSave.sumOf { it.second.sumOf { s -> s.reps } }

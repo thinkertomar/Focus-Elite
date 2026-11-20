@@ -799,7 +799,22 @@ object BlockPolicyEngine {
     }
 
     /**
+     * Returns true when today is an excluded non-focus day (e.g., Sunday when schedule is Mon–Sat)
+     * or a 24h-verified Calendar Holiday, so ALL Web Shield rules are paused for the day
+     * — matching Focus Layer off-day behavior.
+     */
+    fun isWebShieldPausedForOffDay(
+        context: Context,
+        nowMs: Long = FocusLayerManager.verifiedNowMs(context)
+    ): Boolean {
+        if (!FocusLayerManager.isScheduleEnabled(context)) return false
+        if (!FocusLayerManager.isDayIncludedInSchedule(context, nowMs)) return true
+        return FocusLayerManager.getCalendarExemption(context, nowMs) is FocusLayerManager.CalendarExemption.Holiday
+    }
+
+    /**
      * Evaluates whether a specific website [rawHost] inside [browserPackage] should be allowed or blocked.
+     * - On excluded non-focus days (e.g. Sunday on a Mon–Sat schedule) and Calendar Holidays, ALL Web Shield rules are disabled.
      * - Study websites (and non-distraction sites inside a Study/Improve-designated browser) are ALWAYS ALLOWED 24/7.
      * - Non-study websites respect Blocked Websites, Browser Hard Block, Focus Layer, Blackout, and the 30-minute daily cap.
      */
@@ -811,6 +826,11 @@ object BlockPolicyEngine {
     ): BlockDecision {
         val shieldPrefs = context.getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
         if (!shieldPrefs.getBoolean("shield_active", true)) {
+            return BlockDecision.Allowed
+        }
+
+        // Disable all Web Shield rules completely on non-focus days & verified Calendar Holidays
+        if (isWebShieldPausedForOffDay(context, nowMs)) {
             return BlockDecision.Allowed
         }
 
@@ -998,6 +1018,7 @@ object BlockPolicyEngine {
     fun isAppBlocked(context: Context, packageName: String): Boolean {
         if (isBrowserPackage(packageName)) {
             val nowMs = FocusLayerManager.verifiedNowMs(context)
+            if (isWebShieldPausedForOffDay(context, nowMs)) return false
             if (isUnblockedForToday(context, packageName, nowMs)) return false
             val customLimit = getFastLimitMinutes(context, packageName)
             val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
