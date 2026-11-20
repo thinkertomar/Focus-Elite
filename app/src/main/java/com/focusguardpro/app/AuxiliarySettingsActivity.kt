@@ -1457,11 +1457,11 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
         addAuxiliaryLauncherRow(
             iconEmoji = "🌐",
-            title = "Website Blocker & URL Rules",
-            subtitle = "Block distracting domains and keywords inside browsers",
+            title = "Web Shield & Today's Browsing",
+            subtitle = "Study 24/7, Post/Pre-Focus Browser Window (30–60m) & Today's Website Log",
             palette = palette
         ) {
-            startActivity(Intent(this, WebsiteBlockActivity::class.java))
+            startActivity(Intent(this, EliteWebShieldActivity::class.java))
         }
 
         addAuxiliaryLauncherRow(

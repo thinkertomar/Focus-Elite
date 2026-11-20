@@ -945,6 +945,20 @@ class BlockerAccessibilityService : AccessibilityService() {
 
             val decision = BlockPolicyEngine.evaluateBrowserUrl(this, browserPackage, host, now)
             if (decision is BlockDecision.Blocked) {
+                if (decision.details == "ADULT_RESTRICTED") {
+                    try {
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                    } catch (_: Throwable) {}
+                    lastBlockedHost = host
+                    lastBlockedAtMs = now
+                    enforceBlockNow(
+                        target = "Restricted Content",
+                        reasonWireKey = BlockReason.HARD_BLOCK.wireKey,
+                        isWebsite = true,
+                        blockedPackageName = browserPackage
+                    )
+                    return
+                }
                 if (host != lastBlockedHost || (now - lastBlockedAtMs) > 1400L) {
                     lastBlockedHost = host
                     lastBlockedAtMs = now

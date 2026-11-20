@@ -2,22 +2,34 @@ package com.focusguardpro.app
 
 import android.animation.ValueAnimator
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PointF
+import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
+import android.text.TextUtils
 import android.view.Gravity
-import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
 import android.widget.Button
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -28,15 +40,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.graphics.Canvas
-import android.graphics.DashPathEffect
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.PointF
-import android.graphics.RectF
-import android.graphics.Shader
-import android.view.MotionEvent
+import java.util.Calendar
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -46,6 +51,7 @@ class UsageStatsActivity : AppCompatActivity() {
 
     private var refreshJob: Job? = null
     private var daySelectionJob: Job? = null
+    private var prewarmJob: Job? = null
 
     private lateinit var todayChart: SimpleBarChartView
     private lateinit var weeklyChart: SimpleBarChartView
@@ -55,7 +61,7 @@ class UsageStatsActivity : AppCompatActivity() {
     private lateinit var categorySummaryRow: LinearLayout
     private lateinit var tvVsYesterday: TextView
 
-    // Dynamically injected Digital Wellbeing Executive Header, Day Switcher & 24h Hourly Timeline views
+    // Dynamically injected Digital Wellbeing Executive Header, Day Switcher, Filter Chips & 24h Hourly Timeline views
     private var wellbeingHeroCard: LinearLayout? = null
     private var tvHeroTotalTime: TextView? = null
     private var tvHeroDeltaPill: TextView? = null
@@ -73,6 +79,20 @@ class UsageStatsActivity : AppCompatActivity() {
     private var hourlySubtitleTv: TextView? = null
     private var byAppHeaderTv: TextView? = null
     private var hourlyChartView: HourlyScreenTimeCurveView? = null
+    private var filterChipContainer: LinearLayout? = null
+    private var filterChipViews: MutableMap<AppFilter, TextView> = linkedMapOf()
+
+    private enum class AppFilter(val label: String) {
+        ALL("All"),
+        STUDY("📚 Study"),
+        IMPROVE("⚡ Improve"),
+        BROWSERS("🌐 Browsers"),
+        DISTRACT("🚫 Distract")
+    }
+
+    private var currentFilter: AppFilter = AppFilter.ALL
+    private var currentPreparedDay: PreparedDayData? = null
+    private val preparedDayCache = ConcurrentHashMap<String, PreparedDayData>()
 
     private var weeklyRanges: List<UsageStatsHelper.WeeklyDayRange> = emptyList()
     private var selectedDayIndex: Int = 6 // Default to Today (index 6 in 7-day list)
@@ -101,7 +121,15 @@ class UsageStatsActivity : AppCompatActivity() {
         appUsageList.layoutManager = LinearLayoutManager(this)
         appUsageList.setHasFixedSize(false)
         appUsageList.itemAnimator = null
-        smoothAdapter = SmoothAppUsageAdapter()
+        appUsageList.setItemViewCacheSize(24)
+        smoothAdapter = SmoothAppUsageAdapter { row ->
+            if (row.isBrowser) {
+                SensoryFeedbackEngine.tap(this, appUsageList)
+                val dayStartMs = currentPreparedDay?.dayRange?.startMs ?: startOfTodayMs()
+                val dayLabel = currentPreparedDay?.dayRange?.fullDateLabel ?: "Today"
+                showBrowserWebsitesDialog(row.packageName, row.displayName, dayStartMs, dayLabel)
+            }
+        }
         appUsageList.adapter = smoothAdapter
 
         findViewById<Button>(R.id.btnGrantUsageAccess)?.setOnClickListener {
@@ -118,6 +146,15 @@ class UsageStatsActivity : AppCompatActivity() {
         }
 
         injectWellbeingExecutiveViews()
+    }
+
+    private fun startOfTodayMs(): Long {
+        return Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 
     override fun onResume() {
@@ -428,6 +465,128 @@ class UsageStatsActivity : AppCompatActivity() {
         val insertPos = if (vsIndex >= 0) vsIndex + 1 else rootContainer.childCount
         rootContainer.addView(hourlyHeader, insertPos)
         rootContainer.addView(hourlyCard, insertPos + 1)
+
+        // 3. Smooth Interactive Category Filter Chips right above appUsageList
+        val filterScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(10f)
+            }
+        }
+        val chipRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        filterChipViews.clear()
+        AppFilter.values().forEach { filter ->
+            val chip = TextView(this).apply {
+                text = filter.label
+                textSize = 11.5f
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(12f), dp(6f), dp(12f), dp(6f))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    marginEnd = dp(7f)
+                }
+                setOnClickListener { v ->
+                    if (currentFilter != filter) {
+                        SensoryFeedbackEngine.tap(this@UsageStatsActivity, v)
+                        currentFilter = filter
+                        updateFilterChipStyles()
+                        applyFilterToList()
+                    }
+                }
+            }
+            filterChipViews[filter] = chip
+            chipRow.addView(chip)
+        }
+        filterChipContainer = chipRow
+        filterScroll.addView(chipRow)
+        val listIdx = rootContainer.indexOfChild(appUsageList)
+        if (listIdx >= 0) {
+            rootContainer.addView(filterScroll, listIdx)
+        } else {
+            rootContainer.addView(filterScroll)
+        }
+        updateFilterChipStyles()
+    }
+
+    private fun updateFilterChipStyles() {
+        val isWhite = UiThemePrefs.isWhiteBackgroundActive(this)
+        val palette = UiThemePrefs.getSelectedPalette(this)
+        val prepared = currentPreparedDay
+        filterChipViews.forEach { (filter, tv) ->
+            val count = prepared?.let { countForFilter(it.rows, filter) }
+            tv.text = if (count != null && count > 0 && filter != AppFilter.ALL) {
+                "${filter.label} ($count)"
+            } else if (count != null && filter == AppFilter.ALL) {
+                "All ($count)"
+            } else {
+                filter.label
+            }
+            val selected = filter == currentFilter
+            val activeAccent = when (filter) {
+                AppFilter.STUDY -> Color.parseColor("#10B981")
+                AppFilter.IMPROVE -> Color.parseColor("#38BDF8")
+                AppFilter.BROWSERS -> Color.parseColor("#A78BFA")
+                AppFilter.DISTRACT -> Color.parseColor("#F43F5E")
+                AppFilter.ALL -> palette.accentColor
+            }
+            if (selected) {
+                tv.setTextColor(if (isWhite) Color.WHITE else Color.WHITE)
+                tv.background = GradientDrawable().apply {
+                    cornerRadius = dp(18f).toFloat()
+                    setColor(activeAccent)
+                }
+            } else {
+                tv.setTextColor(if (isWhite) Color.parseColor("#475569") else Color.parseColor("#94A3B8"))
+                tv.background = GradientDrawable().apply {
+                    cornerRadius = dp(18f).toFloat()
+                    setColor(if (isWhite) Color.parseColor("#F1F5F9") else Color.parseColor("#161F30"))
+                    setStroke(dp(1f), if (isWhite) Color.parseColor("#CBD5E1") else Color.parseColor("#26354D"))
+                }
+            }
+        }
+    }
+
+    private fun countForFilter(rows: List<RichUsageRow>, filter: AppFilter): Int = when (filter) {
+        AppFilter.ALL -> rows.size
+        AppFilter.STUDY -> rows.count { it.category == "STUDY" }
+        AppFilter.IMPROVE -> rows.count { it.category == "IMPROVE" }
+        AppFilter.BROWSERS -> rows.count { it.isBrowser }
+        AppFilter.DISTRACT -> rows.count { !it.isBrowser && it.category != "STUDY" && it.category != "IMPROVE" && it.category != "UTILITY" }
+    }
+
+    private fun applyFilterToList() {
+        val prepared = currentPreparedDay ?: return
+        val filtered = when (currentFilter) {
+            AppFilter.ALL -> prepared.rows
+            AppFilter.STUDY -> prepared.rows.filter { it.category == "STUDY" }
+            AppFilter.IMPROVE -> prepared.rows.filter { it.category == "IMPROVE" }
+            AppFilter.BROWSERS -> prepared.rows.filter { it.isBrowser }
+            AppFilter.DISTRACT -> prepared.rows.filter {
+                !it.isBrowser && it.category != "STUDY" && it.category != "IMPROVE" && it.category != "UTILITY"
+            }
+        }
+        if (filtered.isEmpty()) {
+            appUsageEmptyText.text = if (currentFilter == AppFilter.ALL) {
+                "No app usage recorded for this day yet."
+            } else {
+                "No ${currentFilter.label.substringAfter(" ")} apps recorded on this day."
+            }
+            appUsageEmptyText.visibility = View.VISIBLE
+            appUsageList.visibility = View.GONE
+            smoothAdapter?.submitList(emptyList())
+        } else {
+            appUsageEmptyText.visibility = View.GONE
+            appUsageList.visibility = View.VISIBLE
+            smoothAdapter?.submitList(filtered)
+        }
     }
 
     private fun applyThemeStyling() {
@@ -470,19 +629,34 @@ class UsageStatsActivity : AppCompatActivity() {
         }
 
         UiThemePrefs.applyWindowAndViewTreeTheme(this, rootScroll)
+        updateFilterChipStyles()
     }
 
     override fun onPause() {
         super.onPause()
         refreshJob?.cancel()
         daySelectionJob?.cancel()
+        prewarmJob?.cancel()
         proportionBarAnimator?.cancel()
     }
+
+    private data class RichUsageRow(
+        val packageName: String,
+        val displayName: String,
+        val subtitle: String,
+        val durationLabel: String,
+        val icon: Drawable?,
+        val durationMs: Long,
+        val sharePct: Int,
+        val category: String,
+        val isBrowser: Boolean,
+        val accentColor: Int
+    )
 
     private data class PreparedDayData(
         val snapshot: UsageStatsHelper.WellbeingSnapshot,
         val topBarEntries: List<SimpleBarChartView.BarEntry>,
-        val rows: List<AppUsageRow>,
+        val rows: List<RichUsageRow>,
         val dayRange: UsageStatsHelper.WeeklyDayRange?
     )
 
@@ -504,6 +678,7 @@ class UsageStatsActivity : AppCompatActivity() {
             val color = when (stat.category) {
                 "STUDY" -> Color.parseColor("#10B981")
                 "IMPROVE" -> Color.parseColor("#38BDF8")
+                "BROWSER" -> Color.parseColor("#A78BFA")
                 "IGNORED" -> {
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit in 1..29) customLimit else 30
@@ -523,8 +698,11 @@ class UsageStatsActivity : AppCompatActivity() {
         val totalMs = max(1L, snapshot.totalScreenTimeMs)
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
         val focusEliteIcon: Drawable? = ContextCompat.getDrawable(this, R.mipmap.ic_launcher)
+        val dayStartMs = dayRange?.startMs ?: startOfTodayMs()
+
         val rows = sortedStats.map { stat ->
             val isVirtualSelf = FocusSelfUsageTracker.isVirtualFocusElitePackage(stat.packageName)
+            val isBrowser = stat.category == "BROWSER" || BlockPolicyEngine.isBrowserPackage(stat.packageName)
             val rawName = FocusSelfUsageTracker.getVirtualDisplayName(stat.packageName)
                 ?: AppMetadataCache.getLabel(pm, stat.packageName)
             val icon = if (isVirtualSelf) {
@@ -537,15 +715,21 @@ class UsageStatsActivity : AppCompatActivity() {
                 stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_STUDY -> "STUDY • FOCUS ELITE"
                 stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_IMPROVE -> "IMPROVE • FOCUS ELITE"
                 stat.packageName == FocusSelfUsageTracker.VIRTUAL_PKG_UTILITY -> "UTILITY • FOCUS ELITE"
-                stat.category == "STUDY" -> "STUDY"
-                stat.category == "IMPROVE" -> "IMPROVE"
-                stat.category == "BROWSER" -> {
+                isBrowser -> {
+                    val siteCount = BrowserWebsiteTracker.getWebsitesForBrowserOnDay(this, stat.packageName, dayStartMs).size
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit > 0) customLimit else defaultCap
-                    val nonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, stat.packageName)
-                    val studyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(this, stat.packageName)
-                    "WEB • Non-Study ${nonStudyMins}m/${cap}m · Study ${studyMins}m"
+                    if (dayRange == null || dayRange.isToday) {
+                        val nonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, stat.packageName)
+                        val studyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(this, stat.packageName)
+                        val siteLabel = if (siteCount > 0) " · $siteCount sites" else ""
+                        "WEB • Study ${studyMins}m · Non-Study ${nonStudyMins}m/${cap}m$siteLabel"
+                    } else {
+                        if (siteCount > 0) "WEB • $siteCount websites logged" else "WEB • Tap for websites"
+                    }
                 }
+                stat.category == "STUDY" -> "STUDY"
+                stat.category == "IMPROVE" -> "IMPROVE"
                 stat.category == "IGNORED" -> {
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit in 1..29) customLimit else 30
@@ -558,21 +742,32 @@ class UsageStatsActivity : AppCompatActivity() {
                     "${cap}m CAP"
                 }
             }
-            val formattedTime = UsageStatsHelper.formatDuration(stat.durationMs)
-            val enrichedName = "$rawName  •  $formattedTime  ($catTag · ${stat.launchCount} opens · $sharePct%)"
-            val colorRes = when (stat.category) {
-                "STUDY" -> R.color.success_green
-                "IMPROVE" -> R.color.accent_purple
-                "IGNORED" -> {
+            val opensPart = if (stat.launchCount > 0) " · ${stat.launchCount} opens" else ""
+            val subtitle = "$catTag$opensPart · $sharePct%"
+            val accentColor = when {
+                isBrowser -> Color.parseColor("#A78BFA")
+                stat.category == "STUDY" -> Color.parseColor("#10B981")
+                stat.category == "IMPROVE" -> Color.parseColor("#38BDF8")
+                stat.category == "IGNORED" -> {
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = if (customLimit in 1..29) customLimit else 30
-                    if (stat.durationMs >= cap * 60_000L) R.color.distract_red else R.color.text_secondary
+                    if (stat.durationMs >= cap * 60_000L) Color.parseColor("#F43F5E") else Color.parseColor("#F59E0B")
                 }
-                "UTILITY" -> R.color.text_secondary
-                else -> R.color.distract_red
+                stat.category == "UTILITY" -> Color.parseColor("#94A3B8")
+                else -> Color.parseColor("#F43F5E")
             }
-            val mins = max(1L, (stat.durationMs + 30_000L) / 60_000L)
-            AppUsageRow(enrichedName, icon, mins, colorRes)
+            RichUsageRow(
+                packageName = stat.packageName,
+                displayName = rawName,
+                subtitle = subtitle,
+                durationLabel = UsageStatsHelper.formatDuration(stat.durationMs),
+                icon = icon,
+                durationMs = stat.durationMs,
+                sharePct = sharePct,
+                category = stat.category,
+                isBrowser = isBrowser,
+                accentColor = accentColor
+            )
         }
 
         return PreparedDayData(
@@ -584,6 +779,7 @@ class UsageStatsActivity : AppCompatActivity() {
     }
 
     private fun bindDayBreakdown(prepared: PreparedDayData) {
+        currentPreparedDay = prepared
         val dayRange = prepared.dayRange
         val isToday = dayRange?.isToday ?: true
         val dayTitle = dayRange?.fullDateLabel ?: "Today"
@@ -598,28 +794,16 @@ class UsageStatsActivity : AppCompatActivity() {
             "Hourly Activity Timeline (${dayRange?.shortLabel ?: dayTitle})"
         }
         byAppHeaderTv?.text = if (isToday) {
-            getString(R.string.today_by_app)
+            "${getString(R.string.today_by_app)}  •  Tap browser for websites"
         } else {
             "${dayRange?.fullDateLabel ?: "Selected Day"} — Apps Used"
         }
 
         bindExecutiveHeroAndCategories(prepared.snapshot, dayRange)
         bindHourlyTimeline(prepared.snapshot)
-        if (prepared.rows.isEmpty()) {
-            appUsageEmptyText.visibility = View.VISIBLE
-            appUsageList.visibility = View.GONE
-            todayChart.entries = emptyList()
-            smoothAdapter?.submitList(emptyList())
-        } else {
-            appUsageEmptyText.visibility = View.GONE
-            appUsageList.visibility = View.VISIBLE
-            todayChart.entries = prepared.topBarEntries
-            if (smoothAdapter == null) {
-                smoothAdapter = SmoothAppUsageAdapter()
-                appUsageList.adapter = smoothAdapter
-            }
-            smoothAdapter?.submitList(prepared.rows)
-        }
+        todayChart.entries = prepared.topBarEntries
+        updateFilterChipStyles()
+        applyFilterToList()
         renderWeeklyChartSelection()
     }
 
@@ -644,11 +828,49 @@ class UsageStatsActivity : AppCompatActivity() {
         weeklyChart.entries = entries
     }
 
+    private fun prewarmAdjacentDays(currentIdx: Int) {
+        if (weeklyRanges.isEmpty()) return
+        prewarmJob?.cancel()
+        prewarmJob = lifecycleScope.launch(Dispatchers.IO) {
+            val targets = listOf(currentIdx - 1, currentIdx + 1).filter { it in weeklyRanges.indices }
+            for (idx in targets) {
+                val range = weeklyRanges[idx]
+                val cacheKey = range.fullDateLabel
+                if (preparedDayCache.containsKey(cacheKey)) continue
+                try {
+                    val snap = if (range.isToday) {
+                        UsageStatsHelper.getTodayWellbeingSnapshot(this@UsageStatsActivity, forceRefresh = false)
+                    } else {
+                        UsageStatsHelper.getDayWellbeingSnapshot(
+                            this@UsageStatsActivity,
+                            range.startMs,
+                            range.endMs,
+                            forceRefresh = false
+                        )
+                    }
+                    preparedDayCache[cacheKey] = buildPreparedDayData(snap, range)
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
     private fun selectDay(index: Int, scrollToTop: Boolean) {
         if (index !in weeklyRanges.indices) return
         selectedDayIndex = index
         val targetRange = weeklyRanges[index]
         renderWeeklyChartSelection()
+
+        // Instant zero-jank hit from in-memory day cache
+        val cachedPrepared = preparedDayCache[targetRange.fullDateLabel]
+        if (cachedPrepared != null) {
+            bindDayBreakdown(cachedPrepared)
+            if (scrollToTop) {
+                val rootScroll = (categorySummaryRow.parent?.parent) as? ScrollView
+                rootScroll?.smoothScrollTo(0, 0)
+            }
+            prewarmAdjacentDays(index)
+            return
+        }
 
         daySelectionJob?.cancel()
         daySelectionJob = lifecycleScope.launch(Dispatchers.IO) {
@@ -663,6 +885,7 @@ class UsageStatsActivity : AppCompatActivity() {
                 )
             }
             val prepared = buildPreparedDayData(snap, targetRange)
+            preparedDayCache[targetRange.fullDateLabel] = prepared
             withContext(Dispatchers.Main) {
                 if (!isFinishing && !isDestroyed) {
                     bindDayBreakdown(prepared)
@@ -670,6 +893,7 @@ class UsageStatsActivity : AppCompatActivity() {
                         val rootScroll = (categorySummaryRow.parent?.parent) as? ScrollView
                         rootScroll?.smoothScrollTo(0, 0)
                     }
+                    prewarmAdjacentDays(index)
                 }
             }
         }
@@ -729,22 +953,359 @@ class UsageStatsActivity : AppCompatActivity() {
                 )
             }
             val prepared = buildPreparedDayData(snapshot, activeRange)
+            if (activeRange != null) {
+                preparedDayCache[activeRange.fullDateLabel] = prepared
+            }
 
             withContext(Dispatchers.Main) {
                 if (!isFinishing && !isDestroyed) {
                     weeklyRanges = ranges
                     selectedDayIndex = safeIdx
                     bindDayBreakdown(prepared)
+                    prewarmAdjacentDays(safeIdx)
                 }
             }
         }
+    }
+
+    private fun showBrowserWebsitesDialog(
+        browserPackage: String,
+        browserName: String,
+        dayStartMs: Long,
+        dayLabel: String
+    ) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val sites = BrowserWebsiteTracker.getWebsitesForBrowserOnDay(
+                this@UsageStatsActivity,
+                browserPackage,
+                dayStartMs
+            )
+            val studyDomains = WebsitePrefs.getFairDomains(this@UsageStatsActivity)
+            val blockedDomains = WebsitePrefs.getBlockedDomains(this@UsageStatsActivity)
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                renderBrowserWebsitesDialog(
+                    browserPackage = browserPackage,
+                    browserName = browserName,
+                    dayStartMs = dayStartMs,
+                    dayLabel = dayLabel,
+                    initialSites = sites,
+                    studyDomains = studyDomains,
+                    blockedDomains = blockedDomains
+                )
+            }
+        }
+    }
+
+    private fun renderBrowserWebsitesDialog(
+        browserPackage: String,
+        browserName: String,
+        dayStartMs: Long,
+        dayLabel: String,
+        initialSites: List<BrowserWebsiteTracker.SiteUsageRecord>,
+        studyDomains: Set<String>,
+        blockedDomains: Set<String>
+    ) {
+        val isWhite = UiThemePrefs.isWhiteBackgroundActive(this)
+        val bgColor = if (isWhite) Color.WHITE else Color.parseColor("#0D1520")
+        val cardColor = if (isWhite) Color.parseColor("#F8FAFC") else Color.parseColor("#141F2E")
+        val strokeColor = if (isWhite) Color.parseColor("#CBD5E1") else Color.parseColor("#243449")
+        val titleColor = if (isWhite) Color.parseColor("#0F172A") else Color.parseColor("#F1F5F9")
+        val subColor = if (isWhite) Color.parseColor("#475569") else Color.parseColor("#94A3B8")
+
+        val totalMs = initialSites.sumOf { it.durationMs }.coerceAtLeast(1L)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18f), dp(18f), dp(18f), dp(16f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(20f).toFloat()
+                setColor(bgColor)
+                setStroke(dp(1f), strokeColor)
+            }
+        }
+
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(4f) }
+        }
+        headerRow.addView(TextView(this).apply {
+            text = "🌐 $browserName — Websites"
+            textSize = 16.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(titleColor)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        root.addView(headerRow)
+
+        val summaryText = if (initialSites.isEmpty()) {
+            "$dayLabel • No websites logged yet"
+        } else {
+            val totalLabel = BrowserWebsiteTracker.formatSiteDuration(initialSites.sumOf { it.durationMs })
+            "$dayLabel • ${initialSites.size} sites tracked • $totalLabel total"
+        }
+        root.addView(TextView(this).apply {
+            text = summaryText
+            textSize = 12f
+            setTextColor(subColor)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(12f) }
+        })
+
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(330f).coerceAtMost((resources.displayMetrics.heightPixels * 0.48f).roundToInt())
+            )
+        }
+        val listCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        var activeDialog: AlertDialog? = null
+
+        if (initialSites.isEmpty()) {
+            listCol.addView(TextView(this).apply {
+                text = "No website visits recorded for $browserName on $dayLabel yet.\n\nKeep Focus Elite Accessibility Shield active while browsing — every website you visit and its exact duration will appear here automatically."
+                textSize = 12.5f
+                setTextColor(subColor)
+                setPadding(dp(14f), dp(18f), dp(14f), dp(18f))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(14f).toFloat()
+                    setColor(cardColor)
+                    setStroke(dp(1f), strokeColor)
+                }
+            })
+        } else {
+            initialSites.forEach { site ->
+                val isStudy = studyDomains.any { d ->
+                    site.host.equals(d, ignoreCase = true) || site.host.endsWith(".$d", ignoreCase = true)
+                } || site.category == "STUDY"
+                val isBlocked = blockedDomains.any { d ->
+                    site.host.equals(d, ignoreCase = true) || site.host.endsWith(".$d", ignoreCase = true)
+                }
+                val accent = when {
+                    isBlocked -> Color.parseColor("#F43F5E")
+                    isStudy -> Color.parseColor("#10B981")
+                    else -> Color.parseColor("#38BDF8")
+                }
+                val sharePct = ((site.durationMs * 100f) / totalMs).roundToInt().coerceIn(2, 100)
+
+                val itemCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(8f) }
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(13f).toFloat()
+                        setColor(cardColor)
+                        setStroke(dp(1f), strokeColor)
+                    }
+                }
+
+                val topLine = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                topLine.addView(TextView(this).apply {
+                    text = site.host
+                    textSize = 13.5f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(titleColor)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = dp(8f)
+                    }
+                })
+                topLine.addView(TextView(this).apply {
+                    text = BrowserWebsiteTracker.formatSiteDuration(site.durationMs)
+                    textSize = 12f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(accent)
+                    setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(9f).toFloat()
+                        setColor(Color.argb(30, Color.red(accent), Color.green(accent), Color.blue(accent)))
+                        setStroke(dp(1f), accent)
+                    }
+                })
+                itemCard.addView(topLine)
+
+                val statusTag = when {
+                    isBlocked -> "Blocked"
+                    isStudy -> "Study 24/7"
+                    else -> "Non-Study"
+                }
+                val visitsStr = if (site.visits == 1) "1 visit" else "${site.visits} visits"
+                itemCard.addView(TextView(this).apply {
+                    text = "$statusTag • $visitsStr • $sharePct% of browser time"
+                    textSize = 11f
+                    setTextColor(subColor)
+                    setPadding(0, dp(3f), 0, dp(6f))
+                })
+
+                // Micro proportion bar
+                val barTrack = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dp(4f)
+                    ).apply { bottomMargin = dp(8f) }
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(2f).toFloat()
+                        setColor(if (isWhite) Color.parseColor("#E2E8F0") else Color.parseColor("#1E293B"))
+                    }
+                    clipToOutline = true
+                }
+                barTrack.addView(View(this).apply {
+                    setBackgroundColor(accent)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, sharePct.toFloat())
+                })
+                barTrack.addView(View(this).apply {
+                    setBackgroundColor(Color.TRANSPARENT)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, (100 - sharePct).coerceAtLeast(0).toFloat())
+                })
+                itemCard.addView(barTrack)
+
+                // Quick 1-tap Study / Block rule actions
+                val btnRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                }
+                val studyBtn = TextView(this).apply {
+                    text = if (isStudy) "✓ Study" else "+ Study"
+                    textSize = 11f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#10B981"))
+                    setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(8f).toFloat()
+                        setColor(Color.argb(26, 16, 185, 129))
+                        setStroke(dp(1f), Color.parseColor("#10B981"))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { marginEnd = dp(8f) }
+                    setOnClickListener { v ->
+                        SensoryFeedbackEngine.tap(this@UsageStatsActivity, v)
+                        if (isStudy) {
+                            WebsitePrefs.removeFairDomain(this@UsageStatsActivity, site.host)
+                            Toast.makeText(this@UsageStatsActivity, "Removed ${site.host} from Study", Toast.LENGTH_SHORT).show()
+                        } else {
+                            WebsitePrefs.removeDomain(this@UsageStatsActivity, site.host)
+                            WebsitePrefs.addFairDomain(this@UsageStatsActivity, site.host)
+                            Toast.makeText(this@UsageStatsActivity, "Marked ${site.host} as Study 24/7", Toast.LENGTH_SHORT).show()
+                        }
+                        BlockPolicyEngine.warmCacheAsync(this@UsageStatsActivity)
+                        activeDialog?.dismiss()
+                        showBrowserWebsitesDialog(browserPackage, browserName, dayStartMs, dayLabel)
+                    }
+                }
+                val blockBtn = TextView(this).apply {
+                    text = if (isBlocked) "✓ Blocked" else "Block"
+                    textSize = 11f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#F43F5E"))
+                    setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(8f).toFloat()
+                        setColor(Color.argb(26, 244, 63, 94))
+                        setStroke(dp(1f), Color.parseColor("#F43F5E"))
+                    }
+                    setOnClickListener { v ->
+                        SensoryFeedbackEngine.tap(this@UsageStatsActivity, v)
+                        if (isBlocked) {
+                            WebsitePrefs.removeDomain(this@UsageStatsActivity, site.host)
+                            Toast.makeText(this@UsageStatsActivity, "Unblocked ${site.host}", Toast.LENGTH_SHORT).show()
+                        } else {
+                            WebsitePrefs.removeFairDomain(this@UsageStatsActivity, site.host)
+                            WebsitePrefs.addDomain(this@UsageStatsActivity, site.host)
+                            Toast.makeText(this@UsageStatsActivity, "Blocked ${site.host}", Toast.LENGTH_SHORT).show()
+                        }
+                        BlockPolicyEngine.warmCacheAsync(this@UsageStatsActivity)
+                        activeDialog?.dismiss()
+                        showBrowserWebsitesDialog(browserPackage, browserName, dayStartMs, dayLabel)
+                    }
+                }
+                btnRow.addView(studyBtn)
+                btnRow.addView(blockBtn)
+                itemCard.addView(btnRow)
+                listCol.addView(itemCard)
+            }
+        }
+
+        scroll.addView(listCol)
+        root.addView(scroll)
+
+        // Footer Actions: Open Web Shield + Close
+        val footer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12f) }
+        }
+        footer.addView(TextView(this).apply {
+            text = "Open Web Shield →"
+            textSize = 12.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38BDF8"))
+            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(8f) }
+            setOnClickListener { v ->
+                SensoryFeedbackEngine.tap(this@UsageStatsActivity, v)
+                activeDialog?.dismiss()
+                startActivity(Intent(this@UsageStatsActivity, EliteWebShieldActivity::class.java))
+            }
+        })
+        footer.addView(TextView(this).apply {
+            text = "Close"
+            textSize = 12.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                setColor(Color.parseColor("#1E293B"))
+            }
+            setOnClickListener { activeDialog?.dismiss() }
+        })
+        root.addView(footer)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(root)
+            .create()
+        activeDialog = dialog
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
     }
 
     private fun bindExecutiveHeroAndCategories(
         snapshot: UsageStatsHelper.WellbeingSnapshot,
         dayRange: UsageStatsHelper.WeeklyDayRange?
     ) {
-        tvHeroTotalTime?.text = UsageStatsHelper.formatPreciseDuration(snapshot.totalScreenTimeMs)
+        val newTotalText = UsageStatsHelper.formatPreciseDuration(snapshot.totalScreenTimeMs)
+        val totalView = tvHeroTotalTime
+        if (totalView != null && totalView.text?.toString() != newTotalText) {
+            totalView.animate().cancel()
+            totalView.alpha = 0.55f
+            totalView.text = newTotalText
+            totalView.animate().alpha(1f).setDuration(180L).start()
+        }
         tvKpiUnlocks?.text = snapshot.unlockCount.toString()
         tvKpiLaunches?.text = snapshot.totalAppLaunches.toString()
         tvKpiPeakHour?.text = if (snapshot.peakHourMinutes > 0) {
@@ -760,21 +1321,21 @@ class UsageStatsActivity : AppCompatActivity() {
         if (!isToday) {
             tvHeroDeltaPill?.text = dayRange?.shortLabel ?: "History"
             tvHeroDeltaPill?.setTextColor(Color.parseColor("#16D99A"))
-            tvVsYesterday.text = "Showing full app breakdown for ${dayRange?.fullDateLabel ?: "selected day"} • Tap any bar in Last 7 Days to switch"
+            tvVsYesterday.text = "Showing full app breakdown for ${dayRange?.fullDateLabel ?: "selected day"} • Tap any browser for websites"
         } else if (snapshot.yesterdayScreenTimeMs <= 0L) {
             tvHeroDeltaPill?.text = "✓ Exact Tracking"
-            tvVsYesterday.text = "Tap any day bar in 'Last 7 Days' below (or use ◀ ▶ above) to inspect past days"
+            tvVsYesterday.text = "Tap any browser below to inspect websites • Tap any bar in Last 7 Days to switch"
         } else if (diffMins < 2L) {
             tvHeroDeltaPill?.text = "≈ Same as yesterday"
-            tvVsYesterday.text = "On pace with yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)} total yesterday) • Tap any day bar below for details"
+            tvVsYesterday.text = "On pace with yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any browser for websites"
         } else if (diffMs < 0L) {
             tvHeroDeltaPill?.text = "▼ $diffFormatted vs yesterday"
             tvHeroDeltaPill?.setTextColor(Color.parseColor("#34D399"))
-            tvVsYesterday.text = "Down $diffFormatted vs yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any day bar in Last 7 Days to inspect"
+            tvVsYesterday.text = "Down $diffFormatted vs yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any browser for websites"
         } else {
             tvHeroDeltaPill?.text = "▲ $diffFormatted vs yesterday"
             tvHeroDeltaPill?.setTextColor(Color.parseColor("#F59E0B"))
-            tvVsYesterday.text = "Up $diffFormatted vs yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any day bar in Last 7 Days to inspect"
+            tvVsYesterday.text = "Up $diffFormatted vs yesterday (${UsageStatsHelper.formatDuration(snapshot.yesterdayScreenTimeMs)}) • Tap any browser for websites"
         }
 
         // Update Category Summary Row
@@ -817,25 +1378,31 @@ class UsageStatsActivity : AppCompatActivity() {
     }
 
     /**
-     * DiffUtil-backed persistent RecyclerView adapter for butter-smooth 60-120 FPS day switching
-     * and live refresh without recreating ViewHolders or resetting scroll state.
+     * DiffUtil-backed persistent RecyclerView adapter with rich 2-line cards, micro proportion bars,
+     * and interactive browser website drilldown pills.
      */
-    private class SmoothAppUsageAdapter : RecyclerView.Adapter<SmoothAppUsageAdapter.SmoothRowHolder>() {
-        private var items: List<AppUsageRow> = emptyList()
+    private class SmoothAppUsageAdapter(
+        private val onRowClick: (RichUsageRow) -> Unit
+    ) : RecyclerView.Adapter<SmoothAppUsageAdapter.SmoothRowHolder>() {
+        private var items: List<RichUsageRow> = emptyList()
 
-        fun submitList(newItems: List<AppUsageRow>) {
+        fun submitList(newItems: List<RichUsageRow>) {
             val oldItems = items
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize(): Int = oldItems.size
                 override fun getNewListSize(): Int = newItems.size
                 override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean {
-                    return oldItems[oldPos].appName.substringBefore("  •  ") ==
-                        newItems[newPos].appName.substringBefore("  •  ")
+                    return oldItems[oldPos].packageName == newItems[newPos].packageName
                 }
                 override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
                     val o = oldItems[oldPos]
                     val n = newItems[newPos]
-                    return o.appName == n.appName && o.minutes == n.minutes && o.colorRes == n.colorRes
+                    return o.displayName == n.displayName &&
+                        o.subtitle == n.subtitle &&
+                        o.durationLabel == n.durationLabel &&
+                        o.sharePct == n.sharePct &&
+                        o.accentColor == n.accentColor &&
+                        o.isBrowser == n.isBrowser
                 }
             })
             items = newItems
@@ -846,7 +1413,12 @@ class UsageStatsActivity : AppCompatActivity() {
             val container: LinearLayout,
             val iconView: ImageView,
             val titleView: TextView,
-            val badgeView: TextView
+            val subtitleView: TextView,
+            val sitesPill: TextView,
+            val badgeView: TextView,
+            val barFill: View,
+            val barEmpty: View,
+            val barTrack: LinearLayout
         ) : RecyclerView.ViewHolder(container)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SmoothRowHolder {
@@ -854,55 +1426,155 @@ class UsageStatsActivity : AppCompatActivity() {
             val density = ctx.resources.displayMetrics.density
             fun dp(v: Float) = (v * density).roundToInt()
 
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            val card = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12f), dp(11f), dp(12f), dp(10f))
                 layoutParams = RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { bottomMargin = dp(8f) }
             }
-            val icon = ImageView(ctx).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(36f), dp(36f)).apply { marginEnd = dp(12f) }
+
+            val mainRow = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
             }
-            val title = TextView(ctx).apply {
-                textSize = 13f
-                setTypeface(typeface, Typeface.BOLD)
+
+            val icon = ImageView(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(38f), dp(38f)).apply { marginEnd = dp(12f) }
+            }
+
+            val textCol = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = dp(8f)
                 }
             }
+
+            val title = TextView(ctx).apply {
+                textSize = 13.8f
+                setTypeface(typeface, Typeface.BOLD)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }
+
+            val sub = TextView(ctx).apply {
+                textSize = 11.2f
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(0, dp(2f), 0, 0)
+            }
+
+            textCol.addView(title)
+            textCol.addView(sub)
+
+            val rightCol = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.END
+            }
+
             val badge = TextView(ctx).apply {
-                textSize = 12f
+                textSize = 11.8f
                 setTypeface(typeface, Typeface.BOLD)
                 setPadding(dp(9f), dp(4f), dp(9f), dp(4f))
             }
-            row.addView(icon)
-            row.addView(title)
-            row.addView(badge)
-            return SmoothRowHolder(row, icon, title, badge)
+
+            val sitesPill = TextView(ctx).apply {
+                text = "🌐 Sites ›"
+                textSize = 10.5f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Color.parseColor("#38BDF8"))
+                setPadding(dp(7f), dp(2f), dp(7f), dp(2f))
+                visibility = View.GONE
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(4f) }
+            }
+
+            rightCol.addView(badge)
+            rightCol.addView(sitesPill)
+
+            mainRow.addView(icon)
+            mainRow.addView(textCol)
+            mainRow.addView(rightCol)
+
+            // Micro usage proportion bar
+            val barTrack = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(3.5f)
+                ).apply { topMargin = dp(8f) }
+                clipToOutline = true
+            }
+            val barFill = View(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            }
+            val barEmpty = View(ctx).apply {
+                setBackgroundColor(Color.TRANSPARENT)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 99f)
+            }
+            barTrack.addView(barFill)
+            barTrack.addView(barEmpty)
+
+            card.addView(mainRow)
+            card.addView(barTrack)
+
+            return SmoothRowHolder(card, icon, title, sub, sitesPill, badge, barFill, barEmpty, barTrack)
         }
 
         override fun onBindViewHolder(holder: SmoothRowHolder, position: Int) {
             val row = items[position]
             val ctx = holder.container.context
             val density = ctx.resources.displayMetrics.density
-            val accentColor = ContextCompat.getColor(ctx, row.colorRes)
-            holder.container.background = UiThemePrefs.createCardBackground(ctx, cornerDp = 13f, isHero = false)
-            holder.iconView.setImageDrawable(row.icon)
-            holder.titleView.text = row.appName
-            holder.titleView.setTextColor(UiThemePrefs.getScreenHeaderTextColor(ctx))
+            val isWhite = UiThemePrefs.isWhiteBackgroundActive(ctx)
+            val accentColor = row.accentColor
 
-            val hrs = row.minutes / 60L
-            val mins = row.minutes % 60L
-            holder.badgeView.text = if (hrs > 0L) "${hrs}h ${mins}m" else "${mins}m"
+            holder.container.background = UiThemePrefs.createCardBackground(ctx, cornerDp = 14f, isHero = false)
+            holder.iconView.setImageDrawable(row.icon)
+            holder.titleView.text = row.displayName
+            holder.titleView.setTextColor(UiThemePrefs.getScreenHeaderTextColor(ctx))
+            holder.subtitleView.text = row.subtitle
+            holder.subtitleView.setTextColor(UiThemePrefs.getScreenSubHeaderTextColor(ctx))
+
+            holder.badgeView.text = row.durationLabel
             holder.badgeView.setTextColor(accentColor)
             holder.badgeView.background = GradientDrawable().apply {
                 cornerRadius = 10f * density
                 setColor(Color.argb(30, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)))
                 setStroke((1f * density).roundToInt(), accentColor)
             }
+
+            if (row.isBrowser) {
+                holder.sitesPill.visibility = View.VISIBLE
+                holder.sitesPill.background = GradientDrawable().apply {
+                    cornerRadius = 8f * density
+                    setColor(Color.argb(28, 56, 189, 248))
+                    setStroke((1f * density).roundToInt(), Color.parseColor("#38BDF8"))
+                }
+                holder.container.isClickable = true
+                holder.container.isFocusable = true
+                holder.container.setOnClickListener { onRowClick(row) }
+            } else {
+                holder.sitesPill.visibility = View.GONE
+                holder.container.setOnClickListener(null)
+                holder.container.isClickable = false
+            }
+
+            holder.barTrack.background = GradientDrawable().apply {
+                cornerRadius = 2f * density
+                setColor(if (isWhite) Color.parseColor("#E2E8F0") else Color.parseColor("#182232"))
+            }
+            holder.barFill.setBackgroundColor(accentColor)
+            val pct = row.sharePct.coerceIn(2, 100)
+            (holder.barFill.layoutParams as? LinearLayout.LayoutParams)?.weight = pct.toFloat()
+            (holder.barEmpty.layoutParams as? LinearLayout.LayoutParams)?.weight = (100 - pct).toFloat()
+            holder.barTrack.requestLayout()
         }
 
         override fun getItemCount(): Int = items.size

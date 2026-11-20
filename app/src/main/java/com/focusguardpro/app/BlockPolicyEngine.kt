@@ -17,6 +17,20 @@ object BlockPolicyEngine {
 
     private const val PREFS_BROWSER_NON_STUDY = "FocusGuard_BrowserNonStudyTracker"
     private const val PREFS_UNBLOCKED_TODAY = "FocusGuard_UnblockedToday"
+    private const val PREFS_BROWSER_ACCESS_WINDOW = "FocusGuard_BrowserAccessWindow_v1"
+
+    const val WINDOW_MODE_AFTER_END = "AFTER_END"
+    const val WINDOW_MODE_BEFORE_START = "BEFORE_START"
+    const val WINDOW_MODE_BOTH = "BOTH"
+
+    data class BrowserWindowStatus(
+        val isEnabled: Boolean,
+        val isActiveNow: Boolean,
+        val remainingMinutes: Int,
+        val durationMinutes: Int,
+        val mode: String,
+        val scheduleLabel: String
+    )
 
     private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val systemStateCache = ConcurrentHashMap<String, String>()
@@ -409,6 +423,170 @@ object BlockPolicyEngine {
         "startpage.com"
     )
 
+    /**
+     * Permanent, hardcoded, non-disableable adult-content protection.
+     * Intentionally not exposed in any UI toggle or settings list.
+     */
+    private val PERMANENT_ADULT_DOMAINS = setOf(
+        "pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com", "redtube.com",
+        "youporn.com", "tube8.com", "spankbang.com", "eporner.com", "txxx.com",
+        "hclips.com", "tnaflix.com", "drtuber.com", "beeg.com", "motherless.com",
+        "rule34.xxx", "nhentai.net", "hanime.tv", "hentaihaven.xxx", "e-hentai.org",
+        "chaturbate.com", "stripchat.com", "bongacams.com", "cam4.com", "myfreecams.com",
+        "livejasmin.com", "onlyfans.com", "fansly.com", "brazzers.com", "bangbros.com",
+        "realitykings.com", "naughtyamerica.com", "vixen.com", "blacked.com", "tushy.com",
+        "javhd.com", "missav.com", "javmost.com", "porntrex.com", "hqporner.com",
+        "daftsex.com", "sxyprn.com", "thumbzilla.com", "fuq.com", "gotporn.com",
+        "sunporno.com", "anyporn.com", "sex.com", "porn.com", "xxx.com",
+        "fapello.com", "coomer.su", "kemono.su", "erome.com", "literotica.com",
+        "youjizz.com", "jizzbunker.com", "pornone.com", "3movs.com", "upornia.com",
+        "ixxx.com", "ok.xxx", "fsiblog.com", "desipapa.com", "antarvasna.com",
+        "kamababa.com", "xhamster19.com", "xhamster2.com", "xhamster.desi", "xvideos2.com",
+        "xvideos3.com", "xnxx2.com", "xnxx3.com", "pornhub.org"
+    )
+
+    private val PERMANENT_ADULT_HOST_TOKENS = listOf(
+        "porn", "xvideos", "xnxx", "xhamster", "redtube", "youporn", "spankbang",
+        "hentai", "rule34", "chaturbate", "stripchat", "bongacams", "onlyfans",
+        "brazzers", "bangbros", "camgirl", "livecam", "sexvid", "sexcam",
+        "xxxvid", "nudevista", "milf", "erotica", "fapello", "javhd", "missav",
+        "desisex", "antarvasna", "kamababa", "adultvideo", "nsfw"
+    )
+
+    private fun isRestrictedAdultSite(rawHost: String?): Boolean {
+        val host = normalizeHost(rawHost)
+        if (host.isBlank()) return false
+        if (host.endsWith(".xxx") || host.endsWith(".porn") || host.endsWith(".sex") || host.endsWith(".adult")) {
+            return true
+        }
+        for (d in PERMANENT_ADULT_DOMAINS) {
+            if (host == d || host.endsWith(".$d")) return true
+        }
+        val labels = host.split('.')
+        val domainCore = if (labels.size >= 2) labels.dropLast(1).joinToString(".") else host
+        for (tok in PERMANENT_ADULT_HOST_TOKENS) {
+            if (domainCore.contains(tok)) return true
+        }
+        return false
+    }
+
+    // =========================================================================
+    // POST-FOCUS / PRE-FOCUS BROWSER FREE-ACCESS REWARD WINDOW (30–60 MIN)
+    // =========================================================================
+
+    fun isBrowserAccessWindowEnabled(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
+            .getBoolean("enabled", true)
+    }
+
+    fun setBrowserAccessWindowEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("enabled", enabled)
+            .apply()
+    }
+
+    fun getBrowserAccessWindowMinutes(context: Context): Int {
+        return context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
+            .getInt("duration_minutes", 45)
+            .coerceIn(15, 90)
+    }
+
+    fun setBrowserAccessWindowMinutes(context: Context, minutes: Int) {
+        context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
+            .edit()
+            .putInt("duration_minutes", minutes.coerceIn(15, 90))
+            .apply()
+    }
+
+    fun getBrowserAccessWindowMode(context: Context): String {
+        val saved = context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
+            .getString("mode", WINDOW_MODE_AFTER_END)
+        return when (saved) {
+            WINDOW_MODE_BEFORE_START, WINDOW_MODE_BOTH -> saved
+            else -> WINDOW_MODE_AFTER_END
+        }
+    }
+
+    fun setBrowserAccessWindowMode(context: Context, mode: String) {
+        val safe = when (mode) {
+            WINDOW_MODE_BEFORE_START, WINDOW_MODE_BOTH -> mode
+            else -> WINDOW_MODE_AFTER_END
+        }
+        context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
+            .edit()
+            .putString("mode", safe)
+            .apply()
+    }
+
+    /**
+     * Evaluates whether the current time falls inside the user's configured
+     * 30–60 minute Browser Free-Access Window right before Focus Layer starts
+     * or right after Focus Layer ends (never active during Deep Focus Studio).
+     */
+    fun getBrowserAccessWindowStatus(
+        context: Context,
+        nowMs: Long = FocusLayerManager.verifiedNowMs(context)
+    ): BrowserWindowStatus {
+        val enabled = isBrowserAccessWindowEnabled(context)
+        val dur = getBrowserAccessWindowMinutes(context)
+        val mode = getBrowserAccessWindowMode(context)
+        val startMins = FocusLayerManager.getStartMinutes(context)
+        val endMins = FocusLayerManager.getEndMinutes(context)
+
+        val beforeStartBegin = (startMins - dur + 1440) % 1440
+        val afterEndFinish = (endMins + dur) % 1440
+
+        val scheduleLabel = when (mode) {
+            WINDOW_MODE_BEFORE_START ->
+                "${FocusLayerManager.formatMinutesOfDay(beforeStartBegin)} – ${FocusLayerManager.formatMinutesOfDay(startMins)} (Before Focus)"
+            WINDOW_MODE_BOTH ->
+                "${FocusLayerManager.formatMinutesOfDay(beforeStartBegin)}–${FocusLayerManager.formatMinutesOfDay(startMins)} & ${FocusLayerManager.formatMinutesOfDay(endMins)}–${FocusLayerManager.formatMinutesOfDay(afterEndFinish)}"
+            else ->
+                "${FocusLayerManager.formatMinutesOfDay(endMins)} – ${FocusLayerManager.formatMinutesOfDay(afterEndFinish)} (After Focus)"
+        }
+
+        if (!enabled ||
+            !FocusLayerManager.isScheduleEnabled(context) ||
+            !FocusLayerManager.isDayIncludedInSchedule(context, nowMs) ||
+            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
+        ) {
+            return BrowserWindowStatus(enabled, false, 0, dur, mode, scheduleLabel)
+        }
+
+        val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
+        val nowMins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+
+        fun minutesRemainingIn(winStart: Int, winEnd: Int): Int {
+            val inWin = isTimeInBlackout(winStart, winEnd, nowMs)
+            if (!inWin) return 0
+            val diff = if (winEnd >= nowMins) winEnd - nowMins else (1440 - nowMins) + winEnd
+            return diff.coerceIn(1, dur)
+        }
+
+        var rem = 0
+        if (mode == WINDOW_MODE_AFTER_END || mode == WINDOW_MODE_BOTH) {
+            rem = maxOf(rem, minutesRemainingIn(endMins, afterEndFinish))
+        }
+        if (mode == WINDOW_MODE_BEFORE_START || mode == WINDOW_MODE_BOTH) {
+            rem = maxOf(rem, minutesRemainingIn(beforeStartBegin, startMins))
+        }
+
+        return BrowserWindowStatus(
+            isEnabled = enabled,
+            isActiveNow = rem > 0,
+            remainingMinutes = rem,
+            durationMinutes = dur,
+            mode = mode,
+            scheduleLabel = scheduleLabel
+        )
+    }
+
+    fun isBrowserFreeAccessWindowActive(
+        context: Context,
+        nowMs: Long = FocusLayerManager.verifiedNowMs(context)
+    ): Boolean = getBrowserAccessWindowStatus(context, nowMs).isActiveNow
+
     fun isBrowserPackage(packageName: String?): Boolean {
         if (packageName.isNullOrBlank()) return false
         return EXTRA_BROWSER_PACKAGES.contains(packageName) ||
@@ -588,12 +766,29 @@ object BlockPolicyEngine {
 
         val isStudy = isStudyWebsiteForBrowser(context, browserPackage, host)
         val isNeutral = isNeutralNavigationWebsite(context, host)
+        val isBlockedDomain = WebsitePrefs.isBlocked(context, host)
 
         val lastTick = prefs.getLong("last_browser_tick_ms_$browserPackage", 0L)
         val deltaMs = if (lastTick > 0L && nowMs > lastTick) {
             (nowMs - lastTick).coerceAtMost(15_000L)
         } else {
             1_000L
+        }
+
+        // Persist per-website duration & visit stats (skipping adult-restricted & synthetic fallback hosts)
+        if (!isRestrictedAdultSite(host) && host != "non-study-browsing.local") {
+            try {
+                BrowserWebsiteTracker.recordSample(
+                    context = context,
+                    browserPackage = browserPackage,
+                    host = host,
+                    deltaMs = deltaMs,
+                    isStudy = isStudy,
+                    isNeutral = isNeutral,
+                    isBlocked = isBlockedDomain,
+                    nowMs = nowMs
+                )
+            } catch (_: Throwable) {}
         }
 
         val prevHost = prefs.getString("active_host_$browserPackage", null)
@@ -824,18 +1019,23 @@ object BlockPolicyEngine {
         rawHost: String?,
         nowMs: Long = FocusLayerManager.verifiedNowMs(context)
     ): BlockDecision {
+        val host = normalizeHost(rawHost)
+        if (host.isBlank()) {
+            return BlockDecision.Allowed
+        }
+
+        // 0. PERMANENT ALWAYS-ON PROTECTION: Unbypassable, ignores off-days, holidays, shield pause & free windows
+        if (isRestrictedAdultSite(host)) {
+            return BlockDecision.Blocked(BlockReason.HARD_BLOCK, "Restricted Site", "ADULT_RESTRICTED")
+        }
+
         val shieldPrefs = context.getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
         if (!shieldPrefs.getBoolean("shield_active", true)) {
             return BlockDecision.Allowed
         }
 
-        // Disable all Web Shield rules completely on non-focus days & verified Calendar Holidays
+        // Disable all standard Web Shield rules completely on non-focus days & verified Calendar Holidays
         if (isWebShieldPausedForOffDay(context, nowMs)) {
-            return BlockDecision.Allowed
-        }
-
-        val host = normalizeHost(rawHost)
-        if (host.isBlank()) {
             return BlockDecision.Allowed
         }
 
@@ -854,6 +1054,11 @@ object BlockPolicyEngine {
 
         // 3. Neutral search engines / new-tab pages are allowed so user can navigate to study websites
         if (isNeutralNavigationWebsite(context, host)) {
+            return BlockDecision.Allowed
+        }
+
+        // 3B. Post-Focus / Pre-Focus Browser Free-Access Window (30–60 min reward window around Focus Layer)
+        if (isBrowserFreeAccessWindowActive(context, nowMs)) {
             return BlockDecision.Allowed
         }
 

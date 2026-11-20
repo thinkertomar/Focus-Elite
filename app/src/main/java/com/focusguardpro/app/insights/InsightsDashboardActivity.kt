@@ -60,8 +60,16 @@ class InsightsDashboardActivity : AppCompatActivity() {
     private lateinit var trendCurveView: SynergyTrendCurveView
     private lateinit var eliteAdapter: EliteInsightDayAdapter
 
+    companion object {
+        // Lowered from 8h max study cap -> 6h (360 min) earns full Study pillar points; studying up to 8h+ is never penalized.
+        private const val STUDY_TARGET_MINUTES = 360
+    }
+
     private var loadJob: Job? = null
     private var currentDays: Int = 7
+    private val studyMinsByDate = HashMap<String, Int>()
+    private val distractMinsByDate = HashMap<String, Int>()
+    private val hasSplitByDate = HashMap<String, Boolean>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,10 +99,15 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             onDaySelected = { day ->
-                val hrs = day.screenTimeMinutes / 60
-                val mins = day.screenTimeMinutes % 60
+                val studyM = studyMinsByDate[day.dateStr]
+                val hasSplit = hasSplitByDate[day.dateStr] == true
+                val labelTime = if (hasSplit && studyM != null) {
+                    "📚 ${studyM / 60}h ${studyM % 60}m study"
+                } else {
+                    "${day.screenTimeMinutes / 60}h ${day.screenTimeMinutes % 60}m screen"
+                }
                 tvTrendCurveCallout.text =
-                    "${formatShortDate(day.dateStr)}: ${day.score}/100 (${hrs}h ${mins}m • ${String.format(Locale.US, "%,d", day.steps)} steps)"
+                    "${formatShortDate(day.dateStr)}: ${day.score}/100 ($labelTime • ${String.format(Locale.US, "%,d", day.steps)} steps)"
             }
         }
         curveContainer.addView(trendCurveView)
@@ -156,18 +169,57 @@ class InsightsDashboardActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Study & Focus Hygiene Score (0–40 points):
+     * - Study Effort (0–26 pts): Target lowered from 8h max to 6h (360 min) so 4h–6h study earns
+     *   strong/full marks and studying up to 8h+ is rewarded, never penalized.
+     * - Distraction Hygiene (0–14 pts): Penalizes ONLY distracting app/site time, never Study/Improve.
+     * - Legacy fallback (older days without per-category events): gently scores up to 8h without harsh wipeout.
+     */
+    private fun computeStudyAndFocusScore(
+        studyMins: Int,
+        distractMins: Int,
+        totalScreenMins: Int,
+        hasCategorySplit: Boolean
+    ): Int {
+        if (hasCategorySplit) {
+            val studyPts = ((studyMins.toFloat() / STUDY_TARGET_MINUTES.toFloat()) * 26f)
+                .roundToInt()
+                .coerceIn(0, 26)
+            val distractPts = when {
+                distractMins <= 30 -> 14
+                distractMins <= 60 -> 11
+                distractMins <= 90 -> 8
+                distractMins <= 120 -> 5
+                else -> (5 - ((distractMins - 120) / 20)).coerceIn(0, 5)
+            }
+            return (studyPts + distractPts).coerceIn(0, 40)
+        }
+        // Fallback when only total screen time exists (e.g., >10 days ago): do not penalize up to 8h study days
+        return when {
+            totalScreenMins <= 0 -> 18
+            totalScreenMins <= 360 -> 30
+            totalScreenMins <= 480 -> 26
+            else -> (26 - ((totalScreenMins - 480) / 30) * 4).coerceIn(8, 26)
+        }
+    }
+
     private fun loadInsights(days: Int) {
         loadJob?.cancel()
 
         // Fast instant frame-0 binding so "--/100" never hangs while IO queries complete
         val cachedSnap = UsageStatsHelper.getCachedTodaySnapshot(this)
         if (cachedSnap != null && eliteAdapter.itemCount == 0) {
-            val todayMins = (cachedSnap.totalScreenTimeMs / 60_000L).toInt().coerceAtLeast(0)
-            val screenScore = (40 - (todayMins / 60) * 8).coerceIn(0, 40)
+            val todayTotalMins = (cachedSnap.totalScreenTimeMs / 60_000L).toInt().coerceAtLeast(0)
+            val todayStudyMins = ((cachedSnap.studyMs + cachedSnap.improveMs) / 60_000L).toInt().coerceAtLeast(0)
+            val todayDistractMins = (cachedSnap.distractMs / 60_000L).toInt().coerceAtLeast(0)
+            val hasSplit = (cachedSnap.studyMs + cachedSnap.improveMs + cachedSnap.distractMs + cachedSnap.utilityMs) > 0L
+            val screenScore = computeStudyAndFocusScore(todayStudyMins, todayDistractMins, todayTotalMins, hasSplit)
             val quickScore = (screenScore + 25).coerceIn(0, 100)
             tvSynergyScore.text = "$quickScore/100"
             synergyHeroRing.progress = quickScore / 100f
-            tvAvgFocus.text = "${todayMins / 60}h ${todayMins % 60}m"
+            val showMins = if (hasSplit) todayStudyMins else todayTotalMins
+            tvAvgFocus.text = "${showMins / 60}h ${showMins % 60}m"
             tvAvgSteps.text = "Syncing..."
         }
 
@@ -212,7 +264,13 @@ class InsightsDashboardActivity : AppCompatActivity() {
             } catch (_: Throwable) {}
 
             val dayList = ArrayList<DayInsight>(days)
+            val localStudyMap = HashMap<String, Int>()
+            val localDistractMap = HashMap<String, Int>()
+            val localSplitMap = HashMap<String, Boolean>()
+
             var totalScreenMins = 0
+            var totalStudyMins = 0
+            var studySplitDays = 0
             var totalSteps = 0
             var totalScore = 0
             var totalScreenScore = 0
@@ -236,7 +294,34 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 val dStart = cal.timeInMillis
                 val dEnd = if (i == 0) nowMs else dStart + 86_400_000L - 1L
 
-                val screenTimeMins = if (i == 0) {
+                // Query categorized WellbeingSnapshot for the recent 10-day Android UsageEvents window
+                val wellbeingSnap = try {
+                    when {
+                        i == 0 -> UsageStatsHelper.getTodayWellbeingSnapshot(appCtx, forceRefresh = false)
+                        i <= 9 -> UsageStatsHelper.getDayWellbeingSnapshot(appCtx, dStart, dEnd, forceRefresh = false)
+                        else -> null
+                    }
+                } catch (_: Throwable) {
+                    null
+                }
+
+                val hasSplit = wellbeingSnap != null &&
+                    (wellbeingSnap.studyMs + wellbeingSnap.improveMs + wellbeingSnap.distractMs + wellbeingSnap.utilityMs) > 0L
+
+                val studyMins = if (hasSplit && wellbeingSnap != null) {
+                    ((wellbeingSnap.studyMs + wellbeingSnap.improveMs) / 60_000L).toInt().coerceIn(0, 1440)
+                } else {
+                    0
+                }
+                val distractMins = if (hasSplit && wellbeingSnap != null) {
+                    (wellbeingSnap.distractMs / 60_000L).toInt().coerceIn(0, 1440)
+                } else {
+                    0
+                }
+
+                val screenTimeMins = if (hasSplit && wellbeingSnap != null) {
+                    (wellbeingSnap.totalScreenTimeMs / 60_000L).toInt().coerceIn(0, 1440)
+                } else if (i == 0) {
                     (UsageStatsHelper.getTodayScreenTimeMillis(appCtx) / 60_000L).toInt().coerceIn(0, 1440)
                 } else {
                     val fromHist = (UsageStatsHelper.getHistoricalDayScreenTimeMillis(appCtx, dStart, dEnd) / 60_000L).toInt()
@@ -245,6 +330,14 @@ class InsightsDashboardActivity : AppCompatActivity() {
                     } else {
                         (snapshotMinutesByDay[dayKey] ?: 0).coerceIn(0, 1080)
                     }
+                }
+
+                localStudyMap[dateStr] = studyMins
+                localDistractMap[dateStr] = distractMins
+                localSplitMap[dateStr] = hasSplit
+                if (hasSplit) {
+                    totalStudyMins += studyMins
+                    studySplitDays++
                 }
 
                 val steps = if (i == 0) {
@@ -261,7 +354,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
                     log.timestamp in dStart..dEnd
                 }
 
-                val screenScore = (40 - (screenTimeMins / 60) * 8).coerceIn(0, 40)
+                val screenScore = computeStudyAndFocusScore(studyMins, distractMins, screenTimeMins, hasSplit)
                 val stepScore = ((steps.toFloat() / stepGoal.toFloat()) * 35f).toInt().coerceIn(0, 35)
                 val exerciseScore = (exerciseSets * 5).coerceIn(0, 25)
                 val dayScore = (screenScore + stepScore + exerciseScore).coerceIn(0, 100)
@@ -295,11 +388,19 @@ class InsightsDashboardActivity : AppCompatActivity() {
             val avgStepPts = (totalStepScore / denom).coerceIn(0, 35)
             val avgWorkoutPts = (totalWorkoutScore / denom).coerceIn(0, 25)
             val avgMins = (totalScreenMins / denom).coerceAtLeast(0)
+            val avgStudyMins = if (studySplitDays > 0) (totalStudyMins / studySplitDays).coerceAtLeast(0) else avgMins
             val avgDailySteps = (totalSteps / denom).coerceAtLeast(0)
             val bestDay = dayList.maxByOrNull { it.score }
 
             withContext(Dispatchers.Main) {
                 if (isFinishing || isDestroyed) return@withContext
+                studyMinsByDate.clear()
+                studyMinsByDate.putAll(localStudyMap)
+                distractMinsByDate.clear()
+                distractMinsByDate.putAll(localDistractMap)
+                hasSplitByDate.clear()
+                hasSplitByDate.putAll(localSplitMap)
+
                 tvSynergyScore.text = "$avgScore/100"
                 synergyHeroRing.progress = (avgScore / 100f).coerceIn(0f, 1f)
                 synergyHeroRing.ringColor = scoreAccentColor(avgScore)
@@ -323,7 +424,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 tvPillarWorkoutScore.text = "$avgWorkoutPts / 25"
                 pbPillarWorkout.progress = (avgWorkoutPts * 100) / 25
 
-                tvAvgFocus.text = "${avgMins / 60}h ${avgMins % 60}m"
+                tvAvgFocus.text = "${avgStudyMins / 60}h ${avgStudyMins % 60}m"
                 tvAvgSteps.text = String.format(Locale.getDefault(), "%,d", avgDailySteps)
                 if (bestDay != null) {
                     tvAvgBestDay.text = "${bestDay.score} pts (${formatShortDate(bestDay.dateStr)})"
@@ -395,11 +496,26 @@ class InsightsDashboardActivity : AppCompatActivity() {
 
     private fun buildTips(day: DayInsight): List<String> {
         val tips = ArrayList<String>()
-        if (day.screenScore < 24) {
+        val hasSplit = hasSplitByDate[day.dateStr] == true
+        val studyMins = studyMinsByDate[day.dateStr] ?: 0
+        val distractMins = distractMinsByDate[day.dateStr] ?: 0
+
+        if (hasSplit) {
+            if (studyMins < STUDY_TARGET_MINUTES) {
+                val rem = STUDY_TARGET_MINUTES - studyMins
+                tips.add("Logged ${studyMins / 60}h ${studyMins % 60}m of Study/Improve (${rem / 60}h ${rem % 60}m shy of the 6h study target).")
+            } else {
+                tips.add("Strong Study consistency (${studyMins / 60}h ${studyMins % 60}m) — hit the 6h benchmark cleanly!")
+            }
+            if (distractMins > 60) {
+                tips.add("Distracting screen time reached ${distractMins / 60}h ${distractMins % 60}m. Keep distractions under 30–60m to earn full hygiene points.")
+            }
+        } else if (day.screenScore < 24) {
             val h = day.screenTimeMinutes / 60
             val m = day.screenTimeMinutes % 60
-            tips.add("Screen time reached ${h}h ${m}m. Enable Focus Layer or tighten 30m caps on top distracting apps.")
+            tips.add("Total screen time reached ${h}h ${m}m. Keep distracting apps capped while preserving study sessions.")
         }
+
         if (day.stepScore < 21) {
             val remaining = (day.stepGoal - day.steps).coerceAtLeast(0)
             tips.add("You were ${String.format(Locale.getDefault(), "%,d", remaining)} steps shy of your ${String.format(Locale.getDefault(), "%,d", day.stepGoal)} daily step target.")
@@ -408,7 +524,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
             tips.add("Log at least 3 calisthenics or workout sets to unlock full physical synergy points.")
         }
         if (tips.isEmpty()) {
-            tips.add("Outstanding discipline across screen hygiene, movement, and exercise!")
+            tips.add("Outstanding discipline across study target, low distraction, movement, and exercise!")
         }
         return tips
     }
@@ -442,11 +558,19 @@ class InsightsDashboardActivity : AppCompatActivity() {
 
         val h = day.screenTimeMinutes / 60
         val m = day.screenTimeMinutes % 60
-        val rawStats = StringBuilder()
-            .append("• Screen Time: ${h}h ${m}m\n")
-            .append("• Steps: ${String.format(Locale.getDefault(), "%,d", day.steps)} / ${String.format(Locale.getDefault(), "%,d", day.stepGoal)}\n")
-            .append("• Exercise Sets: ${day.exerciseSets}")
-            .toString()
+        val hasSplit = hasSplitByDate[day.dateStr] == true
+        val studyM = studyMinsByDate[day.dateStr] ?: 0
+        val distractM = distractMinsByDate[day.dateStr] ?: 0
+
+        val rawStats = StringBuilder().apply {
+            if (hasSplit) {
+                append("• Study & Improve: ${studyM / 60}h ${studyM % 60}m (6h target)\n")
+                append("• Distracting Time: ${distractM / 60}h ${distractM % 60}m\n")
+            }
+            append("• Total Screen Time: ${h}h ${m}m\n")
+            append("• Steps: ${String.format(Locale.getDefault(), "%,d", day.steps)} / ${String.format(Locale.getDefault(), "%,d", day.stepGoal)}\n")
+            append("• Exercise Sets: ${day.exerciseSets}")
+        }.toString()
         view.findViewById<TextView>(R.id.tvReportRawStats)?.text = rawStats
 
         val tipsText = buildTips(day).joinToString("\n\n") { "• $it" }
@@ -765,7 +889,14 @@ class InsightsDashboardActivity : AppCompatActivity() {
             val m = item.screenTimeMinutes % 60
             val stepsStr = String.format(Locale.US, "%,d", item.steps)
             val setsStr = if (item.exerciseSets > 0) " • 💪 ${item.exerciseSets} sets" else ""
-            holder.tvSubStats.text = "📱 ${h}h ${m}m screen  •  👟 $stepsStr steps$setsStr"
+            val hasSplit = hasSplitByDate[item.dateStr] == true
+            val studyM = studyMinsByDate[item.dateStr] ?: 0
+            val distractM = distractMinsByDate[item.dateStr] ?: 0
+            holder.tvSubStats.text = if (hasSplit) {
+                "📚 ${studyM / 60}h ${studyM % 60}m study • 🚫 ${distractM}m dist • 👟 $stepsStr$setsStr"
+            } else {
+                "📱 ${h}h ${m}m screen  •  👟 $stepsStr steps$setsStr"
+            }
 
             val accent = scoreAccentColor(item.score)
             val grade = gradeFor(item.score)

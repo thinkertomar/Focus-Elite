@@ -95,6 +95,9 @@
             android:name="com.focusguardpro.app.WebsiteBlockActivity"
             android:exported="false"/>
         <activity
+            android:name="com.focusguardpro.app.EliteWebShieldActivity"
+            android:exported="false"/>
+        <activity
             android:name="com.focusguardpro.app.SleepLogActivity"
             android:exported="false"/>
         <activity

@@ -114,10 +114,16 @@ class AppAdapter(
             else -> defaultCap
         }
         val isOffDayWebPaused = isBrowser && BlockPolicyEngine.isWebShieldPausedForOffDay(context)
-        val isLimitReached = usedMinutesToday >= effectiveLimit && !isWhitelisted && !isOffDayWebPaused
+        val browserWinStatus = if (isBrowser && !isOffDayWebPaused) {
+            BlockPolicyEngine.getBrowserAccessWindowStatus(context)
+        } else {
+            null
+        }
+        val isBrowserFreeWindow = browserWinStatus?.isActiveNow == true
+        val isLimitReached = usedMinutesToday >= effectiveLimit && !isWhitelisted && !isOffDayWebPaused && !isBrowserFreeWindow
 
         // Show Blue Tick (✓) whenever app is blocked (hard block, suggestion block, or limit reached)
-        val showBlueTick = !isOffDayWebPaused && (app.isBlocked || hardBlocked || isLimitReached)
+        val showBlueTick = !isOffDayWebPaused && !isBrowserFreeWindow && (app.isBlocked || hardBlocked || isLimitReached)
 
         val isWhiteBg = UiThemePrefs.isWhiteBackgroundActive(context)
         val isBlackBg = UiThemePrefs.isBlackBackgroundActive(context)
@@ -182,6 +188,8 @@ class AppAdapter(
             val subText = when {
                 isOffDayWebPaused ->
                     "\n🌿 Off-Day: Web Shield Paused • All Sites Open (${totalBrowserMins}m today)$opensSuffix"
+                isBrowserFreeWindow ->
+                    "\n🎁 Browser Access Window (${browserWinStatus?.remainingMinutes ?: 0}m left) • Non-Study Open (${totalBrowserMins}m today)$opensSuffix"
                 isBrowser && (isStudy || isImprove) && !isIgnored ->
                     "\n🟢 Study Browser 24/7 • Distraction Sites Guarded • ${totalBrowserMins}m today$opensSuffix"
                 isBrowser ->
@@ -198,6 +206,7 @@ class AppAdapter(
             sb.append(subText)
             val subColor = when {
                 isOffDayWebPaused -> if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399")
+                isBrowserFreeWindow -> if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
                 isIgnored -> if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B")
                 isStudy -> if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399")
                 isImprove -> if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")

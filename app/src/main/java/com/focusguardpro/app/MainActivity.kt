@@ -574,6 +574,12 @@ class MainActivity : AppCompatActivity() {
         val clockTampered = SettingsTamperGuard.isClockTamperActive(this)
 
         val isWebOffDayPaused = BlockPolicyEngine.isWebShieldPausedForOffDay(this)
+        val browserWin = BlockPolicyEngine.getBrowserAccessWindowStatus(this)
+        val browserWinSuffix = if (browserWin.isActiveNow && !isWebOffDayPaused) {
+            " • 🎁 Free Browser (${browserWin.remainingMinutes}m left)"
+        } else {
+            ""
+        }
         val isMuteActiveNow = FocusNotificationMuteService.isMutingRightNow(this) &&
             FocusNotificationMuteService.isNotificationListenerEnabled(this)
         val mutedToday = FocusNotificationMuteService.getMutedCountToday(this)
@@ -593,6 +599,11 @@ class MainActivity : AppCompatActivity() {
                 focusLayerStatusTitle?.text = "🌿 Off-Day: Focus Layer & Web Shield Paused"
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399"))
                 focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) rests today • All sites open ($currentTimeStr)"
+            }
+            browserWin.isActiveNow -> {
+                focusLayerStatusTitle?.text = "🎁 Browser Access Window Open (${browserWin.remainingMinutes}m left)"
+                focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8"))
+                focusLayerStatusSubtitle?.text = "${browserWin.scheduleLabel} • Non-study browsing unlocked ($currentTimeStr)"
             }
             graceMins > 0 -> {
                 focusLayerStatusTitle?.text = "⚡ Pre-Window Grace Period ($graceMins min left)"
@@ -617,7 +628,7 @@ class MainActivity : AppCompatActivity() {
             else -> {
                 focusLayerStatusTitle?.text = "Focus Layer: $windowSummary"
                 focusLayerStatusTitle?.setTextColor(headerTitleColor)
-                focusLayerStatusSubtitle?.text = "$currentTimeStr (Outside Window)$muteSuffix • Tap to configure"
+                focusLayerStatusSubtitle?.text = "$currentTimeStr (Outside Window)$muteSuffix$browserWinSuffix • Tap to configure"
             }
         }
         focusLayerStatusSubtitle?.setTextColor(headerSubColor)
@@ -748,8 +759,9 @@ class MainActivity : AppCompatActivity() {
             SensoryFeedbackEngine.tap(this, v)
             startActivity(Intent(this, EliteCalendarActivity::class.java))
         }
-        findViewById<View>(R.id.websiteBlockLink)?.setOnClickListener {
-            startActivity(Intent(this, WebsiteBlockActivity::class.java))
+        findViewById<View>(R.id.websiteBlockLink)?.setOnClickListener { v ->
+            SensoryFeedbackEngine.tap(this, v)
+            startActivity(Intent(this, EliteWebShieldActivity::class.java))
         }
         findViewById<View>(R.id.activityLink)?.setOnClickListener {
             startActivity(Intent(this, ActivityStatsActivity::class.java))
