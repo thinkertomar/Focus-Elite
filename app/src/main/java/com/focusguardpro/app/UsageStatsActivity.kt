@@ -638,6 +638,7 @@ class UsageStatsActivity : AppCompatActivity() {
         val sharePct: Int,
         val category: String,
         val isBrowser: Boolean,
+        val isUninstalled: Boolean = false,
         val accentColor: Int,
         val primaryBarFraction: Float,
         val primaryBarColor: Int,
@@ -665,7 +666,7 @@ class UsageStatsActivity : AppCompatActivity() {
 
         val topBarEntries = sortedStats.take(6).map { stat ->
             val label = FocusSelfUsageTracker.getVirtualShortLabel(stat.packageName)
-                ?: AppMetadataCache.getLabel(pm, stat.packageName).take(8)
+                ?: AppMetadataCache.getLabel(pm, stat.packageName, this).take(8)
             val mins = (stat.durationMs / 60_000f).coerceAtLeast(0.5f)
             val color = when (stat.category) {
                 "STUDY" -> Color.parseColor("#10B981")
@@ -696,12 +697,15 @@ class UsageStatsActivity : AppCompatActivity() {
         val rows = sortedStats.map { stat ->
             val isVirtualSelf = FocusSelfUsageTracker.isVirtualFocusElitePackage(stat.packageName)
             val isBrowser = stat.category == "BROWSER" || BlockPolicyEngine.isBrowserPackage(stat.packageName)
+            val isUninstalled = !isVirtualSelf && !AppMetadataCache.isPackageInstalled(pm, stat.packageName)
             val rawName = FocusSelfUsageTracker.getVirtualDisplayName(stat.packageName)
-                ?: AppMetadataCache.getLabel(pm, stat.packageName)
-            val icon = if (isVirtualSelf) {
-                focusEliteIcon ?: AppMetadataCache.getIcon(pm, packageName)
-            } else {
-                AppMetadataCache.getIcon(pm, stat.packageName)
+                ?: AppMetadataCache.getLabel(pm, stat.packageName, this)
+            val icon = when {
+                isVirtualSelf -> focusEliteIcon ?: AppMetadataCache.getIcon(pm, packageName)
+                isUninstalled -> AppMetadataCache.getIcon(pm, stat.packageName)
+                    ?: AppMetadataCache.createDeletedAppBadgeDrawable(this, rawName)
+                else -> AppMetadataCache.getIcon(pm, stat.packageName)
+                    ?: AppMetadataCache.createDeletedAppBadgeDrawable(this, rawName)
             }
             val sharePct = ((stat.durationMs * 100f) / totalMs).roundToInt().coerceIn(1, 100)
             val opensPart = if (stat.launchCount > 0) " · ${stat.launchCount} ${if (stat.launchCount == 1) "open" else "opens"}" else ""
@@ -821,16 +825,18 @@ class UsageStatsActivity : AppCompatActivity() {
                 }
             }
 
+            val finalSubtitle = if (isUninstalled) "DELETED • $subtitle" else subtitle
             RichUsageRow(
                 packageName = stat.packageName,
                 displayName = rawName,
-                subtitle = subtitle,
+                subtitle = finalSubtitle,
                 durationLabel = UsageStatsHelper.formatDuration(stat.durationMs),
                 icon = icon,
                 durationMs = stat.durationMs,
                 sharePct = sharePct,
                 category = stat.category,
                 isBrowser = isBrowser,
+                isUninstalled = isUninstalled,
                 accentColor = accentColor,
                 primaryBarFraction = primaryFrac,
                 primaryBarColor = primaryColor,
@@ -1795,6 +1801,7 @@ class UsageStatsActivity : AppCompatActivity() {
                         o.sharePct == n.sharePct &&
                         o.accentColor == n.accentColor &&
                         o.isBrowser == n.isBrowser &&
+                        o.isUninstalled == n.isUninstalled &&
                         o.primaryBarFraction == n.primaryBarFraction &&
                         o.secondaryBarFraction == n.secondaryBarFraction &&
                         o.primaryBarColor == n.primaryBarColor &&
@@ -1933,6 +1940,8 @@ class UsageStatsActivity : AppCompatActivity() {
             }
 
             if (row.isBrowser) {
+                holder.sitesPill.text = if (row.isUninstalled) "Deleted · Sites ›" else "🌐 Sites ›"
+                holder.sitesPill.setTextColor(Color.parseColor("#38BDF8"))
                 holder.sitesPill.visibility = View.VISIBLE
                 holder.sitesPill.background = GradientDrawable().apply {
                     cornerRadius = 8f * density
@@ -1942,6 +1951,17 @@ class UsageStatsActivity : AppCompatActivity() {
                 holder.container.isClickable = true
                 holder.container.isFocusable = true
                 holder.container.setOnClickListener { onRowClick(row) }
+            } else if (row.isUninstalled) {
+                holder.sitesPill.text = "Deleted · Kept"
+                holder.sitesPill.setTextColor(Color.parseColor("#FDA4AF"))
+                holder.sitesPill.visibility = View.VISIBLE
+                holder.sitesPill.background = GradientDrawable().apply {
+                    cornerRadius = 8f * density
+                    setColor(Color.argb(30, 244, 63, 94))
+                    setStroke((1f * density).roundToInt(), Color.parseColor("#F43F5E"))
+                }
+                holder.container.setOnClickListener(null)
+                holder.container.isClickable = false
             } else {
                 holder.sitesPill.visibility = View.GONE
                 holder.container.setOnClickListener(null)

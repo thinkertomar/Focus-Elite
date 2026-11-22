@@ -37,6 +37,8 @@ object UsageStatsHelper {
 
     private const val PREFS_WELLBEING_CACHE = "focus_wellbeing_cache_v3"
     private const val PREFS_HISTORICAL_CACHE = "focus_historical_days_v5"
+    private const val PREFS_DAILY_LEDGER = "focus_daily_usage_ledger_v1"
+    private const val MAX_LEDGER_DAYS = 14
 
     // Event constants for API compatibility
     private const val EVENT_ACTIVITY_RESUMED = UsageEvents.Event.ACTIVITY_RESUMED // 1
@@ -99,6 +101,128 @@ object UsageStatsHelper {
 
     @Volatile
     private var lastWarmSaveMs: Long = 0L
+
+    @Volatile
+    private var lastLedgerSaveMs: Long = 0L
+
+    private data class LedgerEntry(
+        val durationMs: Long,
+        val launchCount: Int,
+        val longestSessionMs: Long,
+        val lastTimeUsedMs: Long,
+        val category: String,
+        val wasUninstalled: Boolean
+    )
+
+    private val dailyLedgerCache = ConcurrentHashMap<String, ConcurrentHashMap<String, LedgerEntry>>()
+
+    private fun loadDailyLedger(context: Context, dayKey: String): ConcurrentHashMap<String, LedgerEntry> {
+        dailyLedgerCache[dayKey]?.let { return it }
+        val map = ConcurrentHashMap<String, LedgerEntry>()
+        try {
+            val prefs = context.getSharedPreferences(PREFS_DAILY_LEDGER, Context.MODE_PRIVATE)
+            val raw = prefs.getString("ledger_$dayKey", null)
+            if (!raw.isNullOrBlank()) {
+                val root = JSONObject(raw)
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val pkg = keys.next()
+                    val o = root.optJSONObject(pkg) ?: continue
+                    val dur = o.optLong("d", 0L).coerceIn(0L, 18 * 3_600_000L)
+                    if (dur <= 0L) continue
+                    map[pkg] = LedgerEntry(
+                        durationMs = dur,
+                        launchCount = o.optInt("l", 1).coerceAtLeast(1),
+                        longestSessionMs = o.optLong("lng", dur).coerceAtLeast(0L),
+                        lastTimeUsedMs = o.optLong("lst", 0L),
+                        category = o.optString("c", "DISTRACT"),
+                        wasUninstalled = o.optBoolean("del", false)
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+        dailyLedgerCache.putIfAbsent(dayKey, map)
+        return dailyLedgerCache[dayKey] ?: map
+    }
+
+    private fun persistDailyLedger(context: Context, dayKey: String, ledger: Map<String, LedgerEntry>, immediate: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!immediate && (now - lastLedgerSaveMs) < 5_000L) return
+        lastLedgerSaveMs = now
+        val appCtx = context.applicationContext
+        val snapshotCopy = HashMap(ledger)
+        bgScope.launch {
+            try {
+                val root = JSONObject()
+                for ((pkg, entry) in snapshotCopy) {
+                    if (entry.durationMs < 5_000L) continue
+                    val o = JSONObject()
+                    o.put("d", entry.durationMs)
+                    o.put("l", entry.launchCount)
+                    o.put("lng", entry.longestSessionMs)
+                    o.put("lst", entry.lastTimeUsedMs)
+                    o.put("c", entry.category)
+                    if (entry.wasUninstalled) o.put("del", true)
+                    root.put(pkg, o)
+                }
+                val prefs = appCtx.getSharedPreferences(PREFS_DAILY_LEDGER, Context.MODE_PRIVATE)
+                val editor = prefs.edit().putString("ledger_$dayKey", root.toString())
+                val keys = prefs.all.keys.filter { it.startsWith("ledger_") }.sortedDescending()
+                if (keys.size > MAX_LEDGER_DAYS) {
+                    for (i in MAX_LEDGER_DAYS until keys.size) {
+                        editor.remove(keys[i])
+                    }
+                }
+                editor.apply()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /**
+     * Called immediately when Android broadcasts ACTION_PACKAGE_REMOVED / ACTION_PACKAGE_FULLY_REMOVED.
+     * Flushes Today's usage immediately and locks the uninstalled package's tracked usage into
+     * Today's monotonic ledger BEFORE Android finishes purging its UsageEvents.
+     */
+    fun onPackageUninstalled(context: Context, packageName: String) {
+        if (packageName.isBlank()) return
+        val appCtx = context.applicationContext
+        bgScope.launch {
+            try {
+                if (!hasUsageAccess(appCtx)) return@launch
+                val (start, end) = todayRange()
+                val dayKey = formatDayKey(start)
+                // Capture latest live usage right now (even if cached snapshot was a few seconds old)
+                val fresh = synchronized(computeLock) {
+                    computeTodayIncremental(appCtx, start, end, includeYesterdayComparison = true).also {
+                        cachedTodaySnapshot = it
+                        cachedTodayTimestampMs = System.currentTimeMillis()
+                    }
+                }
+                val ledger = loadDailyLedger(appCtx, dayKey)
+                val existing = ledger[packageName]
+                val stat = fresh.perAppStats[packageName]
+                val bestDur = max(existing?.durationMs ?: 0L, stat?.durationMs ?: 0L)
+                if (bestDur >= 5_000L) {
+                    ledger[packageName] = LedgerEntry(
+                        durationMs = bestDur,
+                        launchCount = max(existing?.launchCount ?: 1, stat?.launchCount ?: 1),
+                        longestSessionMs = max(existing?.longestSessionMs ?: bestDur, stat?.longestSessionMs ?: bestDur),
+                        lastTimeUsedMs = max(existing?.lastTimeUsedMs ?: start, stat?.lastTimeUsedMs ?: System.currentTimeMillis()),
+                        category = stat?.category ?: existing?.category ?: "DISTRACT",
+                        wasUninstalled = true
+                    )
+                    persistDailyLedger(appCtx, dayKey, ledger, immediate = true)
+                    saveWarmSnapshotToPrefs(appCtx, fresh)
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun isTrackedAsUninstalled(context: Context, dayStartMs: Long, packageName: String): Boolean {
+        val dayKey = formatDayKey(dayStartMs)
+        val ledger = loadDailyLedger(context, dayKey)
+        return ledger[packageName]?.wasUninstalled == true
+    }
 
     data class AppWellbeingStat(
         val packageName: String,
@@ -808,21 +932,58 @@ object UsageStatsHelper {
             distributeIntoHours(curStart, curEnd, start, hourlyMs)
         }
 
+        val dayKey = formatDayKey(start)
+        val ledger = loadDailyLedger(context, dayKey)
+
+        val effectiveDurationByPkg = HashMap<String, Long>(durationByPkg)
+        val effectiveLaunchesByPkg = HashMap<String, Int>(launchesByPkg)
+        val effectiveLongestByPkg = HashMap<String, Long>(longestByPkg)
+        val effectiveLastUsedByPkg = HashMap<String, Long>(lastUsedByPkg)
+        val preservedCategoryByPkg = HashMap<String, String>()
+        var extraRecoveredFromLedgerMs = 0L
+
+        // Step 1: Monotonic high-water-mark restoration — if an app was used today and later uninstalled
+        // (causing Android to purge or shrink its UsageEvents), restore its full preserved duration & stats!
+        for ((pkg, entry) in ledger) {
+            if (FocusSelfUsageTracker.isVirtualFocusElitePackage(pkg)) continue
+            if (excluded.contains(pkg)) continue
+            val currentMs = effectiveDurationByPkg[pkg] ?: 0L
+            if (entry.durationMs > currentMs) {
+                val diff = entry.durationMs - currentMs
+                effectiveDurationByPkg[pkg] = entry.durationMs
+                effectiveLaunchesByPkg[pkg] = max(effectiveLaunchesByPkg[pkg] ?: 0, entry.launchCount)
+                effectiveLongestByPkg[pkg] = max(effectiveLongestByPkg[pkg] ?: 0L, entry.longestSessionMs)
+                effectiveLastUsedByPkg[pkg] = max(effectiveLastUsedByPkg[pkg] ?: 0L, entry.lastTimeUsedMs)
+                preservedCategoryByPkg[pkg] = entry.category
+                extraRecoveredFromLedgerMs += diff
+
+                // Also preserve hourly timeline activity if Android dropped the uninstalled app's events
+                val anchorTs = entry.lastTimeUsedMs.takeIf { it in start..end } ?: start
+                val hIdx = (((anchorTs - start).coerceAtLeast(0L)) / 3_600_000L).toInt().coerceIn(0, 23)
+                hourlyMs[hIdx] = min(3_600_000L, hourlyMs[hIdx] + diff)
+            } else if (entry.wasUninstalled) {
+                preservedCategoryByPkg[pkg] = entry.category
+            }
+        }
+
         var sumAppScreenTimeMs = 0L
         var studyMs = 0L
         var improveMs = 0L
         var distractMs = 0L
         var utilityMs = 0L
         var totalLaunches = 0
+        var ledgerDirty = false
+        var ledgerNeedsImmediateSave = false
 
-        val perAppStats = HashMap<String, AppWellbeingStat>(durationByPkg.size)
-        for ((pkg, ms) in durationByPkg) {
+        val pm = context.packageManager
+        val perAppStats = HashMap<String, AppWellbeingStat>(effectiveDurationByPkg.size)
+        for ((pkg, ms) in effectiveDurationByPkg) {
             if (ms <= 0L) continue
             val isExcluded = excluded.contains(pkg)
             val isSystemUtility = SystemExclusions.isExcludedPackage(context, pkg) || isExcluded
-            val launches = launchesByPkg[pkg] ?: if (ms >= 15_000L) 1 else 0
-            val longest = longestByPkg[pkg] ?: ms
-            val lastUsed = lastUsedByPkg[pkg] ?: start
+            val launches = effectiveLaunchesByPkg[pkg] ?: if (ms >= 15_000L) 1 else 0
+            val longest = effectiveLongestByPkg[pkg] ?: ms
+            val lastUsed = effectiveLastUsedByPkg[pkg] ?: start
 
             val category = when {
                 studyPkgs.contains(pkg) -> "STUDY"
@@ -830,7 +991,7 @@ object UsageStatsHelper {
                 BlockPolicyEngine.isBrowserPackage(pkg) -> "BROWSER"
                 ignorePkgs.contains(pkg) && !isSystemUtility -> "IGNORED"
                 isSystemUtility -> "UTILITY"
-                else -> "DISTRACT"
+                else -> preservedCategoryByPkg[pkg] ?: "DISTRACT"
             }
 
             perAppStats[pkg] = AppWellbeingStat(
@@ -841,6 +1002,32 @@ object UsageStatsHelper {
                 lastTimeUsedMs = lastUsed,
                 category = category
             )
+
+            // Step 2: Update monotonic daily ledger for every non-excluded real app with >= 10s usage
+            if (!isExcluded && !FocusSelfUsageTracker.isVirtualFocusElitePackage(pkg) && ms >= 10_000L) {
+                // Ensure the real display name is saved on disk BEFORE the app could ever be uninstalled
+                AppMetadataCache.getLabel(pm, pkg, context)
+                val prev = ledger[pkg]
+                val nowUninstalled = !AppMetadataCache.isPackageInstalled(pm, pkg)
+                val grew = prev == null ||
+                    ms > prev.durationMs + 4_000L ||
+                    launches > prev.launchCount ||
+                    (nowUninstalled != prev.wasUninstalled)
+                if (grew) {
+                    ledger[pkg] = LedgerEntry(
+                        durationMs = max(prev?.durationMs ?: 0L, ms),
+                        launchCount = max(prev?.launchCount ?: 0, launches),
+                        longestSessionMs = max(prev?.longestSessionMs ?: 0L, longest),
+                        lastTimeUsedMs = max(prev?.lastTimeUsedMs ?: start, lastUsed),
+                        category = category,
+                        wasUninstalled = nowUninstalled
+                    )
+                    ledgerDirty = true
+                    if (nowUninstalled && prev?.wasUninstalled != true) {
+                        ledgerNeedsImmediateSave = true
+                    }
+                }
+            }
 
             if (!isExcluded) {
                 sumAppScreenTimeMs += ms
@@ -863,6 +1050,10 @@ object UsageStatsHelper {
                     else -> distractMs += ms
                 }
             }
+        }
+
+        if (ledgerDirty) {
+            persistDailyLedger(context, dayKey, ledger, immediate = ledgerNeedsImmediateSave)
         }
 
         // Merge Focus Elite module-split self-usage
@@ -918,7 +1109,7 @@ object UsageStatsHelper {
             }
         } catch (_: Throwable) {}
 
-        val effectiveWallClockMs = mergedWallClockTotalMs + recoveredExtraMs + selfProductiveMs
+        val effectiveWallClockMs = mergedWallClockTotalMs + recoveredExtraMs + extraRecoveredFromLedgerMs + selfProductiveMs
         val totalScreenTimeMs = if (effectiveWallClockMs > 0L) {
             min(sumAppScreenTimeMs, (effectiveWallClockMs * 115L) / 100L)
         } else {

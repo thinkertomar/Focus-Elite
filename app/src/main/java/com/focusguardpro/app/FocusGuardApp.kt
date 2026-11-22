@@ -2,13 +2,30 @@ package com.focusguardpro.app
 
 import android.app.Activity
 import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
+import androidx.core.content.ContextCompat
 import androidx.room.Room
 import androidx.room.migration.Migration
 import com.focusguardpro.app.db.AppDatabase
 
 open class FocusGuardApp : Application() {
+
+    private val packageRemovalReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val action = intent.action ?: return
+            if (action != Intent.ACTION_PACKAGE_REMOVED && action != Intent.ACTION_PACKAGE_FULLY_REMOVED) return
+            // Ignore app updates (EXTRA_REPLACING = true); only capture real uninstalls
+            if (intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
+            val pkg = intent.data?.schemeSpecificPart ?: return
+            if (pkg.isBlank() || pkg == context.packageName) return
+            AppMetadataCache.onPackageRemoved(pkg)
+            UsageStatsHelper.onPackageUninstalled(context.applicationContext, pkg)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -16,9 +33,24 @@ open class FocusGuardApp : Application() {
         ensureRoomMainThreadQueries(this)
         try {
             AppCategoryPrefs.getStudyApps(this)
+            AppMetadataCache.init(this)
             AppMetadataCache.warmUpAsync(this)
             BlockPolicyEngine.warmCacheAsync(this)
             UsageStatsHelper.warmUpAsync(this)
+        } catch (_: Throwable) {}
+
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_FULLY_REMOVED)
+                addDataScheme("package")
+            }
+            ContextCompat.registerReceiver(
+                this,
+                packageRemovalReceiver,
+                filter,
+                ContextCompat.RECEIVER_EXPORTED
+            )
         } catch (_: Throwable) {}
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
