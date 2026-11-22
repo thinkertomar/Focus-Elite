@@ -202,6 +202,10 @@ class FocusForegroundMonitorService : Service() {
         if (AppLifecycleCoordinator.isRestoreInProgress) return
 
         val candidatePackages = getActiveForegroundPackages()
+        if (PaymentSafeModeManager.isActive(this)) {
+            PaymentSafeModeManager.onForegroundPollTick(this, candidatePackages)
+            updateNotification()
+        }
         if (candidatePackages.isEmpty()) return
 
         val nowMs = FocusLayerManager.verifiedNowMs(this)
@@ -293,9 +297,12 @@ class FocusForegroundMonitorService : Service() {
         }
 
         // If Accessibility was unbound/paused by OEM (e.g. MIUI), try Porter/Shizuku re-enable & force-stop
+        // (Never revive Accessibility while Payment Safe Mode is actively paused for a banking/UPI payment)
         if (PorterBridge.isEnhancedModeActive()) {
             try {
-                PorterBridge.ensureAccessibilityServiceEnabled(this)
+                if (!PaymentSafeModeManager.isActive(this)) {
+                    PorterBridge.ensureAccessibilityServiceEnabled(this)
+                }
                 if (!isWebsite) {
                     PorterBridge.forceStopPackage(blockedPkgName)
                 }
@@ -426,13 +433,15 @@ class FocusForegroundMonitorService : Service() {
     }
 
     private fun buildNotification(): Notification {
+        val paySafeActive = PaymentSafeModeManager.isActive(this)
+        val a11yEnabled = SettingsTamperGuard.isAccessibilityAlreadyEnabled(this)
         val isFocus = FocusLayerManager.isActiveNow(this) ||
             FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
         val summary = FocusLayerManager.formatWindowSummary(this)
-        val contentText = if (isFocus) {
-            "Focus Mode Active ($summary) · Distractions blocked"
-        } else {
-            "Focus Shield Monitoring · Window: $summary"
+        val contentText = when {
+            paySafeActive -> "💳 Pay Safe Active · Accessibility paused for payment"
+            isFocus -> "Focus Mode Active ($summary) · Distractions blocked"
+            else -> "Focus Shield Monitoring · Window: $summary"
         }
 
         val launchIntent = Intent(this, MainActivity::class.java)
@@ -441,6 +450,21 @@ class FocusForegroundMonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val payActionIntent = Intent(this, PaymentSafeActionReceiver::class.java).apply {
+            action = if (paySafeActive || !a11yEnabled) {
+                PaymentSafeActionReceiver.ACTION_RESUME_SHIELD
+            } else {
+                PaymentSafeActionReceiver.ACTION_ENTER_PAY_SAFE
+            }
+        }
+        val payActionPi = PendingIntent.getBroadcast(
+            this,
+            if (paySafeActive || !a11yEnabled) 2091 else 2090,
+            payActionIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val payActionLabel = if (paySafeActive || !a11yEnabled) "🛡️ Resume Shield" else "💳 Pay Safe"
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Focus Elite Shield")
             .setContentText(contentText)
@@ -448,6 +472,7 @@ class FocusForegroundMonitorService : Service() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingIntent)
+            .addAction(0, payActionLabel, payActionPi)
             .build()
     }
 

@@ -19,6 +19,7 @@ object BlockPolicyEngine {
     private const val PREFS_UNBLOCKED_TODAY = "FocusGuard_UnblockedToday"
     private const val PREFS_BROWSER_ACCESS_WINDOW = "FocusGuard_BrowserAccessWindow_v1"
 
+    const val WINDOW_MODE_REST_OF_DAY = "REST_OF_DAY"
     const val WINDOW_MODE_AFTER_END = "AFTER_END"
     const val WINDOW_MODE_BEFORE_START = "BEFORE_START"
     const val WINDOW_MODE_BOTH = "BOTH"
@@ -29,7 +30,9 @@ object BlockPolicyEngine {
         val remainingMinutes: Int,
         val durationMinutes: Int,
         val mode: String,
-        val scheduleLabel: String
+        val scheduleLabel: String,
+        val isInBreakPeriod: Boolean = false,
+        val usedMinutes: Int = 0
     )
 
     private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -500,29 +503,39 @@ object BlockPolicyEngine {
     }
 
     fun getBrowserAccessWindowMode(context: Context): String {
-        val saved = context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
-            .getString("mode", WINDOW_MODE_AFTER_END)
-        return when (saved) {
-            WINDOW_MODE_BEFORE_START, WINDOW_MODE_BOTH -> saved
-            else -> WINDOW_MODE_AFTER_END
+        val prefs = context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
+        val savedV2 = prefs.getString("mode_v2", null)
+        return when (savedV2) {
+            WINDOW_MODE_AFTER_END, WINDOW_MODE_BEFORE_START, WINDOW_MODE_REST_OF_DAY -> savedV2
+            WINDOW_MODE_BOTH -> WINDOW_MODE_REST_OF_DAY
+            else -> WINDOW_MODE_REST_OF_DAY
         }
     }
 
     fun setBrowserAccessWindowMode(context: Context, mode: String) {
         val safe = when (mode) {
-            WINDOW_MODE_BEFORE_START, WINDOW_MODE_BOTH -> mode
-            else -> WINDOW_MODE_AFTER_END
+            WINDOW_MODE_AFTER_END, WINDOW_MODE_BEFORE_START, WINDOW_MODE_REST_OF_DAY -> mode
+            WINDOW_MODE_BOTH -> WINDOW_MODE_REST_OF_DAY
+            else -> WINDOW_MODE_REST_OF_DAY
         }
         context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
             .edit()
+            .putString("mode_v2", safe)
             .putString("mode", safe)
             .apply()
     }
 
     /**
-     * Evaluates whether the current time falls inside the user's configured
-     * 30–60 minute Browser Free-Access Window right before Focus Layer starts
-     * or right after Focus Layer ends (never active during Deep Focus Studio).
+     * Evaluates Break-Time Browser Access outside Focus Hours.
+     *
+     * Key fix: Break time applies across the REST OF THE DAY outside Focus Hours (not trapped
+     * in a narrow 45-minute clock slice right after Focus ends!).
+     * - REST_OF_DAY (default): Your 30–60m non-study browser budget works ANYTIME outside Focus
+     *   Hours (after Focus ends for the entire rest of the day AND before Focus starts).
+     * - AFTER_END: Budget works anytime from Focus end (e.g. 6:00 PM) through the rest of the day.
+     * - BEFORE_START: Budget works anytime before Focus starts (until e.g. 9:00 AM).
+     *
+     * Never active during Scheduled Focus Hours, Manual Focus Mode, or active Deep Focus Studio.
      */
     fun getBrowserAccessWindowStatus(
         context: Context,
@@ -533,52 +546,81 @@ object BlockPolicyEngine {
         val mode = getBrowserAccessWindowMode(context)
         val startMins = FocusLayerManager.getStartMinutes(context)
         val endMins = FocusLayerManager.getEndMinutes(context)
+        val startFmt = FocusLayerManager.formatMinutesOfDay(startMins)
+        val endFmt = FocusLayerManager.formatMinutesOfDay(endMins)
+        val scheduleEnabled = FocusLayerManager.isScheduleEnabled(context)
 
-        val beforeStartBegin = (startMins - dur + 1440) % 1440
-        val afterEndFinish = (endMins + dur) % 1440
-
-        val scheduleLabel = when (mode) {
-            WINDOW_MODE_BEFORE_START ->
-                "${FocusLayerManager.formatMinutesOfDay(beforeStartBegin)} – ${FocusLayerManager.formatMinutesOfDay(startMins)} (Before Focus)"
-            WINDOW_MODE_BOTH ->
-                "${FocusLayerManager.formatMinutesOfDay(beforeStartBegin)}–${FocusLayerManager.formatMinutesOfDay(startMins)} & ${FocusLayerManager.formatMinutesOfDay(endMins)}–${FocusLayerManager.formatMinutesOfDay(afterEndFinish)}"
-            else ->
-                "${FocusLayerManager.formatMinutesOfDay(endMins)} – ${FocusLayerManager.formatMinutesOfDay(afterEndFinish)} (After Focus)"
+        val scheduleLabel = if (!scheduleEnabled) {
+            "All day break allowance • ${dur}m/day"
+        } else {
+            when (mode) {
+                WINDOW_MODE_AFTER_END ->
+                    "After $endFmt for the rest of the day • ${dur}m allowance"
+                WINDOW_MODE_BEFORE_START ->
+                    "Before $startFmt • ${dur}m allowance"
+                else ->
+                    "After $endFmt (rest of day) & before $startFmt • ${dur}m allowance"
+            }
         }
 
-        if (!enabled ||
-            !FocusLayerManager.isScheduleEnabled(context) ||
-            !FocusLayerManager.isDayIncludedInSchedule(context, nowMs) ||
-            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
-        ) {
-            return BrowserWindowStatus(enabled, false, 0, dur, mode, scheduleLabel)
+        val usedMins = getNonStudyBrowserMinutesToday(context, nowMs).toInt().coerceAtLeast(0)
+        val remainingBudget = (dur - usedMins).coerceAtLeast(0)
+
+        val isDeepFocus = FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
+        val isScheduledFocus = FocusLayerManager.isScheduledActiveNow(context, nowMs)
+        val isManualFocus = FocusLayerManager.isManualOverrideActive(context) && FocusLayerManager.isActiveNow(context)
+
+        if (!enabled || isDeepFocus || isScheduledFocus || isManualFocus) {
+            return BrowserWindowStatus(
+                isEnabled = enabled,
+                isActiveNow = false,
+                remainingMinutes = remainingBudget,
+                durationMinutes = dur,
+                mode = mode,
+                scheduleLabel = scheduleLabel,
+                isInBreakPeriod = false,
+                usedMinutes = usedMins
+            )
         }
 
-        val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
-        val nowMins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-
-        fun minutesRemainingIn(winStart: Int, winEnd: Int): Int {
-            val inWin = isTimeInBlackout(winStart, winEnd, nowMs)
-            if (!inWin) return 0
-            val diff = if (winEnd >= nowMins) winEnd - nowMins else (1440 - nowMins) + winEnd
-            return diff.coerceIn(1, dur)
-        }
-
-        var rem = 0
-        if (mode == WINDOW_MODE_AFTER_END || mode == WINDOW_MODE_BOTH) {
-            rem = maxOf(rem, minutesRemainingIn(endMins, afterEndFinish))
-        }
-        if (mode == WINDOW_MODE_BEFORE_START || mode == WINDOW_MODE_BOTH) {
-            rem = maxOf(rem, minutesRemainingIn(beforeStartBegin, startMins))
+        val inBreakPeriod = if (!scheduleEnabled || !FocusLayerManager.isDayIncludedInSchedule(context, nowMs)) {
+            true
+        } else {
+            val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
+            val nowMins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+            when (mode) {
+                WINDOW_MODE_AFTER_END -> {
+                    if (startMins < endMins) {
+                        // Daytime focus (e.g. 9 AM – 6 PM): after 6 PM for the entire rest of the day until midnight
+                        nowMins >= endMins
+                    } else {
+                        // Overnight focus (e.g. 10 PM – 6 AM): outside focus is already daytime after endMins
+                        nowMins in endMins until startMins
+                    }
+                }
+                WINDOW_MODE_BEFORE_START -> {
+                    if (startMins < endMins) {
+                        nowMins < startMins
+                    } else {
+                        nowMins in endMins until startMins
+                    }
+                }
+                else -> {
+                    // REST_OF_DAY: any time outside Focus Hours (both after Focus ends for the rest of the day & before Focus starts)
+                    true
+                }
+            }
         }
 
         return BrowserWindowStatus(
             isEnabled = enabled,
-            isActiveNow = rem > 0,
-            remainingMinutes = rem,
+            isActiveNow = inBreakPeriod && remainingBudget > 0,
+            remainingMinutes = remainingBudget,
             durationMinutes = dur,
             mode = mode,
-            scheduleLabel = scheduleLabel
+            scheduleLabel = scheduleLabel,
+            isInBreakPeriod = inBreakPeriod,
+            usedMinutes = usedMins
         )
     }
 
@@ -1089,10 +1131,15 @@ object BlockPolicyEngine {
             return BlockDecision.Blocked(BlockReason.BLACKOUT, host)
         }
 
-        // 6. Browser Non-Study Website Daily Limit (default 30 minutes criteria)
+        // 6. Browser Non-Study Website Daily Limit (aligns with configured Break-Time Browser Allowance when enabled)
         val customLimit = getFastLimitMinutes(context, browserPackage)
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
-        val effectiveLimit = if (customLimit > 0) customLimit else defaultCap
+        val breakAllowance = if (isBrowserAccessWindowEnabled(context)) getBrowserAccessWindowMinutes(context) else 0
+        val effectiveLimit = when {
+            customLimit > 0 -> maxOf(customLimit, breakAllowance)
+            breakAllowance > 0 -> breakAllowance
+            else -> defaultCap
+        }
         val nonStudyUsedMinutes = maxOf(
             getNonStudyBrowserMinutesForPackage(context, browserPackage, nowMs),
             getNonStudyBrowserMinutesToday(context, nowMs)
@@ -1110,7 +1157,7 @@ object BlockPolicyEngine {
             return BlockDecision.Blocked(
                 BlockReason.DAILY_LIMIT,
                 host,
-                "Non-study browser limit reached (${nonStudyUsedMinutes}m / ${effectiveLimit}m)"
+                "Break-time browser allowance reached (${nonStudyUsedMinutes}m / ${effectiveLimit}m)"
             )
         }
 
@@ -1135,6 +1182,11 @@ object BlockPolicyEngine {
 
         // 1. Never block Focus Elite or any system/keyboard exclusion
         if (SystemExclusions.isExcludedPackage(context, packageName)) {
+            return BlockDecision.Allowed
+        }
+
+        // 1.5 Never block Payment, UPI, or Banking apps so financial transactions always succeed smoothly
+        if (PaymentSafeModeManager.isPaymentOrBankingPackage(context, packageName)) {
             return BlockDecision.Allowed
         }
 

@@ -166,9 +166,17 @@ object PorterBridge {
 
     /**
      * Auto-revives BlockerAccessibilityService if the system or an aggressive OEM killed it.
+     * Respects PaymentSafeModeManager so banking/UPI apps (BHIM, YONO, etc.) are never interrupted
+     * while the user is actively completing a payment.
      */
-    fun ensureAccessibilityServiceEnabled(context: Context): Boolean {
+    fun ensureAccessibilityServiceEnabled(
+        context: Context,
+        forceBypassPaymentGuard: Boolean = false
+    ): Boolean {
         if (!isEnhancedModeActive()) return false
+        if (!forceBypassPaymentGuard && PaymentSafeModeManager.isActive(context)) {
+            return false
+        }
         return try {
             val component = "${context.packageName}/${BlockerAccessibilityService::class.java.canonicalName}"
             val currentResult = executeShell("settings", "get", "secure", "enabled_accessibility_services")
@@ -176,11 +184,33 @@ object PorterBridge {
             if (!current.contains(component)) {
                 val updated = if (current.isBlank() || current == "null") component else "$current:$component"
                 executeShell("settings", "put", "secure", "enabled_accessibility_services", updated).success &&
-                executeShell("settings", "put", "secure", "accessibility_enabled", "1").success
+                    executeShell("settings", "put", "secure", "accessibility_enabled", "1").success
             } else {
                 true
             }
         } catch (t: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Cleanly removes BlockerAccessibilityService from enabled_accessibility_services while
+     * Payment Safe Mode is active so payment/UPI apps see zero Focus Elite accessibility entries.
+     */
+    fun setAccessibilityServiceDisabled(context: Context): Boolean {
+        if (!isEnhancedModeActive()) return false
+        return try {
+            val fullName = "${context.packageName}/${BlockerAccessibilityService::class.java.canonicalName}"
+            val shortName = "${context.packageName}/.BlockerAccessibilityService"
+            val currentResult = executeShell("settings", "get", "secure", "enabled_accessibility_services")
+            val remaining = currentResult.output
+                .split(':')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it != "null" }
+                .filterNot { it == fullName || it == shortName || it.endsWith("/${BlockerAccessibilityService::class.java.canonicalName}") }
+            val updated = remaining.joinToString(":")
+            executeShell("settings", "put", "secure", "enabled_accessibility_services", updated).success
+        } catch (_: Throwable) {
             false
         }
     }

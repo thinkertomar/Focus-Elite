@@ -601,9 +601,9 @@ class MainActivity : AppCompatActivity() {
                 focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) rests today • All sites open ($currentTimeStr)"
             }
             browserWin.isActiveNow -> {
-                focusLayerStatusTitle?.text = "🎁 Browser Access Window Open (${browserWin.remainingMinutes}m left)"
+                focusLayerStatusTitle?.text = "🌤️ Break Time • Browser Access (${browserWin.remainingMinutes}m/${browserWin.durationMinutes}m left)"
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8"))
-                focusLayerStatusSubtitle?.text = "${browserWin.scheduleLabel} • Non-study browsing unlocked ($currentTimeStr)"
+                focusLayerStatusSubtitle?.text = "${browserWin.scheduleLabel} ($currentTimeStr)"
             }
             graceMins > 0 -> {
                 focusLayerStatusTitle?.text = "⚡ Pre-Window Grace Period ($graceMins min left)"

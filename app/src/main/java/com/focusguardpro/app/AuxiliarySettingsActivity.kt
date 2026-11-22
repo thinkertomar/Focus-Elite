@@ -1386,6 +1386,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         // 3B. SMART FOCUS NOTIFICATION MUTE & OFF-DAY WEB SHIELD STATUS CARD
         buildSmartNotificationMuteCard(palette)
 
+        // 3B2. UNIVERSAL PAYMENT & BANKING SAFE MODE (BHIM / UPI / BANK APPS)
+        buildPaymentSafeModeCard(palette)
+
         // 3C. TACTILE HAPTICS & OFFLINE AUDIO CUES CARD
         buildSensoryFeedbackCard(palette)
 
@@ -1458,7 +1461,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         addAuxiliaryLauncherRow(
             iconEmoji = "🌐",
             title = "Web Shield & Today's Browsing",
-            subtitle = "Study 24/7, Post/Pre-Focus Browser Window (30–60m) & Today's Website Log",
+            subtitle = "Study 24/7, Rest-of-Day Break Browser Access (30–60m) & Today's Website Log",
             palette = palette
         ) {
             startActivity(Intent(this, EliteWebShieldActivity::class.java))
@@ -1655,6 +1658,179 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         }
 
         contentContainer.addView(card)
+    }
+
+    private fun buildPaymentSafeModeCard(palette: UiThemePrefs.ThemePalette) {
+        val autoYield = PaymentSafeModeManager.isAutoYieldEnabled(this)
+        val paySafeActive = PaymentSafeModeManager.isActive(this)
+        val a11yEnabled = SettingsTamperGuard.isAccessibilityAlreadyEnabled(this)
+        val zeroTouchReady = PaymentSafeModeManager.canZeroTouchAutoRestore(this)
+        val statusBadge = PaymentSafeModeManager.getStatusBadgeText(this)
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = UiThemePrefs.createCardBackground(this@AuxiliarySettingsActivity, cornerDp = 16f, isHero = false)
+            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(14f) }
+        }
+
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titleCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleCol.addView(TextView(this).apply {
+            text = "💳 Payment & Banking Safe Mode"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        titleCol.addView(TextView(this).apply {
+            text = "Fixes BHIM, YONO SBI & banking 'Accessibility Detected' popups by auto-pausing Accessibility during payments and restoring it when you exit."
+            textSize = 11.6f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(3f), dp(8f), 0)
+        })
+        topRow.addView(titleCol)
+
+        val autoYieldSwitch = Switch(this).apply {
+            isChecked = autoYield
+            setOnCheckedChangeListener { v, checked ->
+                SensoryFeedbackEngine.toggle(this@AuxiliarySettingsActivity, v)
+                PaymentSafeModeManager.setAutoYieldEnabled(this@AuxiliarySettingsActivity, checked)
+                renderActiveTab()
+            }
+        }
+        topRow.addView(autoYieldSwitch)
+        card.addView(topRow)
+
+        card.addView(TextView(this).apply {
+            text = "$statusBadge\nTip: Tap '💳 Pay Safe' in the Focus Shield notification or add the 'Pay Safe Mode' Quick Settings Tile before opening BHIM."
+            textSize = 11.2f
+            setTextColor(if (zeroTouchReady) Color.parseColor("#34D399") else Color.parseColor("#CBD5E1"))
+            setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                setColor(Color.parseColor("#111A28"))
+                setStroke(dp(1f), if (zeroTouchReady) Color.parseColor("#10B981") else Color.parseColor("#243248"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10f) }
+        })
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10f) }
+        }
+
+        val togglePaySafeBtn = Button(this).apply {
+            text = if (paySafeActive || !a11yEnabled) "🛡️ Resume Shield" else "💳 Pay Safe Now"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                cornerRadius = dp(11f).toFloat()
+                setColor(if (paySafeActive || !a11yEnabled) Color.parseColor("#10B981") else palette.accentColor)
+            }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(6f)
+            }
+            setOnClickListener { v ->
+                SensoryFeedbackEngine.toggle(this@AuxiliarySettingsActivity, v)
+                if (paySafeActive || !a11yEnabled) {
+                    val restored = PaymentSafeModeManager.exitPaymentSafeModeAndRestore(
+                        this@AuxiliarySettingsActivity,
+                        reason = "settings_btn"
+                    )
+                    if (!restored) {
+                        SettingsTamperGuard.grantPermissionSetupGrace(this@AuxiliarySettingsActivity, 180_000L)
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
+                } else {
+                    PaymentSafeModeManager.enterPaymentSafeMode(
+                        this@AuxiliarySettingsActivity,
+                        triggeringPackage = null,
+                        autoTriggered = false
+                    )
+                }
+                renderActiveTab()
+            }
+        }
+        btnRow.addView(togglePaySafeBtn)
+
+        val zeroTouchBtn = Button(this).apply {
+            text = if (zeroTouchReady) "✓ Zero-Touch Ready" else "⚡ Zero-Touch Setup"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(if (zeroTouchReady) Color.parseColor("#34D399") else Color.parseColor("#38BDF8"))
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                cornerRadius = dp(11f).toFloat()
+                setColor(Color.parseColor("#131E2E"))
+                setStroke(dp(1f), if (zeroTouchReady) Color.parseColor("#10B981") else Color.parseColor("#38BDF8"))
+            }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { v ->
+                SensoryFeedbackEngine.tap(this@AuxiliarySettingsActivity, v)
+                showZeroTouchPaymentSetupDialog()
+            }
+        }
+        btnRow.addView(zeroTouchBtn)
+        card.addView(btnRow)
+
+        contentContainer.addView(card)
+    }
+
+    private fun showZeroTouchPaymentSetupDialog() {
+        val adbCmd = PaymentSafeModeManager.getAdbGrantCommand(this)
+        val hasWss = PaymentSafeModeManager.hasWriteSecureSettingsPermission(this)
+        val hasShizuku = PorterBridge.isEnhancedModeActive()
+        val shizukuRunning = PorterBridge.isAvailable()
+
+        val statusLine = when {
+            hasWss -> "✅ Active permanently via WRITE_SECURE_SETTINGS (survives reboots!)."
+            hasShizuku -> "✅ Active via Shizuku/Porter Bridge."
+            else -> "Currently in 1-Tap Notification Resume mode. Complete EITHER option below once to make Accessibility turn OFF & ON 100% automatically for every payment app:"
+        }
+
+        val message = "$statusLine\n\n" +
+            "Option 1 (Permanent — Recommended, survives reboots):\n" +
+            "Run this 1-line command once via PC ADB, Wireless Debugging (LADB), or Termux ADB:\n\n" +
+            "$adbCmd\n\n" +
+            "Option 2 (Shizuku / Porter):\n" +
+            "If you use Shizuku, tap 'Authorize Shizuku' below."
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle("⚡ 100% Zero-Touch Payment Auto-Resume")
+            .setMessage(message)
+            .setPositiveButton("Copy ADB Command") { _, _ ->
+                try {
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("ADB Command", adbCmd))
+                    Toast.makeText(this, "Copied ADB command to clipboard!", Toast.LENGTH_SHORT).show()
+                } catch (_: Throwable) {}
+            }
+            .setNegativeButton("Close", null)
+
+        if (shizukuRunning && !hasShizuku) {
+            builder.setNeutralButton("Authorize Shizuku") { _, _ ->
+                PorterBridge.requestPermission(this)
+            }
+        }
+
+        builder.show()
     }
 
     private fun buildSensoryFeedbackCard(palette: UiThemePrefs.ThemePalette) {

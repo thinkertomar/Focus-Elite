@@ -98,7 +98,7 @@ class EliteWebShieldActivity : AppCompatActivity() {
             setTextColor(textPrimary)
         })
         titleCol.addView(TextView(this).apply {
-            text = "Study 24/7 • Post-Focus Browser Access • Today's Browsing"
+            text = "Study 24/7 • Rest-of-Day Break Access • Today's Browsing"
             textSize = 11.5f
             setTextColor(textSecondary)
         })
@@ -108,6 +108,11 @@ class EliteWebShieldActivity : AppCompatActivity() {
         // 2. Live Web Shield Status Banner
         val offDayPaused = BlockPolicyEngine.isWebShieldPausedForOffDay(this)
         val winStatus = BlockPolicyEngine.getBrowserAccessWindowStatus(this)
+        val focusEndFmt = FocusLayerManager.formatMinutesOfDay(FocusLayerManager.getEndMinutes(this))
+        val isFocusNow = FocusLayerManager.isScheduledActiveNow(this) ||
+            (FocusLayerManager.isManualOverrideActive(this) && FocusLayerManager.isActiveNow(this)) ||
+            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
+
         val statusCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = UiThemePrefs.createCardBackground(this@EliteWebShieldActivity, cornerDp = 16f, isHero = true)
@@ -124,14 +129,28 @@ class EliteWebShieldActivity : AppCompatActivity() {
                 "#34D399"
             )
             winStatus.isActiveNow -> Triple(
-                "🎁 Free-Access Browser Window Active (${winStatus.remainingMinutes}m left)",
-                "Non-study sites are temporarily open during your reward window (${winStatus.scheduleLabel}).",
+                "🌤️ Break Time Active • ${winStatus.remainingMinutes}m / ${winStatus.durationMinutes}m Browser Left",
+                "Applicable for the rest of the day outside Focus Hours (${winStatus.scheduleLabel}). Study sites open 24/7.",
                 "#38BDF8"
+            )
+            winStatus.isEnabled && winStatus.isInBreakPeriod && winStatus.remainingMinutes == 0 -> Triple(
+                "⏱️ Break-Time Browser Allowance Used (${winStatus.usedMinutes}m/${winStatus.durationMinutes}m)",
+                "Today's non-study break budget is finished. Study/Fair websites remain open 24/7.",
+                "#F59E0B"
+            )
+            isFocusNow -> Triple(
+                "🛡️ Focus Hours Active • Study Sites Open 24/7",
+                if (winStatus.isEnabled) {
+                    "Break-time browser access (${winStatus.durationMinutes}m) unlocks after Focus ends at $focusEndFmt — valid for the rest of the day."
+                } else {
+                    "Study/Fair sites always allowed • Non-study sites blocked during Focus Hours"
+                },
+                "#16D99A"
             )
             else -> Triple(
                 "🛡️ Web Shield Active • Study Sites Open 24/7",
                 if (winStatus.isEnabled) {
-                    "Next Browser Free-Access Window: ${winStatus.scheduleLabel}"
+                    "Break-Time Schedule: ${winStatus.scheduleLabel}"
                 } else {
                     "Study/Fair sites always allowed • Non-study sites guarded by Focus Layer & daily cap"
                 },
@@ -221,13 +240,13 @@ class EliteWebShieldActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "⏱️ Post / Pre-Focus Browser Access Window"
+            text = "⏱️ Break-Time Browser Access (Rest of Day)"
             textSize = 14.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(textPrimary)
         })
         titleCol.addView(TextView(this).apply {
-            text = "Unlock non-study websites for 30–60 min right after Focus Hours finish (or before they start) so you can browse guilt-free after studying."
+            text = "Use your 30–60 min non-study browser allowance anytime during break time outside Focus Hours — applicable for the rest of the day, not locked to one fixed clock slot."
             textSize = 11.5f
             setTextColor(textSecondary)
             setPadding(0, dp(3f), dp(8f), 0)
@@ -246,7 +265,7 @@ class EliteWebShieldActivity : AppCompatActivity() {
         if (status.isEnabled) {
             // Duration Chips (30m / 45m / 60m)
             card.addView(TextView(this).apply {
-                text = "ACCESS DURATION"
+                text = "DAILY BREAK-TIME ALLOWANCE"
                 textSize = 10.5f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(textSecondary)
@@ -283,9 +302,9 @@ class EliteWebShieldActivity : AppCompatActivity() {
             }
             card.addView(durRow)
 
-            // Timing Mode Chips (After Focus / Before Focus / Both)
+            // Timing Mode Chips (Rest of Day / After Focus / Before Focus)
             card.addView(TextView(this).apply {
-                text = "WHEN TO UNLOCK"
+                text = "WHEN BREAK TIME APPLIES"
                 textSize = 10.5f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(textSecondary)
@@ -293,9 +312,9 @@ class EliteWebShieldActivity : AppCompatActivity() {
             })
             val modeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val modes = listOf(
+                BlockPolicyEngine.WINDOW_MODE_REST_OF_DAY to "Rest of Day",
                 BlockPolicyEngine.WINDOW_MODE_AFTER_END to "After Focus",
-                BlockPolicyEngine.WINDOW_MODE_BEFORE_START to "Before Focus",
-                BlockPolicyEngine.WINDOW_MODE_BOTH to "Before & After"
+                BlockPolicyEngine.WINDOW_MODE_BEFORE_START to "Before Focus"
             )
             for ((key, label) in modes) {
                 val sel = status.mode == key
@@ -328,7 +347,7 @@ class EliteWebShieldActivity : AppCompatActivity() {
             card.addView(modeRow)
 
             card.addView(TextView(this).apply {
-                text = "Active Window: ${status.scheduleLabel}"
+                text = "Active Rule: ${status.scheduleLabel} (${status.usedMinutes}m used · ${status.remainingMinutes}m left)"
                 textSize = 11.5f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(Color.parseColor("#38BDF8"))

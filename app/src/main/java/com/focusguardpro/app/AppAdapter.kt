@@ -108,16 +108,22 @@ class AppAdapter(
         val isIgnored = ignoredApps.contains(app.packageName)
         val isWhitelisted = ((isStudy || isImprove) && !isIgnored) || unblockedTodayPkgs.contains(app.packageName)
 
-        val effectiveLimit = when {
-            isIgnored -> if (limitMins in 1..29) limitMins else 30
-            limitMins > 0 -> limitMins
-            else -> defaultCap
-        }
         val isOffDayWebPaused = isBrowser && BlockPolicyEngine.isWebShieldPausedForOffDay(context)
         val browserWinStatus = if (isBrowser && !isOffDayWebPaused) {
             BlockPolicyEngine.getBrowserAccessWindowStatus(context)
         } else {
             null
+        }
+        val browserBreakAllowance = if (isBrowser && browserWinStatus?.isEnabled == true) {
+            browserWinStatus.durationMinutes
+        } else {
+            0
+        }
+        val effectiveLimit = when {
+            isIgnored -> if (limitMins in 1..29) limitMins else 30
+            isBrowser && browserBreakAllowance > 0 -> maxOf(limitMins, browserBreakAllowance)
+            limitMins > 0 -> limitMins
+            else -> defaultCap
         }
         val isBrowserFreeWindow = browserWinStatus?.isActiveNow == true
         val isLimitReached = usedMinutesToday >= effectiveLimit && !isWhitelisted && !isOffDayWebPaused && !isBrowserFreeWindow

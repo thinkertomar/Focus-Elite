@@ -114,6 +114,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         instance = this
         SettingsTamperGuard.recordAccessibilityJustConnected(this)
         SettingsTamperGuard.recordVerifiedHeartbeat(this)
+        PaymentSafeModeManager.onAccessibilityReconnected(this)
         ensureWatchdogRunning()
 
         try {
@@ -368,6 +369,14 @@ class BlockerAccessibilityService : AccessibilityService() {
 
             if (SystemExclusions.isExcludedPackage(this, livePkg)) {
                 continue
+            }
+
+            // Payment & Banking Safe Auto-Yield: pause Accessibility cleanly so BHIM/UPI/Bank apps never block
+            if (PaymentSafeModeManager.isAutoYieldEnabled(this) &&
+                PaymentSafeModeManager.isPaymentOrBankingPackage(this, livePkg)
+            ) {
+                PaymentSafeModeManager.enterPaymentSafeMode(this, triggeringPackage = livePkg, autoTriggered = true)
+                return
             }
 
             if (BlockPolicyEngine.isBrowserPackage(livePkg)) {
@@ -849,6 +858,14 @@ class BlockerAccessibilityService : AccessibilityService() {
                     ForegroundTracker.currentPackageSince = System.currentTimeMillis()
                 }
                 continue
+            }
+
+            // 3.5 Payment & Banking Auto-Yield: immediately pause Accessibility so UPI/banking apps open cleanly
+            if (PaymentSafeModeManager.isAutoYieldEnabled(this) &&
+                PaymentSafeModeManager.isPaymentOrBankingPackage(this, activePkg)
+            ) {
+                PaymentSafeModeManager.enterPaymentSafeMode(this, triggeringPackage = activePkg, autoTriggered = true)
+                return
             }
 
             val isWindowTransition = eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
