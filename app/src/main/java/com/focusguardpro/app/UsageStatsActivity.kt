@@ -38,6 +38,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -50,8 +52,19 @@ import kotlin.math.roundToInt
 class UsageStatsActivity : AppCompatActivity() {
 
     private var refreshJob: Job? = null
+    private var weeklyJob: Job? = null
+    private var liveTickerJob: Job? = null
     private var daySelectionJob: Job? = null
     private var prewarmJob: Job? = null
+
+    companion object {
+        @Volatile
+        private var lastPreparedTodayCache: PreparedDayData? = null
+        @Volatile
+        private var lastPreparedTodayStartMs: Long = 0L
+        @Volatile
+        private var lastWeeklyRangesCache: List<UsageStatsHelper.WeeklyDayRange> = emptyList()
+    }
 
     private lateinit var todayChart: SimpleBarChartView
     private lateinit var weeklyChart: SimpleBarChartView
@@ -207,7 +220,7 @@ class UsageStatsActivity : AppCompatActivity() {
         }
 
         val deltaPill = TextView(this).apply {
-            text = "Live"
+            text = "⚡ Live"
             textSize = 11f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#38BDF8"))
@@ -216,6 +229,10 @@ class UsageStatsActivity : AppCompatActivity() {
                 cornerRadius = dp(12f).toFloat()
                 setColor(Color.parseColor("#1E293B"))
                 setStroke(dp(1f), palette.accentColor)
+            }
+            setOnClickListener { v ->
+                SensoryFeedbackEngine.tap(this@UsageStatsActivity, v)
+                triggerInstantLiveSync(showLatencyFeedback = true)
             }
         }
         tvHeroDeltaPill = deltaPill
@@ -604,6 +621,8 @@ class UsageStatsActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         refreshJob?.cancel()
+        weeklyJob?.cancel()
+        liveTickerJob?.cancel()
         daySelectionJob?.cancel()
         prewarmJob?.cancel()
         proportionBarAnimator?.cancel()
@@ -672,6 +691,7 @@ class UsageStatsActivity : AppCompatActivity() {
         val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
         val focusEliteIcon: Drawable? = ContextCompat.getDrawable(this, R.mipmap.ic_launcher)
         val dayStartMs = dayRange?.startMs ?: startOfTodayMs()
+        val browserSiteCounts = BrowserWebsiteTracker.getBrowserSiteCountsForDay(this, dayStartMs)
 
         val rows = sortedStats.map { stat ->
             val isVirtualSelf = FocusSelfUsageTracker.isVirtualFocusElitePackage(stat.packageName)
@@ -710,7 +730,7 @@ class UsageStatsActivity : AppCompatActivity() {
                     subtitle = "UTILITY • FOCUS ELITE$opensPart · $sharePct%"
                 }
                 isBrowser -> {
-                    val siteCount = BrowserWebsiteTracker.getWebsitesForBrowserOnDay(this, stat.packageName, dayStartMs).size
+                    val siteCount = browserSiteCounts[stat.packageName] ?: 0
                     val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
                     val cap = (if (customLimit > 0) customLimit else defaultCap).coerceAtLeast(1)
                     val siteWord = if (siteCount == 1) "1 site" else "$siteCount sites"
@@ -948,6 +968,79 @@ class UsageStatsActivity : AppCompatActivity() {
         }
     }
 
+    private fun startLiveForegroundAutoSync() {
+        liveTickerJob?.cancel()
+        liveTickerJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(10_000L)
+                if (!isFinishing && !isDestroyed && selectedDayIndex == 6 && UsageStatsHelper.hasUsageAccess(this@UsageStatsActivity)) {
+                    triggerInstantLiveSync(showLatencyFeedback = false)
+                }
+            }
+        }
+    }
+
+    private fun triggerInstantLiveSync(showLatencyFeedback: Boolean) {
+        if (!UsageStatsHelper.hasUsageAccess(this)) return
+        val activeRange = weeklyRanges.getOrNull(selectedDayIndex)
+        val isTodaySelected = activeRange == null || activeRange.isToday
+
+        if (showLatencyFeedback) {
+            tvHeroDeltaPill?.text = "⚡ Syncing…"
+            tvHeroDeltaPill?.setTextColor(Color.parseColor("#38BDF8"))
+        }
+
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch(Dispatchers.IO) {
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            val snapshot = if (isTodaySelected) {
+                UsageStatsHelper.getTodayWellbeingSnapshot(this@UsageStatsActivity, forceRefresh = true)
+            } else {
+                UsageStatsHelper.getDayWellbeingSnapshot(
+                    this@UsageStatsActivity,
+                    activeRange!!.startMs,
+                    activeRange.endMs,
+                    forceRefresh = true
+                )
+            }
+            val prepared = buildPreparedDayData(snapshot, activeRange)
+            val elapsedMs = (android.os.SystemClock.elapsedRealtime() - t0).coerceAtLeast(1L)
+
+            if (isTodaySelected) {
+                lastPreparedTodayCache = prepared
+                lastPreparedTodayStartMs = startOfTodayMs()
+            }
+            if (activeRange != null) {
+                preparedDayCache[activeRange.fullDateLabel] = prepared
+            }
+
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                // Keep Today's bar in weeklyRanges synced with the new live total without re-querying 6 past days
+                if (isTodaySelected && weeklyRanges.isNotEmpty() && weeklyRanges.last().isToday) {
+                    weeklyRanges = weeklyRanges.toMutableList().also { list ->
+                        val last = list.last()
+                        list[list.lastIndex] = last.copy(
+                            totalScreenTimeMs = snapshot.totalScreenTimeMs,
+                            endMs = snapshot.endMs
+                        )
+                    }
+                    lastWeeklyRangesCache = weeklyRanges
+                }
+                bindDayBreakdown(prepared)
+                if (showLatencyFeedback) {
+                    tvHeroDeltaPill?.text = "⚡ Synced · ${elapsedMs}ms"
+                    tvHeroDeltaPill?.setTextColor(Color.parseColor("#34D399"))
+                    tvHeroDeltaPill?.postDelayed({
+                        if (!isFinishing && !isDestroyed && currentPreparedDay != null) {
+                            bindExecutiveHeroAndCategories(currentPreparedDay!!.snapshot, currentPreparedDay!!.dayRange)
+                        }
+                    }, 1800L)
+                }
+            }
+        }
+    }
+
     private fun refresh() {
         val hasAccess = UsageStatsHelper.hasUsageAccess(this)
         if (!hasAccess) {
@@ -965,53 +1058,114 @@ class UsageStatsActivity : AppCompatActivity() {
         tvVsYesterday.visibility = View.VISIBLE
 
         BlockPolicyEngine.warmCacheAsync(this)
+        AppMetadataCache.warmUpAsync(this)
 
-        // Fast zero-latency path: immediately show warm/in-memory snapshot so Today by App is never blank
-        val cached = UsageStatsHelper.getCachedTodaySnapshot(this)
-        if (cached != null && selectedDayIndex == 6) {
-            bindExecutiveHeroAndCategories(cached, null)
-            bindHourlyTimeline(cached)
-            tvHeroDeltaPill?.text = "Syncing..."
+        val todayStart = startOfTodayMs()
+
+        // Tier 0 (0ms, synchronous Frame-0 paint): immediately paint full last-prepared Today UI + 7-day chart!
+        if (weeklyRanges.isEmpty() && lastWeeklyRangesCache.isNotEmpty()) {
+            weeklyRanges = lastWeeklyRangesCache
+            renderWeeklyChartSelection()
+        }
+        val frame0Prepared = if (selectedDayIndex == 6 && lastPreparedTodayCache != null &&
+            abs(lastPreparedTodayStartMs - todayStart) < 60_000L
+        ) {
+            lastPreparedTodayCache
+        } else null
+
+        if (frame0Prepared != null) {
+            bindDayBreakdown(frame0Prepared)
+            tvHeroDeltaPill?.text = "⚡ Syncing…"
+        } else {
+            val cached = UsageStatsHelper.getCachedTodaySnapshot(this)
+            if (cached != null && selectedDayIndex == 6) {
+                bindExecutiveHeroAndCategories(cached, null)
+                bindHourlyTimeline(cached)
+                tvHeroDeltaPill?.text = "⚡ Syncing…"
+            }
         }
 
+        // Tier 1 (~5-15ms Incremental Delta Sync): compute ONLY the selected day first — NEVER blocked by 6 past days!
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch(Dispatchers.IO) {
-            if (cached != null && (smoothAdapter?.itemCount ?: 0) == 0 && selectedDayIndex == 6) {
-                val warmPrepared = buildPreparedDayData(cached, null)
-                withContext(Dispatchers.Main) {
-                    if (!isFinishing && !isDestroyed) {
-                        bindDayBreakdown(warmPrepared)
-                        tvHeroDeltaPill?.text = "Syncing..."
+            // If Frame 0 had a warm disk snapshot but no prepared rows yet, paint rows immediately before IPC
+            if (frame0Prepared == null && (smoothAdapter?.itemCount ?: 0) == 0 && selectedDayIndex == 6) {
+                val warmSnap = UsageStatsHelper.getCachedTodaySnapshot(this@UsageStatsActivity)
+                if (warmSnap != null) {
+                    val warmPrepared = buildPreparedDayData(warmSnap, weeklyRanges.getOrNull(6))
+                    withContext(Dispatchers.Main) {
+                        if (!isFinishing && !isDestroyed) {
+                            bindDayBreakdown(warmPrepared)
+                            tvHeroDeltaPill?.text = "⚡ Syncing…"
+                        }
                     }
                 }
             }
 
-            // Stage 1: Load 7-day ranges and authoritative snapshot for currently selected day
-            val ranges = UsageStatsHelper.getWeeklyDayRanges(this@UsageStatsActivity)
-            val safeIdx = selectedDayIndex.coerceIn(0, (ranges.size - 1).coerceAtLeast(0))
-            val activeRange = ranges.getOrNull(safeIdx)
+            val existingActiveRange = weeklyRanges.getOrNull(selectedDayIndex)
+            val isTodaySelected = existingActiveRange == null || existingActiveRange.isToday
 
-            val snapshot = if (activeRange == null || activeRange.isToday) {
+            val snapshot = if (isTodaySelected) {
                 UsageStatsHelper.getTodayWellbeingSnapshot(this@UsageStatsActivity, forceRefresh = true)
             } else {
                 UsageStatsHelper.getDayWellbeingSnapshot(
                     this@UsageStatsActivity,
-                    activeRange.startMs,
-                    activeRange.endMs,
+                    existingActiveRange!!.startMs,
+                    existingActiveRange.endMs,
                     forceRefresh = true
                 )
             }
-            val prepared = buildPreparedDayData(snapshot, activeRange)
-            if (activeRange != null) {
-                preparedDayCache[activeRange.fullDateLabel] = prepared
+            val prepared = buildPreparedDayData(snapshot, existingActiveRange)
+            if (isTodaySelected) {
+                lastPreparedTodayCache = prepared
+                lastPreparedTodayStartMs = todayStart
+            }
+            if (existingActiveRange != null) {
+                preparedDayCache[existingActiveRange.fullDateLabel] = prepared
             }
 
             withContext(Dispatchers.Main) {
-                if (!isFinishing && !isDestroyed) {
-                    weeklyRanges = ranges
-                    selectedDayIndex = safeIdx
-                    bindDayBreakdown(prepared)
-                    prewarmAdjacentDays(safeIdx)
+                if (isFinishing || isDestroyed) return@withContext
+                bindDayBreakdown(prepared)
+                startLiveForegroundAutoSync()
+            }
+
+            // Tier 2 (Parallel 7-day range sync): reuses Today's total (ZERO double compute) & loads 6 past days in parallel!
+            weeklyJob?.cancel()
+            weeklyJob = lifecycleScope.launch(Dispatchers.IO) {
+                val todayOverride = if (isTodaySelected) snapshot.totalScreenTimeMs else null
+                val ranges = UsageStatsHelper.getWeeklyDayRangesFast(this@UsageStatsActivity, todayTotalOverrideMs = todayOverride)
+                if (ranges.isEmpty()) return@launch
+                lastWeeklyRangesCache = ranges
+                val safeIdx = selectedDayIndex.coerceIn(0, (ranges.size - 1).coerceAtLeast(0))
+                val resolvedRange = ranges.getOrNull(safeIdx)
+
+                // If Yesterday wasn't cached during Tier 1, reconcile delta pill smoothly now
+                val yestTotal = ranges.getOrNull(ranges.size - 2)?.totalScreenTimeMs ?: 0L
+                val updatedPrepared = if (isTodaySelected && snapshot.yesterdayScreenTimeMs <= 0L && yestTotal > 0L) {
+                    val updatedSnap = snapshot.copy(yesterdayScreenTimeMs = yestTotal)
+                    prepared.copy(snapshot = updatedSnap, dayRange = resolvedRange)
+                } else {
+                    prepared.copy(dayRange = resolvedRange)
+                }
+
+                if (resolvedRange != null) {
+                    preparedDayCache[resolvedRange.fullDateLabel] = updatedPrepared
+                }
+                if (isTodaySelected) {
+                    lastPreparedTodayCache = updatedPrepared
+                    lastPreparedTodayStartMs = todayStart
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (!isFinishing && !isDestroyed) {
+                        weeklyRanges = ranges
+                        selectedDayIndex = safeIdx
+                        currentPreparedDay = updatedPrepared
+                        renderWeeklyChartSelection()
+                        bindExecutiveHeroAndCategories(updatedPrepared.snapshot, resolvedRange)
+                        prewarmAdjacentDays(safeIdx)
+                    }
                 }
             }
         }
@@ -1256,6 +1410,7 @@ class UsageStatsActivity : AppCompatActivity() {
                             Toast.makeText(this@UsageStatsActivity, "Marked ${site.host} as Study 24/7", Toast.LENGTH_SHORT).show()
                         }
                         BlockPolicyEngine.warmCacheAsync(this@UsageStatsActivity)
+                        BrowserWebsiteTracker.invalidateCache()
                         activeDialog?.dismiss()
                         showBrowserWebsitesDialog(browserPackage, browserName, dayStartMs, dayLabel)
                     }
@@ -1282,6 +1437,7 @@ class UsageStatsActivity : AppCompatActivity() {
                             Toast.makeText(this@UsageStatsActivity, "Blocked ${site.host}", Toast.LENGTH_SHORT).show()
                         }
                         BlockPolicyEngine.warmCacheAsync(this@UsageStatsActivity)
+                        BrowserWebsiteTracker.invalidateCache()
                         activeDialog?.dismiss()
                         showBrowserWebsitesDialog(browserPackage, browserName, dayStartMs, dayLabel)
                     }

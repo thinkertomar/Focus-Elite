@@ -4,9 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * High-performance, memory-resident cache for Android application metadata (labels and icons).
@@ -18,6 +22,8 @@ object AppMetadataCache {
 
     private val labelCache = ConcurrentHashMap<String, String>(256)
     private val iconCache = ConcurrentHashMap<String, Drawable>(256)
+    private val warmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val isWarmingOrWarm = AtomicBoolean(false)
 
     fun getLabel(pm: PackageManager, packageName: String): String {
         return labelCache.getOrPut(packageName) {
@@ -42,10 +48,31 @@ object AppMetadataCache {
         }
     }
 
+    fun warmUpAsync(context: Context) {
+        if (!isWarmingOrWarm.compareAndSet(false, true)) return
+        val appCtx = context.applicationContext
+        warmScope.launch {
+            try {
+                warmUpInternal(appCtx)
+            } catch (_: Throwable) {
+                isWarmingOrWarm.set(false)
+            }
+        }
+    }
+
     /**
      * Warms up application labels and icons on Dispatchers.IO in the background.
      */
     suspend fun warmUp(context: Context) = withContext(Dispatchers.IO) {
+        if (!isWarmingOrWarm.compareAndSet(false, true)) return@withContext
+        try {
+            warmUpInternal(context.applicationContext)
+        } catch (_: Throwable) {
+            isWarmingOrWarm.set(false)
+        }
+    }
+
+    private fun warmUpInternal(context: Context) {
         try {
             val pm = context.packageManager
             val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {

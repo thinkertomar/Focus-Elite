@@ -19,6 +19,16 @@ object BrowserWebsiteTracker {
     private const val PREFS_NAME = "FocusElite_WebsiteUsage_v1"
     private const val MAX_STORED_DAYS = 10
 
+    private val dayFmtLocal = object : ThreadLocal<SimpleDateFormat>() {
+        override fun initialValue(): SimpleDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
+    }
+
+    private val parsedDayCache = java.util.concurrent.ConcurrentHashMap<String, List<SiteUsageRecord>>()
+
+    fun invalidateCache() {
+        parsedDayCache.clear()
+    }
+
     data class SiteUsageRecord(
         val host: String,
         val browserPackage: String,
@@ -36,7 +46,7 @@ object BrowserWebsiteTracker {
     )
 
     private fun dayKey(tsMs: Long): String =
-        SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(tsMs))
+        dayFmtLocal.get()?.format(Date(tsMs)) ?: SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(tsMs))
 
     @Synchronized
     fun recordSample(
@@ -94,6 +104,7 @@ object BrowserWebsiteTracker {
         val editor = prefs.edit().putString("day_$dk", root.toString())
         pruneOldDays(prefs, editor)
         editor.apply()
+        parsedDayCache.remove(dk)
     }
 
     private fun pruneOldDays(prefs: android.content.SharedPreferences, editor: android.content.SharedPreferences.Editor) {
@@ -109,8 +120,13 @@ object BrowserWebsiteTracker {
 
     private fun loadRawRecordsForDay(context: Context, dayStartMs: Long): List<SiteUsageRecord> {
         val dk = dayKey(dayStartMs)
+        parsedDayCache[dk]?.let { return it }
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val rawJson = prefs.getString("day_$dk", null) ?: return emptyList()
+        val rawJson = prefs.getString("day_$dk", null)
+        if (rawJson.isNullOrBlank()) {
+            parsedDayCache[dk] = emptyList()
+            return emptyList()
+        }
         val list = ArrayList<SiteUsageRecord>()
         try {
             val root = JSONObject(rawJson)
@@ -141,7 +157,19 @@ object BrowserWebsiteTracker {
                 )
             }
         } catch (_: Throwable) {}
-        return list.sortedByDescending { it.durationMs }
+        val sorted = list.sortedByDescending { it.durationMs }
+        parsedDayCache[dk] = sorted
+        return sorted
+    }
+
+    fun getBrowserSiteCountsForDay(context: Context, dayStartMs: Long): Map<String, Int> {
+        val records = loadRawRecordsForDay(context, dayStartMs)
+        if (records.isEmpty()) return emptyMap()
+        val counts = HashMap<String, Int>()
+        for (r in records) {
+            counts[r.browserPackage] = (counts[r.browserPackage] ?: 0) + 1
+        }
+        return counts
     }
 
     fun getWebsitesForBrowserOnDay(

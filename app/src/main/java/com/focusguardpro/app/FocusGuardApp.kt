@@ -16,6 +16,9 @@ open class FocusGuardApp : Application() {
         ensureRoomMainThreadQueries(this)
         try {
             AppCategoryPrefs.getStudyApps(this)
+            AppMetadataCache.warmUpAsync(this)
+            BlockPolicyEngine.warmCacheAsync(this)
+            UsageStatsHelper.warmUpAsync(this)
         } catch (_: Throwable) {}
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
