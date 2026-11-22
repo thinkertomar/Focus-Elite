@@ -367,16 +367,17 @@ class BlockerAccessibilityService : AccessibilityService() {
                 }
             }
 
-            if (SystemExclusions.isExcludedPackage(this, livePkg)) {
-                continue
-            }
-
-            // Payment & Banking Safe Auto-Yield: pause Accessibility cleanly so BHIM/UPI/Bank apps never block
+            // Payment & Banking Safe Auto-Yield MUST run BEFORE SystemExclusions
+            // (because BHIM, GPay, PhonePe & Paytm are in SystemExclusions to prevent blocking)
             if (PaymentSafeModeManager.isAutoYieldEnabled(this) &&
                 PaymentSafeModeManager.isPaymentOrBankingPackage(this, livePkg)
             ) {
                 PaymentSafeModeManager.enterPaymentSafeMode(this, triggeringPackage = livePkg, autoTriggered = true)
                 return
+            }
+
+            if (SystemExclusions.isExcludedPackage(this, livePkg)) {
+                continue
             }
 
             if (BlockPolicyEngine.isBrowserPackage(livePkg)) {
@@ -775,6 +776,17 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         val now = FocusLayerManager.verifiedNowMs(this)
         val rawEventPkg = event?.packageName?.toString()
+
+        // FAST-PATH Payment & Banking Auto-Yield: runs on the very first AccessibilityEvent millisecond
+        // BEFORE SystemExclusions (since BHIM/PhonePe/Paytm/GPay are in SystemExclusions).
+        if (!rawEventPkg.isNullOrBlank() &&
+            PaymentSafeModeManager.isAutoYieldEnabled(this) &&
+            PaymentSafeModeManager.isPaymentOrBankingPackage(this, rawEventPkg)
+        ) {
+            PaymentSafeModeManager.enterPaymentSafeMode(this, triggeringPackage = rawEventPkg, autoTriggered = true)
+            return
+        }
+
         if (!rawEventPkg.isNullOrBlank() && !isIgnoredWindowOverlayPackage(rawEventPkg)) {
             if (isSelfPackage(rawEventPkg) ||
                 SystemExclusions.isExcludedPackage(this, rawEventPkg) ||
@@ -847,6 +859,14 @@ class BlockerAccessibilityService : AccessibilityService() {
                 }
             }
 
+            // 2.9 Payment & Banking Auto-Yield MUST run BEFORE SystemExclusions
+            if (PaymentSafeModeManager.isAutoYieldEnabled(this) &&
+                PaymentSafeModeManager.isPaymentOrBankingPackage(this, activePkg)
+            ) {
+                PaymentSafeModeManager.enterPaymentSafeMode(this, triggeringPackage = activePkg, autoTriggered = true)
+                return
+            }
+
             // 3. System exclusions (SystemUI, Launcher, Phone Dialer, benign Settings screens)
             if (SystemExclusions.isExcludedPackage(this, activePkg)) {
                 if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && activePkg != "com.android.systemui") {
@@ -858,14 +878,6 @@ class BlockerAccessibilityService : AccessibilityService() {
                     ForegroundTracker.currentPackageSince = System.currentTimeMillis()
                 }
                 continue
-            }
-
-            // 3.5 Payment & Banking Auto-Yield: immediately pause Accessibility so UPI/banking apps open cleanly
-            if (PaymentSafeModeManager.isAutoYieldEnabled(this) &&
-                PaymentSafeModeManager.isPaymentOrBankingPackage(this, activePkg)
-            ) {
-                PaymentSafeModeManager.enterPaymentSafeMode(this, triggeringPackage = activePkg, autoTriggered = true)
-                return
             }
 
             val isWindowTransition = eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||

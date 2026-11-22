@@ -91,6 +91,7 @@ class EliteCalendarActivity : AppCompatActivity() {
         super.onResume()
         UiThemePrefs.applyWindowAndViewTreeTheme(this, rootScroll)
         loadAndRenderMonth(animate = false)
+        SmartNotificationManager.refreshNow(this)
     }
 
     private fun buildLayout() {

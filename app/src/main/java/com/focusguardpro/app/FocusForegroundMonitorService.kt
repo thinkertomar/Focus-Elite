@@ -61,6 +61,7 @@ class FocusForegroundMonitorService : Service() {
     private var isScreenOn = true
     private var lastBlockedPkg: String? = null
     private var lastBlockedTimeMs: Long = 0L
+    private var lastSmartNotifRefreshMs: Long = 0L
     @Volatile
     private var lastResolvedUsagesPkg: String? = null
 
@@ -202,8 +203,15 @@ class FocusForegroundMonitorService : Service() {
         if (AppLifecycleCoordinator.isRestoreInProgress) return
 
         val candidatePackages = getActiveForegroundPackages()
+        val nowSys = System.currentTimeMillis()
         if (PaymentSafeModeManager.isActive(this)) {
             PaymentSafeModeManager.onForegroundPollTick(this, candidatePackages)
+            if (nowSys - lastSmartNotifRefreshMs >= 4_000L) {
+                lastSmartNotifRefreshMs = nowSys
+                updateNotification()
+            }
+        } else if (nowSys - lastSmartNotifRefreshMs >= 60_000L) {
+            lastSmartNotifRefreshMs = nowSys
             updateNotification()
         }
         if (candidatePackages.isEmpty()) return
@@ -433,68 +441,19 @@ class FocusForegroundMonitorService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val paySafeActive = PaymentSafeModeManager.isActive(this)
-        val a11yEnabled = SettingsTamperGuard.isAccessibilityAlreadyEnabled(this)
-        val isFocus = FocusLayerManager.isActiveNow(this) ||
-            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
-        val summary = FocusLayerManager.formatWindowSummary(this)
-        val contentText = when {
-            paySafeActive -> "💳 Pay Safe Active · Accessibility paused for payment"
-            isFocus -> "Focus Mode Active ($summary) · Distractions blocked"
-            else -> "Focus Shield Monitoring · Window: $summary"
-        }
-
-        val launchIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val payActionIntent = Intent(this, PaymentSafeActionReceiver::class.java).apply {
-            action = if (paySafeActive || !a11yEnabled) {
-                PaymentSafeActionReceiver.ACTION_RESUME_SHIELD
-            } else {
-                PaymentSafeActionReceiver.ACTION_ENTER_PAY_SAFE
-            }
-        }
-        val payActionPi = PendingIntent.getBroadcast(
-            this,
-            if (paySafeActive || !a11yEnabled) 2091 else 2090,
-            payActionIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val payActionLabel = if (paySafeActive || !a11yEnabled) "🛡️ Resume Shield" else "💳 Pay Safe"
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Focus Elite Shield")
-            .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_shield_security)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setContentIntent(pendingIntent)
-            .addAction(0, payActionLabel, payActionPi)
-            .build()
+        return SmartNotificationManager.buildSmartNotification(this)
     }
 
     private fun updateNotification() {
         try {
+            if (!SmartNotificationManager.hasNotificationPermission(this)) return
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(NOTIFICATION_ID, buildNotification())
         } catch (_: Exception) {}
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Focus Foreground Monitor",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps distraction blocking active during scheduled focus hours"
-            }
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(channel)
-        }
+        SmartNotificationManager.ensureChannel(this)
     }
 
     private fun scheduleKeepAliveAlarm() {

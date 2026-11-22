@@ -130,6 +130,7 @@ class MainActivity : AppCompatActivity() {
         bindCachedSnapshotFast()
         // Asynchronously fetch fresh telemetry, app limits and audit in a single coordinated pass
         refreshHomeData()
+        SmartNotificationManager.refreshNow(this)
     }
 
     private fun dp(value: Float): Int =
@@ -862,10 +863,34 @@ class MainActivity : AppCompatActivity() {
         accessBtn.visibility = if (hasAccess) View.GONE else View.VISIBLE
         batteryBtn.visibility = if (hasBattery) View.GONE else View.VISIBLE
 
+        val hasNotifPerm = SmartNotificationManager.hasNotificationPermission(this)
+        val coreReady = hasUsage && hasAdmin && hasAccess
+
+        // Trigger the Android 13+ Notification Permission Popup automatically right after all core permissions are set up!
+        if (coreReady && !hasNotifPerm) {
+            SmartNotificationManager.requestNotificationPermissionIfNeeded(
+                activity = this,
+                onlyAfterCoreSetup = true,
+                openSettingsIfDenied = false
+            )
+        }
+
         val deactivateLink = findViewById<TextView>(R.id.deactivateShieldLink)
         if (hasUsage && hasAccess && hasBattery && hasAdmin) {
             allSetText.visibility = View.VISIBLE
-            allSetText.text = "✓ All System Shields & Sensors Active (100% On-Device SQLite)"
+            if (!hasNotifPerm) {
+                allSetText.text = "🔔 Tap here to enable Smart Notifications & 1-Tap Pay Safe"
+                allSetText.setOnClickListener {
+                    SmartNotificationManager.requestNotificationPermissionIfNeeded(
+                        activity = this,
+                        onlyAfterCoreSetup = false,
+                        openSettingsIfDenied = true
+                    )
+                }
+            } else {
+                allSetText.text = "✓ All System Shields, Sensors & Smart Notifications Active"
+                allSetText.setOnClickListener(null)
+            }
             deactivateLink?.visibility = View.VISIBLE
         } else {
             allSetText.visibility = View.VISIBLE
@@ -874,10 +899,42 @@ class MainActivity : AppCompatActivity() {
                 hasAccessSetting && !isAccessLive -> "⚠️ After APK update, MIUI/OS paused Accessibility. Tap the button below, turn Focus Elite Accessibility OFF then ON."
                 !UiThemePrefs.isSetupCategoriesConfigured(this) -> "Guided Setup: Step 2 → Tap 'Category Settings' above to define Study/Improve/Ignore apps"
                 !UiThemePrefs.isSetupScheduleConfigured(this) -> "Guided Setup: Step 3 → Tap 'Focus Layer' banner above to confirm your schedule"
+                coreReady && !hasNotifPerm -> "🔔 Final Step: Tap here to enable Smart Notifications & 1-Tap Pay Safe"
                 else -> "Guided Setup: Step 4 → Enable Device Admin & Accessibility Shield below"
             }
             allSetText.text = nextHint
+            if (coreReady && !hasNotifPerm) {
+                allSetText.setOnClickListener {
+                    SmartNotificationManager.requestNotificationPermissionIfNeeded(
+                        activity = this,
+                        onlyAfterCoreSetup = false,
+                        openSettingsIfDenied = true
+                    )
+                }
+            } else {
+                allSetText.setOnClickListener(null)
+            }
             deactivateLink?.visibility = if (hasAdmin) View.VISIBLE else View.GONE
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == SmartNotificationManager.REQUEST_CODE_POST_NOTIFICATIONS) {
+            if (SmartNotificationManager.hasNotificationPermission(this)) {
+                FocusForegroundMonitorService.start(this)
+                SmartNotificationManager.refreshNow(this)
+                Toast.makeText(
+                    this,
+                    "🔔 Smart Notifications Enabled! Live Goals, Progress & 1-Tap Pay Safe are now in your shade.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            updatePermissionButtonStates()
         }
     }
 

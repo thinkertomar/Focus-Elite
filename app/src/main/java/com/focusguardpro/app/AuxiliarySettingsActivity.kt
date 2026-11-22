@@ -97,6 +97,26 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == SmartNotificationManager.REQUEST_CODE_POST_NOTIFICATIONS) {
+            if (SmartNotificationManager.hasNotificationPermission(this)) {
+                FocusForegroundMonitorService.start(this)
+                SmartNotificationManager.refreshNow(this)
+                Toast.makeText(
+                    this,
+                    "🔔 Smart Notifications Enabled! Check your notification shade.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            renderActiveTab()
+        }
+    }
+
     private fun dp(value: Float): Int =
         (value * resources.displayMetrics.density).roundToInt()
 
@@ -556,6 +576,57 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             }
         }
         step4Container.addView(accessFinalBtn)
+
+        // STEP 4D: SMART NOTIFICATION PERMISSION (Automatically prompted after core permissions are set!)
+        val notifReady = SmartNotificationManager.hasNotificationPermission(this)
+        if (step4Ready && usageReady && !notifReady) {
+            SmartNotificationManager.requestNotificationPermissionIfNeeded(
+                activity = this,
+                onlyAfterCoreSetup = true,
+                openSettingsIfDenied = false
+            )
+        }
+        val notifFinalBtn = Button(this).apply {
+            text = if (notifReady) {
+                "✓ 4D. Smart Notifications & 1-Tap Pay Safe Active"
+            } else {
+                "🔔 4D. Allow Smart Notifications & 1-Tap Pay Safe →"
+            }
+            textSize = 12f
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            minHeight = dp(44f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8f) }
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12f).toFloat()
+                if (notifReady) {
+                    setColor(Color.parseColor("#14532D"))
+                    setStroke(dp(1f), Color.parseColor("#22C55E"))
+                } else {
+                    setColor(Color.parseColor("#0284C7"))
+                }
+            }
+            setPadding(dp(14f), dp(9f), dp(14f), dp(9f))
+            setOnClickListener {
+                if (notifReady) {
+                    SmartNotificationManager.refreshNow(this@AuxiliarySettingsActivity)
+                    Toast.makeText(this@AuxiliarySettingsActivity, "🔔 Smart Notification refreshed in your shade!", Toast.LENGTH_SHORT).show()
+                } else {
+                    SmartNotificationManager.requestNotificationPermissionIfNeeded(
+                        activity = this@AuxiliarySettingsActivity,
+                        onlyAfterCoreSetup = false,
+                        openSettingsIfDenied = true
+                    )
+                }
+            }
+        }
+        step4Container.addView(notifFinalBtn)
         welcomeCard.addView(step4Container)
 
         contentContainer.addView(welcomeCard)
@@ -1386,6 +1457,9 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
         // 3B. SMART FOCUS NOTIFICATION MUTE & OFF-DAY WEB SHIELD STATUS CARD
         buildSmartNotificationMuteCard(palette)
 
+        // 3B1. ADAPTIVE ALL-DAY SMART NOTIFICATION CARD (MORNING / FOCUS / EVENING / NIGHT SUMMARY)
+        buildSmartNotificationCard(palette)
+
         // 3B2. UNIVERSAL PAYMENT & BANKING SAFE MODE (BHIM / UPI / BANK APPS)
         buildPaymentSafeModeCard(palette)
 
@@ -1656,6 +1730,141 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             }
             card.addView(grantBtn)
         }
+
+        contentContainer.addView(card)
+    }
+
+    private fun buildSmartNotificationCard(palette: UiThemePrefs.ThemePalette) {
+        val enabled = SmartNotificationManager.isSmartNotificationEnabled(this)
+        val hasPerm = SmartNotificationManager.hasNotificationPermission(this)
+        val snap = SmartNotificationManager.computeLiveSnapshot(this)
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = UiThemePrefs.createCardBackground(this@AuxiliarySettingsActivity, cornerDp = 16f, isHero = false)
+            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(14f) }
+        }
+
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titleCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleCol.addView(TextView(this).apply {
+            text = "✨ Adaptive All-Day Smart Notification"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+        })
+        titleCol.addView(TextView(this).apply {
+            text = "Auto-updates all day: Morning Goals & To-Do → Live Focus & Steps → Evening Green Discipline Check-In → Night Whole-Day Summary + 1-Tap Pay Safe."
+            textSize = 11.6f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(3f), dp(8f), 0)
+        })
+        topRow.addView(titleCol)
+
+        topRow.addView(Switch(this).apply {
+            isChecked = enabled
+            setOnCheckedChangeListener { v, checked ->
+                SensoryFeedbackEngine.toggle(this@AuxiliarySettingsActivity, v)
+                SmartNotificationManager.setSmartNotificationEnabled(this@AuxiliarySettingsActivity, checked)
+                if (checked && !SmartNotificationManager.hasNotificationPermission(this@AuxiliarySettingsActivity)) {
+                    SmartNotificationManager.requestNotificationPermissionIfNeeded(
+                        activity = this@AuxiliarySettingsActivity,
+                        onlyAfterCoreSetup = false,
+                        openSettingsIfDenied = true
+                    )
+                }
+                renderActiveTab()
+            }
+        })
+        card.addView(topRow)
+
+        val phaseBadge = when (snap.phase) {
+            SmartNotificationManager.DayPhase.MORNING -> "LIVE PREVIEW • 🌅 MORNING PLANNING PHASE"
+            SmartNotificationManager.DayPhase.FOCUS_ACTIVE -> "LIVE PREVIEW • 🎯 ACTIVE FOCUS PHASE"
+            SmartNotificationManager.DayPhase.EVENING -> "LIVE PREVIEW • 🌆 EVENING PROGRESS PHASE"
+            SmartNotificationManager.DayPhase.NIGHT_SUMMARY -> "LIVE PREVIEW • 🌙 NIGHT WHOLE-DAY SUMMARY"
+            SmartNotificationManager.DayPhase.PAY_SAFE -> "LIVE PREVIEW • 💳 PAY SAFE MODE"
+        }
+
+        val previewBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(11f), dp(9f), dp(11f), dp(9f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                setColor(Color.parseColor("#111A28"))
+                setStroke(dp(1f), if (hasPerm) Color.parseColor("#0EA5E9") else Color.parseColor("#F59E0B"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10f) }
+        }
+        previewBox.addView(TextView(this).apply {
+            text = if (hasPerm) phaseBadge else "⚠️ NOTIFICATION PERMISSION REQUIRED"
+            textSize = 10f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(if (hasPerm) Color.parseColor("#38BDF8") else Color.parseColor("#FBBF24"))
+        })
+        previewBox.addView(TextView(this).apply {
+            text = snap.title
+            textSize = 12.8f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(3f), 0, dp(3f))
+        })
+        previewBox.addView(TextView(this).apply {
+            text = snap.expandedBody
+            textSize = 11.2f
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setLineSpacing(0f, 1.18f)
+        })
+        card.addView(previewBox)
+
+        val actionBtn = Button(this).apply {
+            text = if (hasPerm) "🔄 Push / Refresh Smart Notification Now" else "🔔 Allow Notification Permission Now"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                cornerRadius = dp(11f).toFloat()
+                setColor(if (hasPerm) palette.accentColor else Color.parseColor("#0284C7"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10f) }
+            setOnClickListener { v ->
+                SensoryFeedbackEngine.toggle(this@AuxiliarySettingsActivity, v)
+                if (!SmartNotificationManager.hasNotificationPermission(this@AuxiliarySettingsActivity)) {
+                    SmartNotificationManager.requestNotificationPermissionIfNeeded(
+                        activity = this@AuxiliarySettingsActivity,
+                        onlyAfterCoreSetup = false,
+                        openSettingsIfDenied = true
+                    )
+                } else {
+                    FocusForegroundMonitorService.start(this@AuxiliarySettingsActivity)
+                    SmartNotificationManager.refreshNow(this@AuxiliarySettingsActivity)
+                    Toast.makeText(
+                        this@AuxiliarySettingsActivity,
+                        "✨ Smart Notification updated in your notification shade!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    renderActiveTab()
+                }
+            }
+        }
+        card.addView(actionBtn)
 
         contentContainer.addView(card)
     }

@@ -53,6 +53,7 @@ object PaymentSafeModeManager {
 
     const val RESUME_CHANNEL_ID = "focusguard_pay_safe_resume"
     const val RESUME_NOTIFICATION_ID = 2077
+    const val REOPEN_NOTIFICATION_ID = 2078
 
     // Safety caps so Pay Safe Mode can never accidentally leave shield paused indefinitely
     private const val PRE_LAUNCH_WAIT_TIMEOUT_MS = 90_000L   // 90s to open payment app after tapping Tile
@@ -258,13 +259,17 @@ object PaymentSafeModeManager {
         } catch (_: Throwable) {}
 
         requestTileRefresh(appCtx)
+        SmartNotificationManager.refreshNow(appCtx)
+
+        // If auto-triggered as BHIM/bank app opened (meaning Accessibility was ON for a split second
+        // during the app's onCreate check), post a 1-tap "Reopen [App]" notification so user never
+        // needs to visit Android Settings — Accessibility is ALREADY OFF!
+        if (autoTriggered && !triggeringPackage.isNullOrBlank()) {
+            postReopenPaymentAppNotification(appCtx, triggeringPackage)
+        }
 
         val toastMsg = if (autoTriggered) {
-            if (canZeroTouchAutoRestore(appCtx)) {
-                "💳 Pay Safe Mode ON — Accessibility paused for payment. Will auto-resume when you exit."
-            } else {
-                "💳 Pay Safe Mode ON — Accessibility paused so payment app works cleanly."
-            }
+            "💳 Pay Safe ON — Accessibility auto-disabled! Close alert & reopen app (no Settings needed)."
         } else {
             "💳 Pay Safe Mode ON — Open BHIM / Bank app now. Shield resumes when you finish."
         }
@@ -401,13 +406,16 @@ object PaymentSafeModeManager {
             .putBoolean(KEY_SEEN_IN_PAYMENT_APP, false)
             .putLong(KEY_LEFT_PAYMENT_SINCE_MS, 0L)
             .apply()
+        cancelReopenNotification(appCtx)
         requestTileRefresh(appCtx)
+        SmartNotificationManager.refreshNow(appCtx)
     }
 
     fun onAccessibilityReconnected(context: Context) {
         val appCtx = context.applicationContext
         clearPaySafeState(appCtx)
         cancelResumeNotification(appCtx)
+        cancelReopenNotification(appCtx)
     }
 
     private fun setAccessibilityEnabledViaSecureSettings(context: Context, enable: Boolean): Boolean {
@@ -484,6 +492,57 @@ object PaymentSafeModeManager {
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             nm?.cancel(RESUME_NOTIFICATION_ID)
+        } catch (_: Throwable) {}
+    }
+
+    fun cancelReopenNotification(context: Context) {
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(REOPEN_NOTIFICATION_ID)
+        } catch (_: Throwable) {}
+    }
+
+    private fun postReopenPaymentAppNotification(context: Context, paymentPkg: String) {
+        if (!SmartNotificationManager.hasNotificationPermission(context)) return
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val ch = NotificationChannel(
+                    RESUME_CHANNEL_ID,
+                    "Pay Safe Shield Resume",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Prompts for Pay Safe quick reopen and 1-tap shield resume"
+                }
+                nm.createNotificationChannel(ch)
+            }
+            val appName = try {
+                val ai = context.packageManager.getApplicationInfo(paymentPkg, 0)
+                context.packageManager.getApplicationLabel(ai).toString()
+            } catch (_: Throwable) {
+                "Payment App"
+            }
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(paymentPkg)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            } ?: return
+
+            val pi = PendingIntent.getActivity(
+                context,
+                REOPEN_NOTIFICATION_ID,
+                launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notif = NotificationCompat.Builder(context, RESUME_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_shield_security)
+                .setContentTitle("💳 Accessibility Auto-Disabled — Tap to Open $appName")
+                .setContentText("Focus Elite paused Accessibility automatically. Tap to relaunch $appName alert-free.")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+
+            nm.notify(REOPEN_NOTIFICATION_ID, notif)
         } catch (_: Throwable) {}
     }
 
