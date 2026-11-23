@@ -4,10 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
-import android.view.View
-import android.view.WindowInsetsController
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowCompat
 
 /**
  * Compact, AMOLED-friendly design tokens shared across Focus Elite's
@@ -125,29 +123,22 @@ object DisciplineTheme {
         )
     }
 
+    /**
+     * Styles status and navigation bars safely.
+     * MUST be called AFTER setContentView(...) so AppCompat's sub-decor is initialized first.
+     */
     fun applySystemBars(activity: Activity, tokens: Tokens) {
-        val window = activity.window ?: return
-        window.statusBarColor = tokens.bg
-        window.navigationBarColor = tokens.bg
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-            window.insetsController?.setSystemBarsAppearance(
-                if (tokens.isLight) mask else 0,
-                mask
-            )
-        } else {
+        try {
+            val window = activity.window ?: return
             @Suppress("DEPRECATION")
-            var flags = window.decorView.systemUiVisibility
+            window.statusBarColor = tokens.bg
             @Suppress("DEPRECATION")
-            flags = if (tokens.isLight) {
-                flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-            } else {
-                flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-            }
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = flags
-        }
+            window.navigationBarColor = tokens.bg
+            val decor = window.decorView
+            val controller = WindowCompat.getInsetsController(window, decor)
+            controller.isAppearanceLightStatusBars = tokens.isLight
+            controller.isAppearanceLightNavigationBars = tokens.isLight
+        } catch (_: Throwable) {}
     }
 
     fun cardDrawable(

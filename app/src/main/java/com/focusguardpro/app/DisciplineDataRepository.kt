@@ -304,9 +304,10 @@ object DisciplineDataRepository {
     // -------------------------------------------------------------------------
 
     fun getJournalEntry(context: Context, dateKey: String): JournalRecord? {
-        val dao = AppDatabase.getDatabase(context).systemDao()
-        val entry = dao.getDiaryEntry(dateKey)
-        val meta = loadJournalMeta(context, dateKey)
+        FocusGuardApp.ensureRoomMainThreadQueries(context)
+        val dao = try { AppDatabase.getDatabase(context).systemDao() } catch (_: Throwable) { return null }
+        val entry = try { dao.getDiaryEntry(dateKey) } catch (_: Throwable) { null }
+        val meta = try { loadJournalMeta(context, dateKey) } catch (_: Throwable) { null }
         if (entry == null && meta == null) return null
         val note = entry?.note ?: ""
         val effectiveMeta = (meta ?: JournalMeta()).copy(
@@ -422,7 +423,12 @@ object DisciplineDataRepository {
     }
 
     fun loadJournalDraft(context: Context, dateKey: String): JournalDraft? {
-        val raw = AppDatabase.getDatabase(context).systemDao().getState("$KEY_JOURNAL_DRAFT_PREFIX$dateKey")
+        FocusGuardApp.ensureRoomMainThreadQueries(context)
+        val raw = try {
+            AppDatabase.getDatabase(context).systemDao().getState("$KEY_JOURNAL_DRAFT_PREFIX$dateKey")
+        } catch (_: Throwable) {
+            null
+        }
         if (raw.isNullOrBlank()) return null
         return try {
             val obj = JSONObject(raw)
@@ -453,9 +459,10 @@ object DisciplineDataRepository {
     }
 
     fun getAllJournalRecords(context: Context): List<JournalRecord> {
-        val dao = AppDatabase.getDatabase(context).systemDao()
-        val allEntries = dao.getAllDiaryEntries()
-        val allStates = dao.getAllSystemState()
+        FocusGuardApp.ensureRoomMainThreadQueries(context)
+        val dao = try { AppDatabase.getDatabase(context).systemDao() } catch (_: Throwable) { return emptyList() }
+        val allEntries = try { dao.getAllDiaryEntries() } catch (_: Throwable) { emptyList() }
+        val allStates = try { dao.getAllSystemState() } catch (_: Throwable) { emptyList() }
         val metaMap = HashMap<String, JournalMeta>()
         for (st in allStates) {
             if (st.stateKey.startsWith(KEY_JOURNAL_META_PREFIX) && st.stateValue.isNotBlank()) {
@@ -554,7 +561,12 @@ object DisciplineDataRepository {
     @Synchronized
     private fun loadAllTaskMeta(context: Context): MutableMap<Long, TaskMeta> {
         val out = HashMap<Long, TaskMeta>()
-        val raw = AppDatabase.getDatabase(context).systemDao().getState(KEY_TASK_META_MAP)
+        val raw = try {
+            FocusGuardApp.ensureRoomMainThreadQueries(context)
+            AppDatabase.getDatabase(context).systemDao().getState(KEY_TASK_META_MAP)
+        } catch (_: Throwable) {
+            null
+        }
         if (raw.isNullOrBlank()) return out
         try {
             val root = JSONObject(raw)
@@ -620,15 +632,15 @@ object DisciplineDataRepository {
     }
 
     fun getTasksForDate(context: Context, dateKey: String): List<EnrichedTask> {
-        val dao = AppDatabase.getDatabase(context).systemDao()
-        val items = dao.getTodosForDate(dateKey)
+        FocusGuardApp.ensureRoomMainThreadQueries(context)
+        val items = try { AppDatabase.getDatabase(context).systemDao().getTodosForDate(dateKey) } catch (_: Throwable) { emptyList() }
         val metaMap = loadAllTaskMeta(context)
         return enrichAndSortTasks(context, items, metaMap)
     }
 
     fun getAllEnrichedTasks(context: Context): List<EnrichedTask> {
-        val dao = AppDatabase.getDatabase(context).systemDao()
-        val items = dao.getAllTodos()
+        FocusGuardApp.ensureRoomMainThreadQueries(context)
+        val items = try { AppDatabase.getDatabase(context).systemDao().getAllTodos() } catch (_: Throwable) { emptyList() }
         val metaMap = loadAllTaskMeta(context)
         return enrichAndSortTasks(context, items, metaMap)
     }
@@ -867,20 +879,33 @@ object DisciplineDataRepository {
         startDateKey: String,
         endDateKey: String
     ): Map<String, CalendarDaySummary> {
-        val db = AppDatabase.getDatabase(context)
-        val sysDao = db.systemDao()
-        val exDao = db.exerciseDao()
+        FocusGuardApp.ensureRoomMainThreadQueries(context)
+        val db = try { AppDatabase.getDatabase(context) } catch (_: Throwable) { null }
+        val sysDao = db?.systemDao()
+        val exDao = db?.exerciseDao()
 
         val stepGoal = try { GoalPrefs.getStepGoal(context).coerceAtLeast(1000) } catch (_: Throwable) { 6000 }
         val today = todayKey(context)
         val isVerifiedHolidayToday = try { FocusLayerManager.isHolidayToday(context) } catch (_: Throwable) { false }
 
-        val diariesByDate = sysDao.getDiaryEntriesBetween(startDateKey, endDateKey).associateBy { it.dateKey }
-        val allTodos = sysDao.getAllTodos().filter { it.dateKey in startDateKey..endDateKey }
+        val diariesByDate = try {
+            sysDao?.getDiaryEntriesBetween(startDateKey, endDateKey)?.associateBy { it.dateKey } ?: emptyMap()
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+        val allTodos = try {
+            sysDao?.getAllTodos()?.filter { it.dateKey in startDateKey..endDateKey } ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
         val todosByDate = allTodos.groupBy { it.dateKey }
         val taskMetaMap = loadAllTaskMeta(context)
 
-        val allStates = sysDao.getAllSystemState()
+        val allStates = try {
+            sysDao?.getAllSystemState() ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
         val journalMetaMap = HashMap<String, JournalMeta>()
         for (st in allStates) {
             if (st.stateKey.startsWith(KEY_JOURNAL_META_PREFIX) && st.stateValue.isNotBlank()) {
@@ -895,9 +920,10 @@ object DisciplineDataRepository {
         val rangeEndMs = startOfDayMs(endDateKey) + 86_400_000L - 1L
 
         val workoutsByDate = try {
-            exDao.getAllLogs()
-                .filter { it.timestamp in rangeStartMs..rangeEndMs }
-                .groupBy { dateKeyForMs(it.timestamp) }
+            exDao?.getAllLogs()
+                ?.filter { it.timestamp in rangeStartMs..rangeEndMs }
+                ?.groupBy { dateKeyForMs(it.timestamp) }
+                ?: emptyMap()
         } catch (_: Throwable) {
             emptyMap()
         }
@@ -911,9 +937,10 @@ object DisciplineDataRepository {
         }
 
         val auditByDate = try {
-            sysDao.getAuditRecordsBetween(rangeStartMs, rangeEndMs)
-                .filter { it.eventType.startsWith("AWAY_") }
-                .groupBy { dateKeyForMs(it.timestamp) }
+            sysDao?.getAuditRecordsBetween(rangeStartMs, rangeEndMs)
+                ?.filter { it.eventType.startsWith("AWAY_") }
+                ?.groupBy { dateKeyForMs(it.timestamp) }
+                ?: emptyMap()
         } catch (_: Throwable) {
             emptyMap()
         }

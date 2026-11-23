@@ -2,6 +2,7 @@ package com.focusguardpro.app
 
 import android.app.TimePickerDialog
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -21,6 +22,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.lifecycleScope
 import com.focusguardpro.app.insights.InsightsDashboardActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -85,9 +87,9 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
 
         wireTasksHookIfPresent()
         theme = DisciplineTheme.resolve(this)
-        DisciplineTheme.applySystemBars(this, theme)
 
         buildUi()
+        DisciplineTheme.applySystemBars(this, theme)
         loadMonthAndRender()
     }
 
@@ -97,8 +99,8 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
         val freshTheme = DisciplineTheme.resolve(this)
         if (freshTheme.bg != theme.bg || freshTheme.accent != theme.accent) {
             theme = freshTheme
-            DisciplineTheme.applySystemBars(this, theme)
             buildUi()
+            DisciplineTheme.applySystemBars(this, theme)
         }
         loadMonthAndRender()
     }
@@ -406,15 +408,24 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
         tvPeriodTitle.text = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(displayMonthCal.time)
 
         loadJob = lifecycleScope.launch {
-            val (daysMap, summary) = withContext(Dispatchers.IO) {
-                DisciplineDataRepository.loadMonthSummaries(this@EliteCalendarActivity, year, month)
+            try {
+                val (daysMap, summary) = withContext(Dispatchers.IO) {
+                    DisciplineDataRepository.loadMonthSummaries(this@EliteCalendarActivity, year, month)
+                }
+                if (isFinishing || isDestroyed) return@launch
+                monthDaysMap = daysMap
+                monthSummary = summary
+                renderMonthlySummaryStrip(summary)
+                renderActiveCalendarView()
+                renderSelectedDayOverview()
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {
+                if (!isFinishing && !isDestroyed) {
+                    renderActiveCalendarView()
+                    renderSelectedDayOverview()
+                }
             }
-            if (isFinishing || isDestroyed) return@launch
-            monthDaysMap = daysMap
-            monthSummary = summary
-            renderMonthlySummaryStrip(summary)
-            renderActiveCalendarView()
-            renderSelectedDayOverview()
         }
     }
 
@@ -717,8 +728,14 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
 
         // Ensure week spanning month boundary has complete data
         lifecycleScope.launch {
-            val weekMap = withContext(Dispatchers.IO) {
-                DisciplineDataRepository.loadDayRangeSummaries(this@EliteCalendarActivity, startKey, endKey)
+            val weekMap = try {
+                withContext(Dispatchers.IO) {
+                    DisciplineDataRepository.loadDayRangeSummaries(this@EliteCalendarActivity, startKey, endKey)
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {
+                emptyMap()
             }
             if (isFinishing || isDestroyed || viewMode != MODE_WEEK) return@launch
             mainCalendarContent.removeAllViews()
@@ -1174,7 +1191,8 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
             card.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
                 max = 100
                 progress = pct
-                progressDrawable.setTint(theme.accent)
+                progressTintList = ColorStateList.valueOf(theme.accent)
+                progressBackgroundTintList = ColorStateList.valueOf(theme.surfaceAlt)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     dp(4f)
@@ -1328,17 +1346,22 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
         row.setOnClickListener {
             val newDone = !task.item.isDone
             lifecycleScope.launch {
-                val (_, nextKey) = withContext(Dispatchers.IO) {
-                    DisciplineDataRepository.toggleTaskDone(this@EliteCalendarActivity, task.item.id, newDone)
-                }
-                if (nextKey != null) {
-                    Toast.makeText(
-                        this@EliteCalendarActivity,
-                        "Next recurring task scheduled for ${DisciplineDataRepository.formatFriendlyDate(nextKey, this@EliteCalendarActivity)}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-                loadMonthAndRender()
+                try {
+                    val (_, nextKey) = withContext(Dispatchers.IO) {
+                        DisciplineDataRepository.toggleTaskDone(this@EliteCalendarActivity, task.item.id, newDone)
+                    }
+                    if (isFinishing || isDestroyed) return@launch
+                    if (nextKey != null) {
+                        Toast.makeText(
+                            this@EliteCalendarActivity,
+                            "Next recurring task scheduled for ${DisciplineDataRepository.formatFriendlyDate(nextKey, this@EliteCalendarActivity)}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    loadMonthAndRender()
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (_: Throwable) {}
             }
         }
         row.setOnLongClickListener {
@@ -1482,18 +1505,22 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
                     return@setPositiveButton
                 }
                 lifecycleScope.launch {
-                    withContext(Dispatchers.IO) {
-                        DisciplineDataRepository.createTask(
-                            context = this@EliteCalendarActivity,
-                            dateKey = dateKey,
-                            title = title,
-                            priority = selectedPriority,
-                            dueTimeMinutes = selectedDueMins,
-                            reminderEnabled = selectedDueMins != null,
-                            recurrence = selectedRecurrence
-                        )
-                    }
-                    loadMonthAndRender()
+                    try {
+                        withContext(Dispatchers.IO) {
+                            DisciplineDataRepository.createTask(
+                                context = this@EliteCalendarActivity,
+                                dateKey = dateKey,
+                                title = title,
+                                priority = selectedPriority,
+                                dueTimeMinutes = selectedDueMins,
+                                reminderEnabled = selectedDueMins != null,
+                                recurrence = selectedRecurrence
+                            )
+                        }
+                        if (!isFinishing && !isDestroyed) loadMonthAndRender()
+                    } catch (ce: CancellationException) {
+                        throw ce
+                    } catch (_: Throwable) {}
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -1502,22 +1529,27 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
 
     private fun handleHolidayToggle(dateKey: String, enableHoliday: Boolean) {
         lifecycleScope.launch {
-            val res = withContext(Dispatchers.IO) {
-                DisciplineDataRepository.toggleHoliday(this@EliteCalendarActivity, dateKey, enableHoliday)
-            }
-            when (res) {
-                is DisciplineDataRepository.HolidayToggleResult.Updated -> {
-                    Toast.makeText(this@EliteCalendarActivity, res.message, Toast.LENGTH_LONG).show()
-                    loadMonthAndRender()
+            try {
+                val res = withContext(Dispatchers.IO) {
+                    DisciplineDataRepository.toggleHoliday(this@EliteCalendarActivity, dateKey, enableHoliday)
                 }
-                is DisciplineDataRepository.HolidayToggleResult.Blocked -> {
-                    AlertDialog.Builder(this@EliteCalendarActivity)
-                        .setTitle("24-Hour Advance Holiday Rule")
-                        .setMessage(res.reason)
-                        .setPositiveButton("Understood", null)
-                        .show()
+                if (isFinishing || isDestroyed) return@launch
+                when (res) {
+                    is DisciplineDataRepository.HolidayToggleResult.Updated -> {
+                        Toast.makeText(this@EliteCalendarActivity, res.message, Toast.LENGTH_LONG).show()
+                        loadMonthAndRender()
+                    }
+                    is DisciplineDataRepository.HolidayToggleResult.Blocked -> {
+                        AlertDialog.Builder(this@EliteCalendarActivity)
+                            .setTitle("24-Hour Advance Holiday Rule")
+                            .setMessage(res.reason)
+                            .setPositiveButton("Understood", null)
+                            .show()
+                    }
                 }
-            }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {}
         }
     }
 

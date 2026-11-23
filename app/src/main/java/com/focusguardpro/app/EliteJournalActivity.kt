@@ -22,6 +22,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -111,7 +112,6 @@ class EliteJournalActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         theme = DisciplineTheme.resolve(this)
-        DisciplineTheme.applySystemBars(this, theme)
 
         selectedDateKey = intent?.getStringExtra(EXTRA_DATE_KEY)
             ?.takeIf { it.length == 8 }
@@ -119,6 +119,7 @@ class EliteJournalActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
         currentMode = intent?.getStringExtra(EXTRA_INITIAL_MODE) ?: MODE_WRITE
 
         buildUi()
+        DisciplineTheme.applySystemBars(this, theme)
         switchMode(currentMode)
         loadEditorForDate(selectedDateKey)
         if (currentMode == MODE_HISTORY) {
@@ -730,11 +731,18 @@ class EliteJournalActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
         tvDateSub.text = DisciplineDataRepository.formatFullDate(dateKey)
 
         lifecycleScope.launch {
-            val loaded = withContext(Dispatchers.IO) {
-                val saved = DisciplineDataRepository.getJournalEntry(this@EliteJournalActivity, dateKey)
-                val draft = DisciplineDataRepository.loadJournalDraft(this@EliteJournalActivity, dateKey)
-                saved to draft
+            val loaded = try {
+                withContext(Dispatchers.IO) {
+                    val saved = DisciplineDataRepository.getJournalEntry(this@EliteJournalActivity, dateKey)
+                    val draft = DisciplineDataRepository.loadJournalDraft(this@EliteJournalActivity, dateKey)
+                    saved to draft
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {
+                null to null
             }
+            if (isFinishing || isDestroyed) return@launch
             val saved = loaded.first
             val draft = loaded.second
 
@@ -837,14 +845,18 @@ class EliteJournalActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
         val energy = selectedEnergy
         val tags = selectedTags.toList()
         lifecycleScope.launch(Dispatchers.IO) {
-            DisciplineDataRepository.saveJournalDraft(
-                this@EliteJournalActivity, dk, text, mood, energy, tags
-            )
-            withContext(Dispatchers.Main) {
-                if (!isFinishing && dk == selectedDateKey && hasUnsavedChanges) {
-                    setStatusPill("Draft saved locally", theme.holidayAmber)
+            try {
+                DisciplineDataRepository.saveJournalDraft(
+                    this@EliteJournalActivity, dk, text, mood, energy, tags
+                )
+                withContext(Dispatchers.Main) {
+                    if (!isFinishing && !isDestroyed && dk == selectedDateKey && hasUnsavedChanges) {
+                        setStatusPill("Draft saved locally", theme.holidayAmber)
+                    }
                 }
-            }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {}
         }
     }
 
@@ -1076,11 +1088,18 @@ class EliteJournalActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
         val mood = historyMoodFilter
         val tagged = historyTaggedOnly
         lifecycleScope.launch {
-            val entries = withContext(Dispatchers.IO) {
-                DisciplineDataRepository.searchJournalRecords(
-                    this@EliteJournalActivity, q, mood, tagged
-                )
+            val entries = try {
+                withContext(Dispatchers.IO) {
+                    DisciplineDataRepository.searchJournalRecords(
+                        this@EliteJournalActivity, q, mood, tagged
+                    )
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {
+                emptyList()
             }
+            if (isFinishing || isDestroyed) return@launch
             renderHistoryList(entries)
         }
     }

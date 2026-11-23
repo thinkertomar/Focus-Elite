@@ -3,6 +3,7 @@ package com.focusguardpro.app
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -22,6 +23,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,9 +75,9 @@ class EliteTasksActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
             ?: todayKey
 
         theme = DisciplineTheme.resolve(this)
-        DisciplineTheme.applySystemBars(this, theme)
 
         buildUi()
+        DisciplineTheme.applySystemBars(this, theme)
         loadTasks()
     }
 
@@ -85,8 +87,8 @@ class EliteTasksActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
         val freshTheme = DisciplineTheme.resolve(this)
         if (freshTheme.bg != theme.bg || freshTheme.accent != theme.accent) {
             theme = freshTheme
-            DisciplineTheme.applySystemBars(this, theme)
             buildUi()
+            DisciplineTheme.applySystemBars(this, theme)
         }
         loadTasks()
     }
@@ -265,7 +267,8 @@ class EliteTasksActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
 
         pbDailyProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
-            progressDrawable.setTint(theme.accent)
+            progressTintList = ColorStateList.valueOf(theme.accent)
+            progressBackgroundTintList = ColorStateList.valueOf(theme.surfaceAlt)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(5f)
@@ -367,8 +370,14 @@ class EliteTasksActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
 
     private fun loadTasks() {
         lifecycleScope.launch {
-            val loaded = withContext(Dispatchers.IO) {
-                DisciplineDataRepository.getAllEnrichedTasks(this@EliteTasksActivity)
+            val loaded = try {
+                withContext(Dispatchers.IO) {
+                    DisciplineDataRepository.getAllEnrichedTasks(this@EliteTasksActivity)
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {
+                emptyList()
             }
             if (isFinishing || isDestroyed) return@launch
             allTasks = loaded
@@ -593,17 +602,22 @@ class EliteTasksActivity : AppCompatActivity(), SelfThemedDisciplineActivity {
     private fun toggleTaskCompletion(task: DisciplineDataRepository.EnrichedTask) {
         val newDone = !task.item.isDone
         lifecycleScope.launch {
-            val (_, nextKey) = withContext(Dispatchers.IO) {
-                DisciplineDataRepository.toggleTaskDone(this@EliteTasksActivity, task.item.id, newDone)
-            }
-            if (nextKey != null) {
-                Toast.makeText(
-                    this@EliteTasksActivity,
-                    "Recurring task scheduled for ${DisciplineDataRepository.formatFriendlyDate(nextKey, this@EliteTasksActivity)}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-            loadTasks()
+            try {
+                val (_, nextKey) = withContext(Dispatchers.IO) {
+                    DisciplineDataRepository.toggleTaskDone(this@EliteTasksActivity, task.item.id, newDone)
+                }
+                if (isFinishing || isDestroyed) return@launch
+                if (nextKey != null) {
+                    Toast.makeText(
+                        this@EliteTasksActivity,
+                        "Recurring task scheduled for ${DisciplineDataRepository.formatFriendlyDate(nextKey, this@EliteTasksActivity)}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                loadTasks()
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Throwable) {}
         }
     }
 
