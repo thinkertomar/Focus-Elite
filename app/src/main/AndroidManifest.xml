@@ -85,6 +85,14 @@
             android:name="com.focusguardpro.app.EliteCalendarActivity"
             android:exported="false"/>
         <activity
+            android:name="com.focusguardpro.app.EliteJournalActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity
+            android:name="com.focusguardpro.app.EliteTasksActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity
             android:name="com.focusguardpro.app.CalendarDayEditorActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
@@ -223,6 +231,15 @@
             android:name="com.focusguardpro.app.BootReceiver"
             android:exported="false">
             <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.focusguardpro.app.TaskReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.focusguardpro.app.ACTION_TASK_REMINDER"/>
+                <action android:name="com.focusguardpro.app.ACTION_MARK_TASK_DONE"/>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
             </intent-filter>
         </receiver>

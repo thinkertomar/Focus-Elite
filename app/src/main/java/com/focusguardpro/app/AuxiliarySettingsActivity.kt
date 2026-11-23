@@ -2765,8 +2765,8 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
 
     private fun openTodayInCalendarEditor() {
         try {
-            val intent = Intent(this, CalendarDayEditorActivity::class.java).apply {
-                putExtra(CalendarDayEditorActivity.EXTRA_DATE_KEY, FocusLayerManager.todayKey())
+            val intent = Intent(this, EliteCalendarActivity::class.java).apply {
+                putExtra(EliteCalendarActivity.EXTRA_DATE_KEY, FocusLayerManager.todayKey())
             }
             startActivity(intent)
         } catch (_: Throwable) {

@@ -208,7 +208,8 @@ class EliteDailyNotebookActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<Button>(R.id.btnSaveNotebook)?.setOnClickListener {
+        val saveBtn = findViewById<Button>(R.id.btnSaveNotebook)
+        saveBtn?.setOnClickListener {
             val text = etNotebookEntry.text.toString().trim()
             val dKey = dateKeyFormat.format(calendar.time)
             lifecycleScope.launch {
@@ -229,6 +230,36 @@ class EliteDailyNotebookActivity : AppCompatActivity() {
                 tvNotebookStatus.text = "✓ Saved reflection for ${displayDateFormat.format(calendar.time)}"
                 loadRecentReflections()
             }
+        }
+        val parentGroup = saveBtn?.parent as? LinearLayout
+        if (parentGroup != null) {
+            val d = resources.displayMetrics.density
+            val openJournalBtn = TextView(this).apply {
+                text = "Open Full Journal Editor & Searchable Archive ›"
+                textSize = 12.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(Color.parseColor("#00B8D4"))
+                gravity = Gravity.CENTER
+                setPadding((12 * d).toInt(), (10 * d).toInt(), (12 * d).toInt(), (10 * d).toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (8 * d).toInt() }
+                background = GradientDrawable().apply {
+                    cornerRadius = 10f * d
+                    setColor(Color.parseColor("#1400B8D4"))
+                    setStroke((1 * d).toInt(), Color.parseColor("#4400B8D4"))
+                }
+                setOnClickListener {
+                    val dKey = dateKeyFormat.format(calendar.time)
+                    startActivity(Intent(this@EliteDailyNotebookActivity, EliteJournalActivity::class.java).apply {
+                        putExtra(EliteJournalActivity.EXTRA_DATE_KEY, dKey)
+                        putExtra(EliteJournalActivity.EXTRA_INITIAL_MODE, EliteJournalActivity.MODE_WRITE)
+                    })
+                }
+            }
+            val idx = parentGroup.indexOfChild(saveBtn)
+            parentGroup.addView(openJournalBtn, idx + 1)
         }
     }
 

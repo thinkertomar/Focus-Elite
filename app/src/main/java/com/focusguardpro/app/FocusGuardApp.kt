@@ -37,6 +37,8 @@ open class FocusGuardApp : Application() {
             AppMetadataCache.warmUpAsync(this)
             BlockPolicyEngine.warmCacheAsync(this)
             UsageStatsHelper.warmUpAsync(this)
+            TaskReminderScheduler.install()
+            TaskReminderScheduler.rescheduleAllPendingReminders(this)
         } catch (_: Throwable) {}
 
         try {
@@ -61,14 +63,18 @@ open class FocusGuardApp : Application() {
                 ensureRoomMainThreadQueries(this@FocusGuardApp)
             }
             override fun onActivityStarted(activity: Activity) {
-                UiThemePrefs.applyWindowAndViewTreeTheme(activity)
+                if (activity !is SelfThemedDisciplineActivity) {
+                    UiThemePrefs.applyWindowAndViewTreeTheme(activity)
+                }
             }
             override fun onActivityResumed(activity: Activity) {
                 FocusSelfUsageTracker.onActivityResumed(activity)
-                UiThemePrefs.applyWindowAndViewTreeTheme(activity)
-                activity.window?.decorView?.post {
-                    if (!activity.isFinishing && !activity.isDestroyed) {
-                        UiThemePrefs.applyWindowAndViewTreeTheme(activity)
+                if (activity !is SelfThemedDisciplineActivity) {
+                    UiThemePrefs.applyWindowAndViewTreeTheme(activity)
+                    activity.window?.decorView?.post {
+                        if (!activity.isFinishing && !activity.isDestroyed) {
+                            UiThemePrefs.applyWindowAndViewTreeTheme(activity)
+                        }
                     }
                 }
             }

@@ -469,10 +469,18 @@ object SmartNotificationManager {
 
         val snap = computeLiveSnapshot(appCtx)
 
-        // Action 2: Today's Goal & To-Do Editor (direct jump to today's date!)
-        val todoIntent = Intent(appCtx, CalendarDayEditorActivity::class.java).apply {
-            putExtra(CalendarDayEditorActivity.EXTRA_DATE_KEY, todayKey)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // Action 2: Today's Tasks or Night Journal (direct jump to today's date!)
+        val todoIntent = if (snap.phase == DayPhase.NIGHT_SUMMARY) {
+            Intent(appCtx, EliteJournalActivity::class.java).apply {
+                putExtra(EliteJournalActivity.EXTRA_DATE_KEY, todayKey)
+                putExtra(EliteJournalActivity.EXTRA_INITIAL_MODE, EliteJournalActivity.MODE_WRITE)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        } else {
+            Intent(appCtx, EliteTasksActivity::class.java).apply {
+                putExtra(EliteTasksActivity.EXTRA_DATE_KEY, todayKey)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
         }
         val todoPi = PendingIntent.getActivity(
             appCtx, 2092, todoIntent,

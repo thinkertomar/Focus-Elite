@@ -22,8 +22,13 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.content.Intent
 import com.focusguardpro.app.ActivityTelemetryEngine
 import com.focusguardpro.app.DailyRollupManager
+import com.focusguardpro.app.DisciplineDataRepository
+import com.focusguardpro.app.EliteCalendarActivity
+import com.focusguardpro.app.EliteJournalActivity
+import com.focusguardpro.app.EliteTasksActivity
 import com.focusguardpro.app.GoalPrefs
 import com.focusguardpro.app.R
 import com.focusguardpro.app.RingProgressView
@@ -67,6 +72,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
 
     private var loadJob: Job? = null
     private var currentDays: Int = 7
+    private var disciplineInsightsSlot: LinearLayout? = null
     private val studyMinsByDate = HashMap<String, Int>()
     private val distractMinsByDate = HashMap<String, Int>()
     private val hasSplitByDate = HashMap<String, Boolean>()
@@ -112,6 +118,24 @@ class InsightsDashboardActivity : AppCompatActivity() {
         }
         curveContainer.addView(trendCurveView)
 
+        // Transparent formula caption & dedicated Personal Discipline Consistency slot
+        findViewById<TextView>(R.id.tvInsightsSubtitle)?.text =
+            "Formula: Study & Hygiene (40) + Steps (35) + Workouts (25)"
+        val trendCard = findViewById<View>(R.id.cardSynergyTrendCurve)
+        val mainColumn = trendCard?.parent as? LinearLayout
+        if (mainColumn != null) {
+            val slot = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            }
+            val insertIdx = mainColumn.indexOfChild(trendCard) + 1
+            mainColumn.addView(slot, insertIdx)
+            disciplineInsightsSlot = slot
+        }
+
         val rv = findViewById<RecyclerView>(R.id.rv_insights_breakdown)
         rv.layoutManager = LinearLayoutManager(this)
         eliteAdapter = EliteInsightDayAdapter { day -> showDayReportDialog(day) }
@@ -147,9 +171,15 @@ class InsightsDashboardActivity : AppCompatActivity() {
         }
     }
 
+    private var hasCompletedInitialLoad = false
+
     override fun onResume() {
         super.onResume()
         applyThemeStyling()
+        if (hasCompletedInitialLoad) {
+            loadInsights(currentDays)
+        }
+        hasCompletedInitialLoad = true
     }
 
     private fun applyThemeStyling() {
@@ -391,6 +421,11 @@ class InsightsDashboardActivity : AppCompatActivity() {
             val avgStudyMins = if (studySplitDays > 0) (totalStudyMins / studySplitDays).coerceAtLeast(0) else avgMins
             val avgDailySteps = (totalSteps / denom).coerceAtLeast(0)
             val bestDay = dayList.maxByOrNull { it.score }
+            val disciplineReport = try {
+                DisciplineDataRepository.loadPeriodInsights(appCtx, days)
+            } catch (_: Throwable) {
+                null
+            }
 
             withContext(Dispatchers.Main) {
                 if (isFinishing || isDestroyed) return@withContext
@@ -441,6 +476,29 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 }
 
                 eliteAdapter.submitList(dayList)
+
+                disciplineInsightsSlot?.let { slot ->
+                    slot.removeAllViews()
+                    if (disciplineReport != null) {
+                        slot.addView(
+                            DisciplineInsightsCharts.buildDisciplineInsightsSection(
+                                context = this@InsightsDashboardActivity,
+                                report = disciplineReport,
+                                onOpenCalendar = {
+                                    startActivity(Intent(this@InsightsDashboardActivity, EliteCalendarActivity::class.java))
+                                },
+                                onOpenTasks = {
+                                    startActivity(Intent(this@InsightsDashboardActivity, EliteTasksActivity::class.java))
+                                },
+                                onOpenJournal = {
+                                    startActivity(Intent(this@InsightsDashboardActivity, EliteJournalActivity::class.java).apply {
+                                        putExtra(EliteJournalActivity.EXTRA_INITIAL_MODE, EliteJournalActivity.MODE_HISTORY)
+                                    })
+                                }
+                            )
+                        )
+                    }
+                }
                 applyThemeStyling()
             }
         }

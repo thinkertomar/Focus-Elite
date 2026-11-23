@@ -102,6 +102,45 @@ object DataExportManager {
         }
         root.put("calisthenics_profile", calisthenicsObj)
 
+        // 5. Daily Journal Entries & Metadata (offline Room + SystemState)
+        val journalArr = JSONArray()
+        try {
+            val records = DisciplineDataRepository.getAllJournalRecords(context)
+            for (rec in records) {
+                journalArr.put(JSONObject().apply {
+                    put("date_key", rec.dateKey)
+                    put("note", rec.note)
+                    put("is_holiday", rec.isHoliday)
+                    put("mood", rec.meta.mood)
+                    put("energy", rec.meta.energy)
+                    put("tags", JSONArray(rec.meta.tags))
+                    put("word_count", rec.meta.wordCount)
+                    put("last_updated", rec.lastUpdated)
+                })
+            }
+        } catch (_: Throwable) {}
+        root.put("journal_entries", journalArr)
+
+        // 6. Tasks & Recurrence Metadata
+        val tasksArr = JSONArray()
+        try {
+            val tasks = DisciplineDataRepository.getAllEnrichedTasks(context)
+            for (t in tasks) {
+                tasksArr.put(JSONObject().apply {
+                    put("id", t.item.id)
+                    put("date_key", t.item.dateKey)
+                    put("title", t.item.text)
+                    put("is_done", t.item.isDone)
+                    put("priority", t.meta.priority.code)
+                    put("due_time_minutes", t.meta.dueTimeMinutes ?: JSONObject.NULL)
+                    put("reminder_enabled", t.meta.reminderEnabled)
+                    put("recurrence", t.meta.recurrence.code)
+                    put("created_at", t.item.createdAt)
+                })
+            }
+        } catch (_: Throwable) {}
+        root.put("tasks", tasksArr)
+
         // Write to Cache Dir
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
         val file = File(exportDir, "focus_elite_backup_$timestamp.json")
