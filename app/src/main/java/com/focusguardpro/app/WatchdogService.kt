@@ -81,16 +81,19 @@ class WatchdogService : Service() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     AwayTimeTracker.markScreenOff(ctx)
+                    SmartSleepEngine.recordScreenSignal(ctx, SmartSleepEngine.SIG_SCREEN_OFF)
                     ScreenStateTracker.isScreenOn = false
                     ForegroundTracker.currentPackage = null
                     ForegroundTracker.currentPackageSince = 0L
                 }
                 Intent.ACTION_USER_PRESENT -> {
                     ScreenStateTracker.isScreenOn = true
+                    SmartSleepEngine.recordScreenSignal(ctx, SmartSleepEngine.SIG_UNLOCK)
                     AwayTimeTracker.resolveIfDue(ctx)
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     ScreenStateTracker.isScreenOn = true
+                    SmartSleepEngine.recordScreenSignal(ctx, SmartSleepEngine.SIG_SCREEN_ON)
                     if (!isKeyguardLocked(ctx)) {
                         AwayTimeTracker.resolveIfDue(ctx)
                     }

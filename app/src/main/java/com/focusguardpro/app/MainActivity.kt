@@ -747,8 +747,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<View>(R.id.dailyTimeAuditCard)?.setOnClickListener {
-            // Directly open Daily Time Notebook (AuditActivity) instead of the "Welcome Back" TimeSplitter popup
-            startActivity(Intent(this, AuditActivity::class.java))
+            startActivity(Intent(this, EliteDailyNotebookActivity::class.java))
         }
         findViewById<View>(R.id.auditSettingsLink)?.setOnClickListener {
             startActivity(Intent(this, CategorySettingsActivity::class.java))

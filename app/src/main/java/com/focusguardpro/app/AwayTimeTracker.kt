@@ -186,7 +186,7 @@ object AwayTimeTracker {
             val isLongAway = awayMs >= 10_800_000L // 3 hours
 
             val launchIntent = if (isMorningWindow && isLongAway && lastMorningDate != todayStr) {
-                Intent(context, AuditActivity::class.java).apply {
+                Intent(context, EliteDailyNotebookActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                     putExtra("AWAY_TIME_MS", awayMs)
                     putExtra("IS_MORNING", true)

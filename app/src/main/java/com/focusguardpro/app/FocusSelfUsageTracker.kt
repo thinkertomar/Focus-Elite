@@ -82,13 +82,15 @@ object FocusSelfUsageTracker {
             "FocusSessionActivity" -> MODULE_STUDY
 
             "ActivityStatsActivity",
+            "ActivitySessionDetailActivity",
             "CalisthenicsActivity",
             "DistanceHistoryActivity",
             "CaloriesHistoryActivity",
             "MoveMinHistoryActivity",
             "WeightHistoryActivity",
             "SleepLogActivity",
-            "SleepSummaryActivity" -> MODULE_IMPROVE
+            "SleepSummaryActivity",
+            "EliteDailyNotebookActivity" -> MODULE_IMPROVE
 
             else -> MODULE_UTILITY
         }

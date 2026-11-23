@@ -129,6 +129,9 @@
             android:name="com.focusguardpro.app.MoveMinHistoryActivity"
             android:exported="false"/>
         <activity
+            android:name="com.focusguardpro.app.ActivitySessionDetailActivity"
+            android:exported="false"/>
+        <activity
             android:name="com.focusguardpro.app.WeightHistoryActivity"
             android:exported="false"/>
         <activity
@@ -140,6 +143,11 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"/>
+        <activity
+            android:theme="@style/Theme.FocusGuardPro"
+            android:name="com.focusguardpro.app.EliteDailyNotebookActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
         <activity
             android:theme="@style/Theme.FocusGuardPro.Dialog"
             android:name="com.focusguardpro.app.TimeSplitterActivity"

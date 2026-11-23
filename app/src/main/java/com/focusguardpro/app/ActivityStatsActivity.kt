@@ -93,6 +93,7 @@ class ActivityStatsActivity : AppCompatActivity() {
     private var isDetailsExpanded = false
     private var isWorkoutHistoryExpanded = false
     private var isDataSourcesExpanded = false
+    private var latestDetectedSession: ActivityTelemetryEngine.AutoDetectedJogSession? = null
 
     private val localStepListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent?) {
@@ -267,7 +268,12 @@ class ActivityStatsActivity : AppCompatActivity() {
         cardStravaTelemetry.setOnClickListener(toggleDetailsAction)
         findViewById<View>(R.id.btnOpenDistanceHistory)?.setOnClickListener { v ->
             SensoryFeedbackEngine.tap(this, v)
-            startActivity(Intent(this, DistanceHistoryActivity::class.java))
+            val s = latestDetectedSession
+            if (s != null) {
+                startActivity(ActivitySessionDetailActivity.createIntent(this, s))
+            } else {
+                startActivity(Intent(this, DistanceHistoryActivity::class.java))
+            }
         }
 
         // Metric Grid 3: Move Minutes
@@ -723,7 +729,8 @@ class ActivityStatsActivity : AppCompatActivity() {
     }
 
     private fun renderAutoStravaCard(telemetry: ActivityTelemetryEngine.DayUnifiedTelemetry) {
-        val session = telemetry.autoDetectedSessions.firstOrNull()
+        val session = telemetry.autoDetectedSessions.lastOrNull()
+        latestDetectedSession = session
         val viewDetailsTv = findViewById<TextView>(R.id.tvOpenFullPaceHistory)
 
         if (session != null && session.distanceKm >= 0.05 && session.movingSeconds > 0) {
@@ -734,9 +741,14 @@ class ActivityStatsActivity : AppCompatActivity() {
                 else -> "🚶"
             }
 
-            // Compact header: clean simple activity name + secondary source/time subtitle
-            tvAutoWalkJogHeader.text = session.activityType
-            tvAutoWalkJogSummaryLine.text = "${session.sourceType} · ${session.timeRangeLabel}"
+            // Compact header: clean natural time-of-day title (e.g. "Evening walk") + subtitle
+            val customTitle = ActivitySessionDetailActivity.getSavedCustomTitle(
+                this,
+                "${session.startTimeMs}_${session.timeRangeLabel}"
+            )
+            tvAutoWalkJogHeader.text = customTitle ?: session.title
+            val ptsPart = if (session.heartPoints > 0) " · 💚 ${session.heartPoints}" else ""
+            tvAutoWalkJogSummaryLine.text = "${session.timeRangeLabel}$ptsPart"
 
             // Show subtle "GPS" status pill ONLY when GPS data was actually recorded for this activity
             tvSessionGpsBadge.visibility = if (session.gpsRecorded) View.VISIBLE else View.GONE

@@ -126,8 +126,8 @@ object ActivityTelemetryEngine {
     )
 
     data class AutoDetectedJogSession(
-        val title: String,            // Clean simple name: "Walking", "Jogging", "Running", "Cycling"
-        val timeRangeLabel: String,   // e.g. "4:49 PM – 5:38 PM"
+        val title: String,            // Clean natural name: "Evening walk", "Morning jog", "Afternoon run"
+        val timeRangeLabel: String,   // e.g. "6:04 PM – 6:27 PM"
         val distanceKm: Double,
         val durationSeconds: Int,
         val avgPaceSecPerKm: Float,
@@ -146,7 +146,11 @@ object ActivityTelemetryEngine {
         val sourceType: String = "Auto-detected",
         val gpsRecorded: Boolean = false,
         val steps: Int = 0,
-        val hasVerifiedSplits: Boolean = false
+        val hasVerifiedSplits: Boolean = false,
+        val startTimeMs: Long = 0L,
+        val endTimeMs: Long = 0L,
+        val moveMinutes: Int = (durationSeconds / 60).coerceAtLeast(1),
+        val heartPoints: Int = 0
     )
 
     data class DayUnifiedTelemetry(
@@ -159,7 +163,8 @@ object ActivityTelemetryEngine {
         val cadenceSpm: Int,
         val windows: List<SyncedTimeWindow>,
         val activeWindows: List<SyncedTimeWindow>,
-        val autoDetectedSessions: List<AutoDetectedJogSession>
+        val autoDetectedSessions: List<AutoDetectedJogSession>,
+        val hourlyWindows24: List<SyncedTimeWindow> = windows
     )
 
     /**
@@ -380,7 +385,8 @@ object ActivityTelemetryEngine {
             cadenceSpm = cadenceSpm,
             windows = curveWindows,
             activeWindows = activeWindows,
-            autoDetectedSessions = autoSessions
+            autoDetectedSessions = autoSessions,
+            hourlyWindows24 = hourlyWindows
         )
     }
 
@@ -455,7 +461,8 @@ object ActivityTelemetryEngine {
             cadenceSpm = spm,
             windows = dailyWindows,
             activeWindows = dailyWindows.filter { it.distanceKm >= 0.01 }.sortedByDescending { it.distanceKm },
-            autoDetectedSessions = autoSessions
+            autoDetectedSessions = autoSessions,
+            hourlyWindows24 = dailyWindows
         )
     }
 
@@ -560,6 +567,34 @@ object ActivityTelemetryEngine {
         return PaceZoneBreakdown(sprintPct = sPct, jogPct = jPct, briskPct = bPct, easyPct = ePct)
     }
 
+    private fun timeOfDaySessionTitle(hour24: Int, activityType: String): String {
+        val period = when (hour24) {
+            in 4..11 -> "Morning"
+            in 12..16 -> "Afternoon"
+            in 17..20 -> "Evening"
+            else -> "Late night"
+        }
+        val noun = when {
+            activityType.equals("Running", ignoreCase = true) -> "run"
+            activityType.equals("Jogging", ignoreCase = true) -> "jog"
+            activityType.equals("Cycling", ignoreCase = true) -> "ride"
+            else -> "walk"
+        }
+        return "$period $noun"
+    }
+
+    private fun computeHeartPoints(moveMinutes: Int, cadenceSpm: Int, paceSecPerKm: Float): Int {
+        if (moveMinutes <= 0) return 0
+        // Moderate brisk movement (~100+ spm or <= 13:00/km) earns ~1 pt/min; vigorous jog/run earns ~2 pts/min;
+        // casual strolling earns partial intensity credit so metrics stay honest and realistic.
+        val multiplier = when {
+            (paceSecPerKm in 150f..449f) || cadenceSpm >= 135 -> 1.8
+            (paceSecPerKm in 450f..780f) || cadenceSpm >= 100 -> 1.0
+            else -> 0.30
+        }
+        return max(1, (moveMinutes * multiplier).roundToInt())
+    }
+
     private fun buildAutoDetectedSessions(
         dayStartMs: Long,
         rawSessions: List<DistanceHelper.WalkSession>,
@@ -569,36 +604,28 @@ object ActivityTelemetryEngine {
 
         // 1. Stitch nearby bursts (auto-pause <= 3 min) and convert qualifying walks/runs
         val stitchedList = stitchWalkSessions(rawSessions)
-        stitchedList.filter { it.distanceKm >= 0.15 || it.movingMillis >= 120_000L }
-            .sortedByDescending { it.distanceKm }
-            .take(3)
+        stitchedList.filter { it.distanceKm >= 0.12 || it.movingMillis >= 90_000L }
+            .sortedBy { it.startTime }
+            .take(8)
             .forEach { s ->
                 val km = s.distanceKm.coerceAtLeast(0.0)
                 val movingSec = (s.movingMillis / 1000L).toInt().coerceAtLeast(15)
                 val rawElapsedSec = ((s.endTime - s.startTime) / 1000L).toInt().coerceAtLeast(movingSec)
                 val trackedPausedSec = (s.pausedMillis / 1000L).toInt().coerceAtLeast(0)
                 val elapsedSec = max(movingSec + trackedPausedSec, rawElapsedSec)
-                // Always keep elapsed == moving + paused mathematically consistent
                 val pausedSec = (elapsedSec - movingSec).coerceAtLeast(0)
 
-                // Derive pace and speed consistently from the exact same distance & moving time
                 val paceSec = if (km >= 0.05 && movingSec > 0) {
                     (movingSec / km).toFloat().coerceIn(150f, 1800f)
                 } else {
                     0f
                 }
-                val speedKmh = if (paceSec > 0f) {
-                    3600f / paceSec
-                } else {
-                    0f
-                }
-                // Only compute cadence when genuine step count exists (never invent cadence)
+                val speedKmh = if (paceSec > 0f) 3600f / paceSec else 0f
                 val cadence = if (s.steps > 0 && movingSec >= 30) {
                     ((s.steps * 60.0) / movingSec).roundToInt().coerceIn(40, 220)
                 } else {
                     0
                 }
-                // Only compute calories when distance or steps are meaningful
                 val kcal = when {
                     km >= 0.05 -> (km * 58.0).roundToInt().coerceAtLeast(1)
                     s.steps > 0 -> (s.steps * 0.045).roundToInt().coerceAtLeast(1)
@@ -613,6 +640,11 @@ object ActivityTelemetryEngine {
                     else -> "Walking"
                 }
 
+                val startCal = Calendar.getInstance().apply { timeInMillis = s.startTime }
+                val friendlyTitle = timeOfDaySessionTitle(startCal.get(Calendar.HOUR_OF_DAY), activityName)
+                val moveMin = max(1, (movingSec / 60.0).roundToInt())
+                val heartPts = computeHeartPoints(moveMin, cadence, paceSec)
+
                 val startStr = DistanceHelper.formatSessionTime(s.startTime)
                 val endStr = DistanceHelper.formatSessionTime(s.endTime)
                 val hasVerifiedSplits = km >= 0.35 && paceSec > 0f
@@ -626,7 +658,7 @@ object ActivityTelemetryEngine {
 
                 result.add(
                     AutoDetectedJogSession(
-                        title = activityName,
+                        title = friendlyTitle,
                         timeRangeLabel = "$startStr – $endStr",
                         distanceKm = km,
                         durationSeconds = movingSec,
@@ -646,16 +678,20 @@ object ActivityTelemetryEngine {
                         sourceType = "Auto-detected",
                         gpsRecorded = s.hasGpsData,
                         steps = s.steps,
-                        hasVerifiedSplits = hasVerifiedSplits
+                        hasVerifiedSplits = hasVerifiedSplits,
+                        startTimeMs = s.startTime,
+                        endTimeMs = s.endTime,
+                        moveMinutes = moveMin,
+                        heartPoints = heartPts
                     )
                 )
             }
 
         // 2. If no explicit WalkSession was persisted yet, auto-detect from active hourly windows
         if (result.isEmpty()) {
-            windows.filter { it.distanceKm >= 0.15 }
-                .sortedByDescending { it.distanceKm }
-                .take(2)
+            windows.filter { it.distanceKm >= 0.12 || it.moveMinutes >= 3 }
+                .sortedBy { it.index }
+                .take(6)
                 .forEach { w ->
                     val durSec = (w.moveMinutes * 60).coerceAtLeast(60)
                     val paceSec = if (w.distanceKm >= 0.05) {
@@ -676,6 +712,15 @@ object ActivityTelemetryEngine {
                         isJog -> "Jogging"
                         else -> "Walking"
                     }
+                    val isHourBucket = w.index in 0..23 && w.windowRangeLabel.contains("M")
+                    val winStartMs = if (isHourBucket) dayStartMs + w.index * 3_600_000L else 0L
+                    val winEndMs = if (winStartMs > 0L) winStartMs + durSec * 1000L else 0L
+                    val friendlyTitle = if (isHourBucket) {
+                        timeOfDaySessionTitle(w.index, activityName)
+                    } else {
+                        "${w.windowRangeLabel} ${activityName.lowercase(Locale.US)}"
+                    }
+                    val heartPts = computeHeartPoints(w.moveMinutes, cadence, paceSec)
                     val hasVerifiedSplits = w.distanceKm >= 0.35 && paceSec > 0f
                     val splits = if (hasVerifiedSplits) {
                         generateSplitsForSession(w.distanceKm, paceSec, if (cadence > 0) cadence else 100)
@@ -686,7 +731,7 @@ object ActivityTelemetryEngine {
                     val zones = computePaceZones(splits)
                     result.add(
                         AutoDetectedJogSession(
-                            title = activityName,
+                            title = friendlyTitle,
                             timeRangeLabel = w.windowRangeLabel,
                             distanceKm = w.distanceKm,
                             durationSeconds = durSec,
@@ -706,7 +751,11 @@ object ActivityTelemetryEngine {
                             sourceType = "Auto-detected",
                             gpsRecorded = false,
                             steps = w.steps,
-                            hasVerifiedSplits = hasVerifiedSplits
+                            hasVerifiedSplits = hasVerifiedSplits,
+                            startTimeMs = winStartMs,
+                            endTimeMs = winEndMs,
+                            moveMinutes = w.moveMinutes.coerceAtLeast(1),
+                            heartPoints = heartPts
                         )
                     )
                 }

@@ -1371,7 +1371,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             }
             setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             setOnClickListener {
-                startActivity(Intent(this@AuxiliarySettingsActivity, AuditActivity::class.java))
+                startActivity(Intent(this@AuxiliarySettingsActivity, EliteDailyNotebookActivity::class.java))
             }
         }
         auditBtnRow.addView(togglePopupBtn)
@@ -1484,7 +1484,7 @@ class AuxiliarySettingsActivity : AppCompatActivity() {
             subtitle = "Open Daily Time Notebook directly to log activities, sleep & daily reflections",
             palette = palette
         ) {
-            startActivity(Intent(this, AuditActivity::class.java))
+            startActivity(Intent(this, EliteDailyNotebookActivity::class.java))
         }
 
         addAuxiliaryLauncherRow(
