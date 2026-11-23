@@ -68,7 +68,7 @@ object BrowserWebsiteTracker {
             return
         }
 
-        val safeDelta = deltaMs.coerceIn(500L, 15_000L)
+        val safeDelta = deltaMs.coerceIn(250L, 15_000L)
         val dk = dayKey(nowMs)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val rawJson = prefs.getString("day_$dk", null)

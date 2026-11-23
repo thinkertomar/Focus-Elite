@@ -3,12 +3,19 @@ package com.focusguardpro.app
 import android.content.Context
 import com.focusguardpro.app.db.AppDatabase
 import com.focusguardpro.app.db.AuditRecord
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -22,15 +29,98 @@ object ActivityTelemetryEngine {
 
     private const val HOURLY_STEPS_PREFS = "focus_hourly_step_windows_v1"
 
+    private val hcScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val isSyncingHcPeriod = AtomicBoolean(false)
+    private val hcTodayStepsLastQueryMs = AtomicLong(0L)
+
+    @Volatile
+    private var hcSupportedCache: Boolean? = null
+    @Volatile
+    private var hcHasStepsPermCache: Boolean? = null
+    @Volatile
+    private var hcPermCheckedAtMs: Long = 0L
+    @Volatile
+    private var lastHcPeriodSyncMs: Long = 0L
+
+    private val historicalStepsCache = ConcurrentHashMap<String, Int>(64)
+    private val hcSyncedDayKeys = ConcurrentHashMap.newKeySet<String>()
+
+    private fun isHealthConnectSupportedFast(context: Context): Boolean {
+        hcSupportedCache?.let { return it }
+        val supported = try {
+            HealthConnectManager.isSupported(context.applicationContext)
+        } catch (_: Throwable) {
+            false
+        }
+        hcSupportedCache = supported
+        return supported
+    }
+
+    private fun hasHealthConnectStepsPermissionFast(context: Context): Boolean {
+        if (!isHealthConnectSupportedFast(context)) return false
+        val now = System.currentTimeMillis()
+        val cached = hcHasStepsPermCache
+        if (cached != null && (now - hcPermCheckedAtMs) < 60_000L) {
+            return cached
+        }
+        val granted = try {
+            runBlocking { HealthConnectManager.hasStepsPermission(context.applicationContext) }
+        } catch (_: Throwable) {
+            false
+        }
+        hcHasStepsPermCache = granted
+        hcPermCheckedAtMs = now
+        return granted
+    }
+
     /**
-     * Resolves historical or current-day step count across ALL storage formats:
-     * 1. StepHistoryManager BASIC_ISO_DATE ("yyyyMMdd" — used by StepPrefs rollover & HealthConnectManager)
-     * 2. StepHistoryManager ISO ("yyyy-MM-dd")
-     * 3. Hourly step buckets ("yyyy-MM-dd_h0..23" and "yyyyMMdd_h0..23")
-     * 4. WalkSession audit records for that day
-     * 5. HealthConnectManager / Google Fit (when supported & permitted)
+     * Triggers a single non-blocking background Health Connect step sync (throttled to 60s) so
+     * Calendar and Insights never stall UI/IO threads with 30x sequential runBlocking Binder IPCs.
      */
-    fun getHistoricalStepsForDay(context: Context, dayStartMs: Long): Int {
+    fun triggerBackgroundHealthConnectSync(
+        context: Context,
+        days: Int = 30,
+        onUpdated: (() -> Unit)? = null
+    ) {
+        val now = System.currentTimeMillis()
+        if ((now - lastHcPeriodSyncMs) < 60_000L) return
+        if (!isHealthConnectSupportedFast(context)) return
+        if (!isSyncingHcPeriod.compareAndSet(false, true)) return
+
+        val appCtx = context.applicationContext
+        hcScope.launch {
+            try {
+                val hasPerm = try {
+                    HealthConnectManager.hasStepsPermission(appCtx)
+                } catch (_: Throwable) {
+                    false
+                }
+                hcHasStepsPermCache = hasPerm
+                hcPermCheckedAtMs = System.currentTimeMillis()
+                if (!hasPerm) return@launch
+
+                HealthConnectManager.syncPastDaysSteps(appCtx, days.coerceIn(7, 35))
+                lastHcPeriodSyncMs = System.currentTimeMillis()
+                historicalStepsCache.clear()
+                onUpdated?.invoke()
+            } catch (_: Throwable) {
+            } finally {
+                isSyncingHcPeriod.set(false)
+            }
+        }
+    }
+
+    /**
+     * Ultra-fast local-only step resolver (ZERO Health Connect runBlocking IPC, optional preloaded
+     * WalkSession steps to eliminate N+1 Room queries).
+     * Returns null for past days with zero recorded history so Calendar/Insights never confuse
+     * missing step data with a failed 0-step day.
+     */
+    fun getFastLocalStepsForDay(
+        context: Context,
+        dayStartMs: Long,
+        preloadedDaySessionSteps: Int? = null
+    ): Int? {
         StepPrefs.rolloverCheck(context)
         val todayCal = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -39,20 +129,27 @@ object ActivityTelemetryEngine {
             set(Calendar.MILLISECOND, 0)
         }
         val isToday = (dayStartMs == todayCal.timeInMillis)
+        if (dayStartMs > todayCal.timeInMillis) return null
+
         val date = Date(dayStartMs)
         val basicIsoKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(date)
         val hyphenKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date)
 
+        val histBasic = try { StepHistoryManager.getStepsForDay(context, basicIsoKey) } catch (_: Throwable) { null }
+        val histHyphen = try { StepHistoryManager.getStepsForDay(context, hyphenKey) } catch (_: Throwable) { null }
+        val hasExplicitHistory = histBasic != null || histHyphen != null
+
         var bestSteps = if (isToday) {
-            StepPrefs.getDailySteps(context)
+            max(StepPrefs.getDailySteps(context), max(histBasic ?: 0, histHyphen ?: 0))
         } else {
-            max(
-                StepHistoryManager.getStepsForDay(context, basicIsoKey) ?: 0,
-                StepHistoryManager.getStepsForDay(context, hyphenKey) ?: 0
-            )
+            max(histBasic ?: 0, histHyphen ?: 0)
         }
 
-        // Check hourly step buckets under both key formats
+        val cachedMem = historicalStepsCache[basicIsoKey]
+        if (!isToday && cachedMem != null && cachedMem > bestSteps) {
+            bestSteps = cachedMem
+        }
+
         val prefs = context.getSharedPreferences(HOURLY_STEPS_PREFS, Context.MODE_PRIVATE)
         var hourlySum = 0
         for (h in 0 until 24) {
@@ -65,9 +162,8 @@ object ActivityTelemetryEngine {
             bestSteps = hourlySum
         }
 
-        // Check recorded WalkSessions for that day
-        val dayEndMs = dayStartMs + 86_400_000L
-        val sessionSteps = try {
+        val sessionSteps = preloadedDaySessionSteps ?: try {
+            val dayEndMs = dayStartMs + 86_400_000L
             DistanceHelper.getSessions(context, dayStartMs, dayEndMs).sumOf { it.steps }
         } catch (_: Exception) {
             0
@@ -76,31 +172,81 @@ object ActivityTelemetryEngine {
             bestSteps = sessionSteps
         }
 
-        // Query Google Fit / Health Connect for today or any past day (e.g. Nov 17) when permitted
-        if (HealthConnectManager.isSupported(context)) {
+        if (!isToday && bestSteps > 0) {
+            historicalStepsCache[basicIsoKey] = bestSteps
+        }
+
+        return when {
+            isToday -> bestSteps
+            bestSteps > 0 || hasExplicitHistory -> bestSteps
+            else -> null
+        }
+    }
+
+    /**
+     * Resolves historical or current-day step count across ALL storage formats:
+     * 1. StepHistoryManager BASIC_ISO_DATE ("yyyyMMdd" — used by StepPrefs rollover & HealthConnectManager)
+     * 2. StepHistoryManager ISO ("yyyy-MM-dd")
+     * 3. Hourly step buckets ("yyyy-MM-dd_h0..23" and "yyyyMMdd_h0..23")
+     * 4. WalkSession audit records for that day
+     * 5. HealthConnectManager / Google Fit (when supported & permitted, deduplicated & cached)
+     */
+    fun getHistoricalStepsForDay(context: Context, dayStartMs: Long): Int {
+        val todayCal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val isToday = (dayStartMs == todayCal.timeInMillis)
+        val basicIsoKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(dayStartMs))
+
+        if (!isToday) {
+            val cached = historicalStepsCache[basicIsoKey]
+            if (cached != null && (hcSyncedDayKeys.contains(basicIsoKey) || !isHealthConnectSupportedFast(context))) {
+                return cached
+            }
+        }
+
+        var bestSteps = getFastLocalStepsForDay(context, dayStartMs) ?: 0
+
+        // Query Google Fit / Health Connect only when supported + permitted, and never repeatedly for the same day
+        val shouldQueryHc = if (isToday) {
+            val now = System.currentTimeMillis()
+            val prev = hcTodayStepsLastQueryMs.get()
+            (now - prev) >= 30_000L && hcTodayStepsLastQueryMs.compareAndSet(prev, now)
+        } else {
+            !hcSyncedDayKeys.contains(basicIsoKey)
+        }
+
+        if (shouldQueryHc && hasHealthConnectStepsPermissionFast(context)) {
             try {
                 runBlocking {
-                    if (HealthConnectManager.hasStepsPermission(context)) {
-                        val localDate: LocalDate = Instant.ofEpochMilli(dayStartMs)
-                            .atZone(ZoneId.systemDefault())
-                            .toLocalDate()
-                        val hcSteps = (HealthConnectManager.getStepsForDay(context, localDate) ?: 0L).toInt()
-                        if (hcSteps > bestSteps) {
-                            bestSteps = hcSteps
-                            if (isToday) {
-                                StepPrefs.setDailySteps(context, hcSteps)
-                            }
+                    val localDate: LocalDate = Instant.ofEpochMilli(dayStartMs)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate()
+                    val hcSteps = (HealthConnectManager.getStepsForDay(context, localDate) ?: 0L).toInt()
+                    if (hcSteps > bestSteps) {
+                        bestSteps = hcSteps
+                        if (isToday) {
+                            StepPrefs.setDailySteps(context, hcSteps)
                         }
                     }
                 }
             } catch (_: Exception) {}
+            if (!isToday) {
+                hcSyncedDayKeys.add(basicIsoKey)
+            }
         }
 
         // Persist reconciled historical count under BASIC_ISO_DATE ("yyyyMMdd") so future lookups are instant
-        if (!isToday && bestSteps > 0) {
-            try {
-                StepHistoryManager.recordDayFinal(context, basicIsoKey, bestSteps)
-            } catch (_: Exception) {}
+        if (!isToday) {
+            historicalStepsCache[basicIsoKey] = bestSteps
+            if (bestSteps > 0) {
+                try {
+                    StepHistoryManager.recordDayFinal(context, basicIsoKey, bestSteps)
+                } catch (_: Exception) {}
+            }
         }
 
         return bestSteps
@@ -397,29 +543,28 @@ object ActivityTelemetryEngine {
         val dayFmt = SimpleDateFormat("EEE", Locale.getDefault())
         val dateFmt = SimpleDateFormat("MMM d", Locale.getDefault())
 
-        if (HealthConnectManager.isSupported(context)) {
-            try {
-                runBlocking {
-                    if (HealthConnectManager.hasStepsPermission(context)) {
-                        HealthConnectManager.syncPastDaysSteps(context, days.coerceAtLeast(7))
-                    }
-                }
-            } catch (_: Exception) {}
+        // Trigger async Health Connect batch sync instead of stalling the UI load
+        triggerBackgroundHealthConnectSync(context, days.coerceAtLeast(7))
+
+        val rangeStartMs = endDayStartMs - (days - 1).coerceAtLeast(0) * 86_400_000L
+        val rangeEndMs = endDayStartMs + 86_400_000L
+        val allRangeSessions = try {
+            DistanceHelper.getSessions(context, rangeStartMs, rangeEndMs)
+        } catch (_: Exception) {
+            emptyList()
         }
+        val keyFmt = SimpleDateFormat("yyyyMMdd", Locale.US)
+        val sessionsByDayKey = allRangeSessions.groupBy { keyFmt.format(Date(it.startTime)) }
 
         val dailyWindows = mutableListOf<SyncedTimeWindow>()
         val allSessions = mutableListOf<DistanceHelper.WalkSession>()
 
         for (i in (days - 1) downTo 0) {
             val dStart = endDayStartMs - i * 86_400_000L
-            val dEnd = dStart + 86_400_000L
-            val steps = getHistoricalStepsForDay(context, dStart)
-            val dSessions = try {
-                DistanceHelper.getSessions(context, dStart, dEnd)
-            } catch (_: Exception) {
-                emptyList()
-            }
+            val dKey = keyFmt.format(Date(dStart))
+            val dSessions = sessionsByDayKey[dKey] ?: emptyList()
             allSessions.addAll(dSessions)
+            val steps = getFastLocalStepsForDay(context, dStart, preloadedDaySessionSteps = dSessions.sumOf { it.steps }) ?: 0
 
             val km = max(DistanceHelper.stepsToKm(steps), DistanceHelper.totalKm(dSessions))
             val moveMin = if (steps > 0) max((km * 11.0).roundToInt(), (dSessions.sumOf { it.durationMillis } / 60_000L).toInt()).coerceAtLeast(1) else 0

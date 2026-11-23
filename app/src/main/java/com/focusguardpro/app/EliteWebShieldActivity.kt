@@ -1,9 +1,11 @@
 package com.focusguardpro.app
 
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -11,7 +13,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -19,8 +20,8 @@ import kotlin.math.roundToInt
 
 /**
  * Upgraded Web Shield Hub:
- * 1. Live Shield Status (Active / Off-Day Paused / Browser Free-Access Window Active)
- * 2. Browser Free-Access Window Controls (30/45/60m Before Start, After End, or Both)
+ * 1. Live Shield Status (Shared 30m Focus-Hours Browser Pool across ALL browsers + Full Free-Time Access)
+ * 2. Accessibility Website-Reader Health Check (1-tap enable if paused)
  * 3. Dedicated "Today's Browsing" section listing ALL websites visited today with exact time spent & 1-tap Study/Block
  * 4. Study/Fair Websites (24/7) & Blocked Websites domain management
  */
@@ -98,20 +99,17 @@ class EliteWebShieldActivity : AppCompatActivity() {
             setTextColor(textPrimary)
         })
         titleCol.addView(TextView(this).apply {
-            text = "Study 24/7 • Rest-of-Day Break Access • Today's Browsing"
+            text = "Study 24/7 • Shared Focus Pool • Free-Time Full Access"
             textSize = 11.5f
             setTextColor(textSecondary)
         })
         headerRow.addView(titleCol)
         contentColumn.addView(headerRow)
 
-        // 2. Live Web Shield Status Banner
-        val offDayPaused = BlockPolicyEngine.isWebShieldPausedForOffDay(this)
-        val winStatus = BlockPolicyEngine.getBrowserAccessWindowStatus(this)
+        // 2. Live Shared Focus-Hours Browser Pool Status Banner
+        val pool = BlockPolicyEngine.getSharedBrowserPoolStatus(this)
         val focusEndFmt = FocusLayerManager.formatMinutesOfDay(FocusLayerManager.getEndMinutes(this))
-        val isFocusNow = FocusLayerManager.isScheduledActiveNow(this) ||
-            (FocusLayerManager.isManualOverrideActive(this) && FocusLayerManager.isActiveNow(this)) ||
-            FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
+        val focusWindow = FocusLayerManager.formatWindowSummary(this)
 
         val statusCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -123,37 +121,24 @@ class EliteWebShieldActivity : AppCompatActivity() {
             ).apply { bottomMargin = dp(14f) }
         }
         val (statusTitle, statusSub, statusColor) = when {
-            offDayPaused -> Triple(
-                "🌿 Off-Day: Web Shield Rules Paused",
-                "Today is a scheduled off-day / Holiday — all Web Shield blocking rules rest automatically.",
+            pool.isOffDayPaused -> Triple(
+                "🌿 Off-Day / Holiday • Full Browser Access",
+                "Today is a scheduled off-day or verified Holiday — all websites are open freely while website tracking continues.",
                 "#34D399"
             )
-            winStatus.isActiveNow -> Triple(
-                "🌤️ Break Time Active • ${winStatus.remainingMinutes}m / ${winStatus.durationMinutes}m Browser Left",
-                "Applicable for the rest of the day outside Focus Hours (${winStatus.scheduleLabel}). Study sites open 24/7.",
+            pool.isFocusHoursActive && pool.remainingFocusMinutes > 0 -> Triple(
+                "🎯 Focus Hours • ${pool.remainingFocusMinutes}m / ${pool.limitMinutes}m Shared Browser Left",
+                "All browsers (Chrome, Brave, Firefox, Edge, etc.) share ONE ${pool.limitMinutes}m non-study timer during Focus Hours (${pool.usedFocusMinutes}m used). Study sites stay open 24/7; full access resumes after $focusEndFmt.",
                 "#38BDF8"
             )
-            winStatus.isEnabled && winStatus.isInBreakPeriod && winStatus.remainingMinutes == 0 -> Triple(
-                "⏱️ Break-Time Browser Allowance Used (${winStatus.usedMinutes}m/${winStatus.durationMinutes}m)",
-                "Today's non-study break budget is finished. Study/Fair websites remain open 24/7.",
+            pool.isFocusHoursActive && pool.remainingFocusMinutes == 0 -> Triple(
+                "🛡️ Shared Focus Browser Pool Used (${pool.usedFocusMinutes}m / ${pool.limitMinutes}m)",
+                "Combined Focus-Hours non-study budget reached across all browsers. Study/Fair websites remain open 24/7, and full browser access unlocks after $focusEndFmt.",
                 "#F59E0B"
             )
-            isFocusNow -> Triple(
-                "🛡️ Focus Hours Active • Study Sites Open 24/7",
-                if (winStatus.isEnabled) {
-                    "Break-time browser access (${winStatus.durationMinutes}m) unlocks after Focus ends at $focusEndFmt — valid for the rest of the day."
-                } else {
-                    "Study/Fair sites always allowed • Non-study sites blocked during Focus Hours"
-                },
-                "#16D99A"
-            )
             else -> Triple(
-                "🛡️ Web Shield Active • Study Sites Open 24/7",
-                if (winStatus.isEnabled) {
-                    "Break-Time Schedule: ${winStatus.scheduleLabel}"
-                } else {
-                    "Study/Fair sites always allowed • Non-study sites guarded by Focus Layer & daily cap"
-                },
+                "✨ Free Time • Full Browser Access Active",
+                "Outside Focus Hours ($focusWindow) — unrestricted browsing across all browsers while website tracking stays active. Shared ${pool.limitMinutes}m pool applies during Focus Hours.",
                 "#16D99A"
             )
         }
@@ -166,39 +151,42 @@ class EliteWebShieldActivity : AppCompatActivity() {
         statusCard.addView(TextView(this).apply {
             text = statusSub
             textSize = 12f
-            setTextColor(Color.parseColor("#CBD5E1"))
+            setTextColor(if (isLight) textSecondary else Color.parseColor("#CBD5E1"))
             setPadding(0, dp(4f), 0, 0)
         })
         contentColumn.addView(statusCard)
 
-        // 3. Browser Free-Access Window Config Card (30–60m before start / after end of Focus Layer)
-        buildBrowserAccessWindowCard(palette, winStatus, isLight, textPrimary, textSecondary)
+        // 2.5 Website Reader Health Card (shown when Accessibility Service is disconnected/off)
+        if (BlockerAccessibilityService.instance == null) {
+            buildAccessibilityReaderWarningCard(isLight, textPrimary, textSecondary)
+        }
 
-        // 4. TODAY'S BROWSING SECTION (All websites accessed today with exact time & 1-tap Study/Block)
+        // 3. TODAY'S BROWSING SECTION (All websites accessed today with exact time & 1-tap Study/Block)
         buildTodaysBrowsingSection(palette, isLight, textPrimary, textSecondary)
 
-        // 5. Add Domain Rule Card
+        // 4. Add Domain Rule Card
         buildAddDomainCard(palette, isLight, textPrimary, textSecondary)
 
-        // 6. Study / Fair Websites (24/7 Allowed) & Blocked Websites Lists
+        // 5. Study / Fair Websites (24/7 Allowed) & Blocked Websites Lists
         buildDomainListSection(
             title = "🟢 Study / Fair Websites (Allowed 24/7)",
-            subtitle = "Never blocked and never counted toward your non-study daily cap",
+            subtitle = "Never blocked and never counted toward your shared Focus-Hours browser pool",
             domains = WebsitePrefs.getFairDomains(this).sorted(),
             chipColorHex = "#10B981",
-            emptyMsg = "No custom Study sites added yet. Tap '✓ Study' on any site in Today's Browsing above or add one.",
+            emptyMsg = "No custom Study sites added yet. Tap '+ Study' on any site in Today's Browsing above or add one.",
             isLight = isLight,
             textPrimary = textPrimary,
             textSecondary = textSecondary
         ) { domain ->
             WebsitePrefs.removeFairDomain(this, domain)
+            BrowserWebsiteTracker.invalidateCache()
             SensoryFeedbackEngine.tap(this)
             renderScreen()
         }
 
         buildDomainListSection(
             title = "🚫 Blocked Websites",
-            subtitle = "Blocked on Focus Days (pauses automatically on scheduled Off-Days)",
+            subtitle = "Blocked during Focus Hours (full access outside Focus Hours & on Off-Days)",
             domains = WebsitePrefs.getBlockedDomains(this).sorted(),
             chipColorHex = "#F43F5E",
             emptyMsg = "No custom blocked sites added yet.",
@@ -207,6 +195,7 @@ class EliteWebShieldActivity : AppCompatActivity() {
             textSecondary = textSecondary
         ) { domain ->
             WebsitePrefs.removeDomain(this, domain)
+            BrowserWebsiteTracker.invalidateCache()
             SensoryFeedbackEngine.tap(this)
             renderScreen()
         }
@@ -214,147 +203,54 @@ class EliteWebShieldActivity : AppCompatActivity() {
         UiThemePrefs.applyWindowAndViewTreeTheme(this, rootScroll)
     }
 
-    private fun buildBrowserAccessWindowCard(
-        palette: UiThemePrefs.ThemePalette,
-        status: BlockPolicyEngine.BrowserWindowStatus,
+    private fun buildAccessibilityReaderWarningCard(
         isLight: Boolean,
         textPrimary: Int,
         textSecondary: Int
     ) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = UiThemePrefs.createCardBackground(this@EliteWebShieldActivity, cornerDp = 16f, isHero = false)
-            setPadding(dp(16f), dp(14f), dp(16f), dp(14f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14f).toFloat()
+                setColor(if (isLight) Color.parseColor("#FEF3C7") else Color.parseColor("#2A1F0B"))
+                setStroke(dp(1f), Color.parseColor("#F59E0B"))
+            }
+            setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(14f) }
         }
-
-        val topRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val titleCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        titleCol.addView(TextView(this).apply {
-            text = "⏱️ Break-Time Browser Access (Rest of Day)"
-            textSize = 14.5f
+        card.addView(TextView(this).apply {
+            text = "⚠️ Website Reader Accessibility Service Is Paused"
+            textSize = 13.5f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(textPrimary)
+            setTextColor(if (isLight) Color.parseColor("#B45309") else Color.parseColor("#FBBF24"))
         })
-        titleCol.addView(TextView(this).apply {
-            text = "Use your 30–60 min non-study browser allowance anytime during break time outside Focus Hours — applicable for the rest of the day, not locked to one fixed clock slot."
+        card.addView(TextView(this).apply {
+            text = "Enable Focus Elite in Android Accessibility settings so visited websites in Chrome, Brave & other browsers are tracked automatically."
             textSize = 11.5f
-            setTextColor(textSecondary)
-            setPadding(0, dp(3f), dp(8f), 0)
+            setTextColor(if (isLight) textPrimary else Color.parseColor("#E2E8F0"))
+            setPadding(0, dp(4f), 0, dp(10f))
         })
-        topRow.addView(titleCol)
-        topRow.addView(Switch(this).apply {
-            isChecked = status.isEnabled
-            setOnCheckedChangeListener { v, checked ->
-                SensoryFeedbackEngine.toggle(this@EliteWebShieldActivity, v)
-                BlockPolicyEngine.setBrowserAccessWindowEnabled(this@EliteWebShieldActivity, checked)
-                renderScreen()
+        card.addView(Button(this).apply {
+            text = "Enable Website Reader (Accessibility)"
+            isAllCaps = false
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10f).toFloat()
+                setColor(Color.parseColor("#D97706"))
+            }
+            setOnClickListener {
+                try {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                } catch (_: Throwable) {
+                    Toast.makeText(this@EliteWebShieldActivity, "Open Settings → Accessibility → Focus Elite", Toast.LENGTH_LONG).show()
+                }
             }
         })
-        card.addView(topRow)
-
-        if (status.isEnabled) {
-            // Duration Chips (30m / 45m / 60m)
-            card.addView(TextView(this).apply {
-                text = "DAILY BREAK-TIME ALLOWANCE"
-                textSize = 10.5f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(textSecondary)
-                setPadding(0, dp(10f), 0, dp(6f))
-            })
-            val durRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (mins in listOf(30, 45, 60)) {
-                val sel = status.durationMinutes == mins
-                durRow.addView(TextView(this).apply {
-                    text = "${mins} min"
-                    textSize = 12.5f
-                    gravity = Gravity.CENTER
-                    setTypeface(typeface, Typeface.BOLD)
-                    setTextColor(if (sel) Color.WHITE else textSecondary)
-                    setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        marginEnd = dp(6f)
-                    }
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(10f).toFloat()
-                        if (sel) {
-                            setColor(palette.accentColor)
-                        } else {
-                            setColor(if (isLight) Color.parseColor("#F1F5F9") else Color.parseColor("#131E2E"))
-                            setStroke(dp(1f), Color.parseColor("#2A3A52"))
-                        }
-                    }
-                    setOnClickListener { v ->
-                        SensoryFeedbackEngine.toggle(this@EliteWebShieldActivity, v)
-                        BlockPolicyEngine.setBrowserAccessWindowMinutes(this@EliteWebShieldActivity, mins)
-                        renderScreen()
-                    }
-                })
-            }
-            card.addView(durRow)
-
-            // Timing Mode Chips (Rest of Day / After Focus / Before Focus)
-            card.addView(TextView(this).apply {
-                text = "WHEN BREAK TIME APPLIES"
-                textSize = 10.5f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(textSecondary)
-                setPadding(0, dp(10f), 0, dp(6f))
-            })
-            val modeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val modes = listOf(
-                BlockPolicyEngine.WINDOW_MODE_REST_OF_DAY to "Rest of Day",
-                BlockPolicyEngine.WINDOW_MODE_AFTER_END to "After Focus",
-                BlockPolicyEngine.WINDOW_MODE_BEFORE_START to "Before Focus"
-            )
-            for ((key, label) in modes) {
-                val sel = status.mode == key
-                modeRow.addView(TextView(this).apply {
-                    text = label
-                    textSize = 11.5f
-                    gravity = Gravity.CENTER
-                    setTypeface(typeface, Typeface.BOLD)
-                    setTextColor(if (sel) Color.WHITE else textSecondary)
-                    setPadding(dp(6f), dp(8f), dp(6f), dp(8f))
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        marginEnd = dp(6f)
-                    }
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(10f).toFloat()
-                        if (sel) {
-                            setColor(Color.parseColor("#0EA5E9"))
-                        } else {
-                            setColor(if (isLight) Color.parseColor("#F1F5F9") else Color.parseColor("#131E2E"))
-                            setStroke(dp(1f), Color.parseColor("#2A3A52"))
-                        }
-                    }
-                    setOnClickListener { v ->
-                        SensoryFeedbackEngine.toggle(this@EliteWebShieldActivity, v)
-                        BlockPolicyEngine.setBrowserAccessWindowMode(this@EliteWebShieldActivity, key)
-                        renderScreen()
-                    }
-                })
-            }
-            card.addView(modeRow)
-
-            card.addView(TextView(this).apply {
-                text = "Active Rule: ${status.scheduleLabel} (${status.usedMinutes}m used · ${status.remainingMinutes}m left)"
-                textSize = 11.5f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.parseColor("#38BDF8"))
-                setPadding(0, dp(10f), 0, 0)
-            })
-        }
-
         contentColumn.addView(card)
     }
 
@@ -376,14 +272,37 @@ class EliteWebShieldActivity : AppCompatActivity() {
             ).apply { bottomMargin = dp(14f) }
         }
 
-        card.addView(TextView(this).apply {
+        val browseHeaderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        browseHeaderRow.addView(TextView(this).apply {
             text = "🌐 Today's Browsing (${summary.sites.size} ${if (summary.sites.size == 1) "site" else "sites"})"
             textSize = 15.5f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(textPrimary)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
+        browseHeaderRow.addView(TextView(this).apply {
+            text = "↻ Refresh"
+            textSize = 11.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38BDF8"))
+            setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8f).toFloat()
+                setColor(if (isLight) Color.parseColor("#E0F2FE") else Color.parseColor("#112236"))
+                setStroke(dp(1f), Color.parseColor("#38BDF8"))
+            }
+            setOnClickListener { v ->
+                SensoryFeedbackEngine.tap(this@EliteWebShieldActivity, v)
+                BrowserWebsiteTracker.invalidateCache()
+                renderScreen()
+            }
+        })
+        card.addView(browseHeaderRow)
         card.addView(TextView(this).apply {
-            text = "All websites accessed across your browsers today with exact time spent"
+            text = "All websites accessed across your browsers today (tracked 24/7 in Focus & Free Time)"
             textSize = 11.5f
             setTextColor(textSecondary)
             setPadding(0, dp(2f), 0, dp(10f))
@@ -509,6 +428,7 @@ class EliteWebShieldActivity : AppCompatActivity() {
                             WebsitePrefs.removeDomain(this@EliteWebShieldActivity, site.host)
                             WebsitePrefs.addFairDomain(this@EliteWebShieldActivity, site.host)
                         }
+                        BrowserWebsiteTracker.invalidateCache()
                         renderScreen()
                     }
                 }
@@ -531,6 +451,7 @@ class EliteWebShieldActivity : AppCompatActivity() {
                             WebsitePrefs.removeFairDomain(this@EliteWebShieldActivity, site.host)
                             WebsitePrefs.addDomain(this@EliteWebShieldActivity, site.host)
                         }
+                        BrowserWebsiteTracker.invalidateCache()
                         renderScreen()
                     }
                 }

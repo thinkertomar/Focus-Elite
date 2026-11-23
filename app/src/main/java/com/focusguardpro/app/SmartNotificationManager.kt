@@ -273,7 +273,7 @@ object SmartNotificationManager {
         val stepPct = ((steps.toFloat() / stepGoal.toFloat()) * 100f).roundToInt().coerceIn(0, 999)
         val distKm = String.format(Locale.US, "%.2f", (steps * 0.00075))
         val workoutStr = if (workoutSets > 0) " • 🤸 $workoutSets sets" else ""
-        val browserWin = BlockPolicyEngine.getBrowserAccessWindowStatus(appCtx, nowMs)
+        val browserPool = BlockPolicyEngine.getSharedBrowserPoolStatus(appCtx, nowMs)
 
         // Determine active phase automatically from clock & Focus state
         val phase = when {
@@ -375,10 +375,10 @@ object SmartNotificationManager {
                     todosTotal > todosDone -> "📌 ${todosTotal - todosDone} task(s) left to complete today's checklist."
                     else -> "✨ Awesome green discipline today — enjoy your guilt-free break!"
                 }
-                val browserLine = if (browserWin.isEnabled) {
-                    "🌤️ Rest-of-Day Browser: ${browserWin.remainingMinutes}m / ${browserWin.durationMinutes}m left"
+                val browserLine = if (browserPool.isFocusHoursActive) {
+                    "🌐 Focus Browser Pool: ${browserPool.remainingFocusMinutes}m / ${browserPool.limitMinutes}m left (all browsers)"
                 } else {
-                    "🛡️ Study Sites 24/7 Active"
+                    "✨ Free Time: Full Browser Access · Study Sites 24/7"
                 }
                 val expanded = buildString {
                     appendLine("🟢 Discipline Score: $disciplineScore/100 ($disciplineBadge)")

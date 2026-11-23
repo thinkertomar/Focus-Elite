@@ -17,6 +17,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -54,7 +55,10 @@ object UsageStatsHelper {
     private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val isRefreshingToday = AtomicBoolean(false)
     private val isWarmingYesterday = AtomicBoolean(false)
+    private val isWarmingWeekly = AtomicBoolean(false)
     private val computeLock = Any()
+    private val isComputingTodayOnThread = ThreadLocal<Boolean>()
+    private val historicalLocks = ConcurrentHashMap<String, Any>()
 
     private val dayKeyFmtLocal = object : ThreadLocal<SimpleDateFormat>() {
         override fun initialValue(): SimpleDateFormat = SimpleDateFormat("yyyyMMdd", Locale.US)
@@ -300,12 +304,16 @@ object UsageStatsHelper {
             try {
                 if (!hasUsageAccess(appCtx)) return@launch
                 getDigitalWellbeingExcludedPackages(appCtx)
-                getTodayWellbeingSnapshot(appCtx, forceRefresh = false)
-                val (todayStart, _) = todayRange()
-                val yStart = todayStart - 86_400_000L
-                val yEnd = todayStart - 1L
-                if (getCachedHistoricalDayTotalMillis(appCtx, yStart) < 0L) {
-                    getHistoricalDayScreenTimeMillis(appCtx, yStart, yEnd)
+                val todaySnap = getTodayWellbeingSnapshot(appCtx, forceRefresh = false)
+                if (isWarmingWeekly.compareAndSet(false, true)) {
+                    try {
+                        // Proactively warm the last 6 historical days in parallel so Usage Stats,
+                        // Time Analytics & Breakdown, and Discipline Insights open in <15ms.
+                        getWeeklyDayRangesFast(appCtx, todayTotalOverrideMs = todaySnap.totalScreenTimeMs)
+                    } catch (_: Throwable) {
+                    } finally {
+                        isWarmingWeekly.set(false)
+                    }
                 }
             } catch (_: Throwable) {}
         }
@@ -444,6 +452,11 @@ object UsageStatsHelper {
         val (start, end) = todayRange()
         val existing = getCachedTodaySnapshot(context)
 
+        // Re-entrancy guard: never recursively re-enter computeTodayIncremental on the same thread
+        if (isComputingTodayOnThread.get() == true) {
+            return existing ?: emptySnapshot(start, end)
+        }
+
         if (!forceRefresh && existing != null && (now - cachedTodayTimestampMs) <= SNAPSHOT_CACHE_TTL_MS) {
             return existing
         }
@@ -465,7 +478,12 @@ object UsageStatsHelper {
                 return recheckCached
             }
 
-            val fresh = computeTodayIncremental(context.applicationContext, start, end, includeYesterdayComparison = true)
+            isComputingTodayOnThread.set(true)
+            val fresh = try {
+                computeTodayIncremental(context.applicationContext, start, end, includeYesterdayComparison = true)
+            } finally {
+                isComputingTodayOnThread.set(false)
+            }
             cachedTodaySnapshot = fresh
             cachedTodayTimestampMs = System.currentTimeMillis()
             persistWarmSnapshotAsync(context.applicationContext, fresh)
@@ -489,7 +507,12 @@ object UsageStatsHelper {
             try {
                 val (start, end) = todayRange()
                 synchronized(computeLock) {
-                    val fresh = computeTodayIncremental(appCtx, start, end, includeYesterdayComparison = true)
+                    isComputingTodayOnThread.set(true)
+                    val fresh = try {
+                        computeTodayIncremental(appCtx, start, end, includeYesterdayComparison = true)
+                    } finally {
+                        isComputingTodayOnThread.set(false)
+                    }
                     cachedTodaySnapshot = fresh
                     cachedTodayTimestampMs = System.currentTimeMillis()
                     persistWarmSnapshotAsync(appCtx, fresh)
@@ -976,6 +999,8 @@ object UsageStatsHelper {
         var ledgerNeedsImmediateSave = false
 
         val pm = context.packageManager
+        val (todayStartForBrowser, _) = todayRange()
+        val isTodaySnapshot = kotlin.math.abs(start - todayStartForBrowser) < 60_000L
         val perAppStats = HashMap<String, AppWellbeingStat>(effectiveDurationByPkg.size)
         for ((pkg, ms) in effectiveDurationByPkg) {
             if (ms <= 0L) continue
@@ -1036,14 +1061,14 @@ object UsageStatsHelper {
                     "STUDY" -> studyMs += ms
                     "IMPROVE" -> improveMs += ms
                     "BROWSER" -> {
-                        val verifiedStudyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(context, pkg)
-                        val pkgNonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(context, pkg)
-                        val browserStudyMs = (verifiedStudyMins * 60_000L).coerceIn(0L, ms)
-                        val nonStudyMs = maxOf(
-                            (pkgNonStudyMins * 60_000L).coerceAtMost(ms),
-                            (ms - browserStudyMs).coerceAtLeast(0L)
+                        val (browserStudyMs, nonStudyMs) = BlockPolicyEngine.getBrowserSplitMsForSnapshot(
+                            context = context,
+                            browserPackage = pkg,
+                            knownBrowserTotalMs = ms,
+                            dayStartMs = start,
+                            isToday = isTodaySnapshot
                         )
-                        studyMs += (ms - nonStudyMs).coerceAtLeast(0L)
+                        studyMs += browserStudyMs
                         distractMs += nonStudyMs
                     }
                     "IGNORED", "UTILITY" -> utilityMs += ms
@@ -1179,7 +1204,7 @@ object UsageStatsHelper {
         val prefs = context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE)
         if (prefs.contains("total_$dayKey")) {
             val saved = prefs.getLong("total_$dayKey", 0L).coerceIn(0L, 18 * 3_600_000L)
-            if (saved > 0L) {
+            if (saved > 0L || prefs.getBoolean("done_$dayKey", false)) {
                 historicalDayTotalCache[dayKey] = saved
                 return saved
             }
@@ -1640,44 +1665,50 @@ object UsageStatsHelper {
             return getTodayWellbeingSnapshot(context, forceRefresh = forceRefresh)
         }
 
-        val dayKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(start))
+        val dayKey = formatDayKey(start)
         if (!forceRefresh) {
             val inMem = historicalSnapshotCache[dayKey]
             if (inMem != null) return inMem
 
+            val prefs = context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE)
             val fromDisk = loadArchivedDaySnapshotFromPrefs(context, dayKey, start, prefsName = PREFS_HISTORICAL_CACHE)
-            if (fromDisk != null && fromDisk.totalScreenTimeMs > 0L) {
+            if (fromDisk != null && (fromDisk.totalScreenTimeMs > 0L || prefs.getBoolean("done_$dayKey", false))) {
                 historicalSnapshotCache[dayKey] = fromDisk
                 return fromDisk
             }
         }
 
-        val prevDayStart = start - 86_400_000L
-        val prevDayEnd = start - 1L
-        val computed = computeWellbeingRange(context, start, end, includeYesterdayComparison = false)
-        val prevTotal = if (end <= todayStart) {
-            // Optional lightweight comparison with the day before
-            val prevKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(prevDayStart))
-            historicalDayTotalCache[prevKey]
-                ?: context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE).getLong("total_$prevKey", 0L)
-        } else 0L
-
-        val finalSnap = if (prevTotal > 0L) computed.copy(yesterdayScreenTimeMs = prevTotal) else computed
-
-        if (end <= todayStart) {
-            historicalSnapshotCache[dayKey] = finalSnap
-            historicalDayTotalCache[dayKey] = finalSnap.totalScreenTimeMs
-            val excluded = getDigitalWellbeingExcludedPackages(context)
-            val perAppMap = HashMap<String, Long>()
-            for ((pkg, st) in finalSnap.perAppStats) {
-                if (!excluded.contains(pkg) && st.durationMs > 0L) {
-                    perAppMap[pkg] = st.durationMs
-                }
+        val dayLock = historicalLocks.computeIfAbsent(dayKey) { Any() }
+        synchronized(dayLock) {
+            if (!forceRefresh) {
+                historicalSnapshotCache[dayKey]?.let { return it }
             }
-            historicalDayPerAppCache[dayKey] = perAppMap
-            saveArchivedDaySnapshotToPrefs(context, dayKey, finalSnap, perAppMap)
+
+            val prevDayStart = start - 86_400_000L
+            val computed = computeWellbeingRange(context, start, end, includeYesterdayComparison = false)
+            val prevTotal = if (end <= todayStart) {
+                val prevKey = formatDayKey(prevDayStart)
+                historicalDayTotalCache[prevKey]
+                    ?: context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE).getLong("total_$prevKey", 0L)
+            } else 0L
+
+            val finalSnap = if (prevTotal > 0L) computed.copy(yesterdayScreenTimeMs = prevTotal) else computed
+
+            if (end <= todayStart) {
+                historicalSnapshotCache[dayKey] = finalSnap
+                historicalDayTotalCache[dayKey] = finalSnap.totalScreenTimeMs
+                val excluded = getDigitalWellbeingExcludedPackages(context)
+                val perAppMap = HashMap<String, Long>()
+                for ((pkg, st) in finalSnap.perAppStats) {
+                    if (!excluded.contains(pkg) && st.durationMs > 0L) {
+                        perAppMap[pkg] = st.durationMs
+                    }
+                }
+                historicalDayPerAppCache[dayKey] = perAppMap
+                saveArchivedDaySnapshotToPrefs(context, dayKey, finalSnap, perAppMap)
+            }
+            return finalSnap
         }
-        return finalSnap
     }
 
     /**
@@ -1705,7 +1736,7 @@ object UsageStatsHelper {
     }
 
     private fun computeHistoricalDayPerApp(context: Context, start: Long, end: Long): Map<String, Long> {
-        val dayKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(start))
+        val dayKey = formatDayKey(start)
         val inMem = historicalDayPerAppCache[dayKey]
         if (inMem != null) return inMem
 
@@ -1714,7 +1745,7 @@ object UsageStatsHelper {
         val prefs = context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE)
         if (isCompletedPastDay && prefs.contains("map_$dayKey")) {
             val rawJson = prefs.getString("map_$dayKey", null)
-            if (!rawJson.isNullOrEmpty()) {
+            if (rawJson != null) {
                 try {
                     val obj = JSONObject(rawJson)
                     val map = HashMap<String, Long>()
@@ -1724,7 +1755,7 @@ object UsageStatsHelper {
                         val v = obj.optLong(k, 0L)
                         if (v > 0L) map[k] = v
                     }
-                    if (map.isNotEmpty()) {
+                    if (map.isNotEmpty() || prefs.getBoolean("done_$dayKey", false)) {
                         historicalDayPerAppCache[dayKey] = map
                         return map
                     }
@@ -1756,7 +1787,7 @@ object UsageStatsHelper {
 
     fun getHistoricalDayScreenTimeMillis(context: Context, start: Long, end: Long): Long {
         if (!hasUsageAccess(context) || end <= start) return 0L
-        val dayKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(start))
+        val dayKey = formatDayKey(start)
         val cached = historicalDayTotalCache[dayKey]
         if (cached != null) return cached
 
@@ -1765,7 +1796,7 @@ object UsageStatsHelper {
         val prefs = context.getSharedPreferences(PREFS_HISTORICAL_CACHE, Context.MODE_PRIVATE)
         if (isCompletedPastDay && prefs.contains("total_$dayKey")) {
             val saved = prefs.getLong("total_$dayKey", 0L).coerceIn(0L, 18 * 3_600_000L)
-            if (saved > 0L) {
+            if (saved > 0L || prefs.getBoolean("done_$dayKey", false)) {
                 historicalDayTotalCache[dayKey] = saved
                 return saved
             }
@@ -1833,6 +1864,11 @@ object UsageStatsHelper {
 
     fun getWeeklyDayRanges(context: Context): List<WeeklyDayRange> {
         if (!hasUsageAccess(context)) return emptyList()
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return runBlocking { getWeeklyDayRangesFast(context) }
+        }
+        // Main-thread safe non-blocking path: return cached totals immediately & warm asynchronously
+        warmUpAsync(context)
         val result = ArrayList<WeeklyDayRange>(7)
         val dayFmt = SimpleDateFormat("EEE", Locale.getDefault())
         val fullFmt = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
@@ -1847,11 +1883,7 @@ object UsageStatsHelper {
             cal.set(Calendar.SECOND, 0)
             cal.set(Calendar.MILLISECOND, 0)
             val dStart = cal.timeInMillis
-            val dEnd = if (daysAgo == 0) {
-                now
-            } else {
-                dStart + 86_400_000L - 1L
-            }
+            val dEnd = if (daysAgo == 0) now else (dStart + 86_400_000L - 1L)
             val shortLabel = if (daysAgo == 0) "Today" else dayFmt.format(Date(dStart))
             val fullDateLabel = when (daysAgo) {
                 0 -> "Today • ${fullFmt.format(Date(dStart))}"
@@ -1859,9 +1891,9 @@ object UsageStatsHelper {
                 else -> fullFmt.format(Date(dStart))
             }
             val ms = if (daysAgo == 0) {
-                getTodayScreenTimeMillis(context).coerceAtMost(now - dStart)
+                (getCachedTodaySnapshot(context)?.totalScreenTimeMs ?: 0L).coerceAtMost(now - dStart)
             } else {
-                getHistoricalDayScreenTimeMillis(context, dStart, dEnd)
+                getCachedHistoricalDayTotalMillis(context, dStart).coerceAtLeast(0L)
             }
             result.add(
                 WeeklyDayRange(
@@ -1979,6 +2011,7 @@ object UsageStatsHelper {
                 .putLong("total_$dayKey", snap.totalScreenTimeMs)
                 .putString("map_$dayKey", mapObj.toString())
                 .putString("snap_$dayKey", snapJson)
+                .putBoolean("done_$dayKey", true)
                 .apply()
         } catch (_: Throwable) {}
     }

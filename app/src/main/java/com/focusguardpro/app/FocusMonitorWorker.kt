@@ -50,24 +50,26 @@ class FocusMonitorWorker(
         FocusForegroundMonitorService.start(ctx)
         WatchdogService.start(ctx)
 
-        // 2. If currently 9 AM to 6 PM, check if current foreground package is distracting
+        // 2. Check if current foreground package should be blocked via authoritative BlockPolicyEngine
         if (FocusLayerManager.isActiveNow(ctx)) {
             val fgPkg = UsageStatsHelper.getForegroundPackage(ctx)
             if (!fgPkg.isNullOrBlank() &&
                 fgPkg != ctx.packageName &&
+                fgPkg != "com.focuselite.app" &&
                 fgPkg != "com.focusguardpro.elite" &&
                 fgPkg != "com.focusguardpro.app" &&
                 !SystemExclusions.isExcludedPackage(ctx, fgPkg) &&
-                !SystemExclusions.isInputMethod(ctx, fgPkg)
+                !SystemExclusions.isInputMethod(ctx, fgPkg) &&
+                !BlockPolicyEngine.isBrowserPackage(fgPkg)
             ) {
-                val allowed = FocusLayerManager.isAllowedDuringFocus(ctx, fgPkg)
-                if (!allowed) {
+                val decision = BlockPolicyEngine.evaluateApp(ctx, fgPkg)
+                if (decision is BlockDecision.Blocked) {
                     if (PorterBridge.isEnhancedModeActive()) {
                         try {
-                            PorterBridge.forceStopPackage(fgPkg)
+                            PorterBridge.forceStopPackage(decision.target)
                         } catch (_: Exception) {}
                     }
-                    TimeLimitManager(ctx).triggerBlock(fgPkg, BlockReason.FOCUS_LAYER_SCHEDULED.wireKey)
+                    TimeLimitManager(ctx).triggerBlock(decision.target, decision.reason.wireKey)
                 }
             }
         }

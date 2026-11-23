@@ -42,12 +42,26 @@ class BlockerAccessibilityService : AccessibilityService() {
             "editUrl",
             "bro_common_omnibox_edit_text",
             "address_bar_edit_text",
+            "address_bar",
+            "addressbar",
+            "url_field",
+            "url_edit_text",
             "custom_tab_toolbar",
+            "custom_tab_url_bar",
+            "toolbar_url",
             "url_text",
             "sbrowser_url_bar"
         )
 
-        private val DOMAIN_REGEX = Regex("""(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+\.(?:[a-zA-Z]{2,})(?:\.[a-zA-Z]{2,})?)(?:[/?#:]|$)""")
+        // Supports multi-level subdomains (e.g. aistudio.google.com, en.m.wikipedia.org, pw.live)
+        private val DOMAIN_REGEX = Regex("""(?:https?://)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+)(?:[/?#:]|\s|$)""")
+
+        private val NON_DOMAIN_EXTENSIONS = setOf(
+            "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp",
+            "mp4", "mp3", "wav", "m4a", "mkv", "webm", "avi",
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "json", "xml",
+            "zip", "rar", "7z", "tar", "gz", "apk", "aab", "exe", "dmg", "iso", "bin"
+        )
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -301,9 +315,9 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     private fun runLiveWindowCheck() {
         val shieldPrefs = getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
-        if (!shieldPrefs.getBoolean("shield_active", true)) {
+        val shieldActive = shieldPrefs.getBoolean("shield_active", true)
+        if (!shieldActive) {
             dismissAccessibilityOverlayShield()
-            return
         }
         if (AppLifecycleCoordinator.isRestoreInProgress) return
 
@@ -381,25 +395,31 @@ class BlockerAccessibilityService : AccessibilityService() {
             }
 
             if (BlockPolicyEngine.isBrowserPackage(livePkg)) {
-                // First check if the browser package itself is Hard-Blocked or in a Blackout Window
-                val browserAppDecision = BlockPolicyEngine.evaluateApp(this, livePkg, now)
-                if (browserAppDecision is BlockDecision.Blocked) {
-                    anyBlockedVisible = true
-                    if (livePkg != lastBlockedAppPkg || (now - lastBlockedAppAtMs) >= 1200L) {
-                        lastBlockedAppPkg = livePkg
-                        lastBlockedAppAtMs = now
-                        enforceBlockNow(
-                            target = browserAppDecision.target,
-                            reasonWireKey = browserAppDecision.reason.wireKey,
-                            isWebsite = false,
-                            blockedPackageName = livePkg
-                        )
+                // First check if the browser package itself is blocked at the app level (only when shield is active)
+                if (shieldActive) {
+                    val browserAppDecision = BlockPolicyEngine.evaluateApp(this, livePkg, now)
+                    if (browserAppDecision is BlockDecision.Blocked) {
+                        anyBlockedVisible = true
+                        if (livePkg != lastBlockedAppPkg || (now - lastBlockedAppAtMs) >= 1200L) {
+                            lastBlockedAppPkg = livePkg
+                            lastBlockedAppAtMs = now
+                            enforceBlockNow(
+                                target = browserAppDecision.target,
+                                reasonWireKey = browserAppDecision.reason.wireKey,
+                                isWebsite = false,
+                                blockedPackageName = livePkg
+                            )
+                        }
+                        return
                     }
-                    return
                 }
-                checkBrowserUrl(livePkg, forceSample = true)
+                // Always read & record visited websites (24/7 — both in Focus Hours and Free Time);
+                // enforce blocking only when shieldActive is true (adult protection remains always-on inside checkBrowserUrl).
+                checkBrowserUrl(livePkg, forceSample = true, allowBlocking = shieldActive)
                 continue
             }
+
+            if (!shieldActive) continue
 
             val decision = BlockPolicyEngine.evaluateApp(this, livePkg, now)
             if (decision is BlockDecision.Blocked) {
@@ -542,11 +562,12 @@ class BlockerAccessibilityService : AccessibilityService() {
                     0
                 }
             } else {
-                0
+                BlockPolicyEngine.getSharedFocusBrowserNonStudyMinutesToday(this).toInt()
             }
             val customLimit = TimeLimitManager.getLimitMinutes(this, blockedPackageName)
             val isIgnored = AppCategoryPrefs.getIgnoredApps(this).contains(blockedPackageName)
             val effectiveCap = when {
+                isWebsite -> BlockPolicyEngine.getSharedBrowserLimitMinutes(this)
                 isIgnored -> if (customLimit in 1..29) customLimit else 30
                 customLimit > 0 -> customLimit
                 else -> UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
@@ -554,10 +575,13 @@ class BlockerAccessibilityService : AccessibilityService() {
 
             val reasonSubtitle = when (reasonWireKey) {
                 BlockReason.DAILY_LIMIT.wireKey -> {
-                    if (isIgnored) {
-                        "$appLabel is in your Ignored category (30m/day cap).\nToday's usage: ${usedMins}m / ${effectiveCap}m limit reached."
-                    } else {
-                        "Daily time limit reached for $appLabel (${usedMins}m / ${effectiveCap}m used today)."
+                    when {
+                        isWebsite ->
+                            "Shared Focus-Hours browser limit reached across all browsers (${usedMins}m / ${effectiveCap}m).\nStudy websites stay open 24/7, and full browser access returns after Focus Hours."
+                        isIgnored ->
+                            "$appLabel is in your Ignored category (30m/day cap).\nToday's usage: ${usedMins}m / ${effectiveCap}m limit reached."
+                        else ->
+                            "Daily time limit reached for $appLabel (${usedMins}m / ${effectiveCap}m used today)."
                     }
                 }
                 BlockReason.FOCUS_LAYER_SCHEDULED.wireKey,
@@ -568,7 +592,7 @@ class BlockerAccessibilityService : AccessibilityService() {
                 BlockReason.BLACKOUT.wireKey ->
                     "$appLabel is locked during its scheduled Blackout Window."
                 BlockReason.WEBSITE.wireKey ->
-                    "Non-study website ($target) is blocked. Study websites remain open 24/7."
+                    "Non-study website ($target) is blocked during Focus Hours. Study websites remain open 24/7."
                 else ->
                     "$appLabel is currently restricted by Focus Elite (${usedMins}m / ${effectiveCap}m today)."
             }
@@ -749,7 +773,9 @@ class BlockerAccessibilityService : AccessibilityService() {
     fun evaluateActiveBrowserFromMonitor(browserPackage: String) {
         mainHandler.post {
             try {
-                checkBrowserUrl(browserPackage, forceSample = true)
+                val shieldPrefs = getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
+                val shieldActive = shieldPrefs.getBoolean("shield_active", true)
+                checkBrowserUrl(browserPackage, forceSample = true, allowBlocking = shieldActive)
             } catch (_: Exception) {}
         }
     }
@@ -759,9 +785,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         ensureWatchdogRunning()
 
         val shieldPrefs = getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
-        if (!shieldPrefs.getBoolean("shield_active", true)) {
-            return
-        }
+        val shieldActive = shieldPrefs.getBoolean("shield_active", true)
         if (AppLifecycleCoordinator.isRestoreInProgress) {
             return
         }
@@ -900,19 +924,32 @@ class BlockerAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // 5. If active package is a Browser, apply Study vs. Non-Study Website policy
+            // 5. If active package is a Browser, ALWAYS track visited websites (24/7) and enforce shared Focus-Hours policy
             if (BlockPolicyEngine.isBrowserPackage(activePkg)) {
                 if (isWindowTransition ||
                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+                    eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
                     (now - lastBrowserEvalAtMs) >= 600L
                 ) {
                     lastBrowserEvalAtMs = now
                     try {
-                        checkBrowserUrl(activePkg, forceSample = false)
+                        val eventRootHint = if (rawEventPkg == activePkg) {
+                            try { event?.source?.window?.root } catch (_: Throwable) { null }
+                        } else {
+                            null
+                        }
+                        checkBrowserUrl(
+                            browserPackage = activePkg,
+                            forceSample = false,
+                            allowBlocking = shieldActive,
+                            eventRootHint = eventRootHint
+                        )
                     } catch (_: Exception) {}
                 }
                 continue
             }
+
+            if (!shieldActive) continue
 
             // 6. Evaluate Non-Browser App Blocking Decision (Hard Block, Focus Layer, Blackout, 30m Daily Limit)
             val shouldEvaluateApp = isWindowTransition ||
@@ -946,21 +983,83 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
-    private fun checkBrowserUrl(browserPackage: String, forceSample: Boolean) {
-        val now = FocusLayerManager.verifiedNowMs(this)
-        val root = try {
-            rootInActiveWindow
-        } catch (_: Exception) {
-            null
+    private fun findBrowserWindowRoot(
+        browserPackage: String,
+        eventRootHint: AccessibilityNodeInfo? = null
+    ): AccessibilityNodeInfo? {
+        // 1. Check event source window root if it matches the browser package
+        if (eventRootHint != null) {
+            val hintPkg = try { eventRootHint.packageName?.toString() } catch (_: Throwable) { null }
+            if (hintPkg == browserPackage) return eventRootHint
         }
 
-        // Do not inspect while user is actively typing in the address bar (Wait until they navigate)
-        if (root != null && isUrlBarFocusedForTyping(root, browserPackage)) {
+        // 2. Check rootInActiveWindow ONLY if it actually belongs to the browser (avoids MIUI overlay/IME mismatch)
+        val activeRoot = try { rootInActiveWindow } catch (_: Throwable) { null }
+        val activePkg = try { activeRoot?.packageName?.toString() } catch (_: Throwable) { null }
+        if (activeRoot != null && activePkg == browserPackage) {
+            return activeRoot
+        }
+
+        // 3. Scan interactive windows to find the actual browser window root (handles floating/split-screen/MIUI)
+        var bestRoot: AccessibilityNodeInfo? = null
+        var bestArea = -1L
+        val rect = android.graphics.Rect()
+        try {
+            val winList = windows
+            if (winList != null) {
+                for (win in winList) {
+                    if (win.type == AccessibilityWindowInfo.TYPE_SYSTEM ||
+                        win.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD ||
+                        win.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY
+                    ) continue
+                    val root = try { win.root } catch (_: Throwable) { null } ?: continue
+                    val pkg = try { root.packageName?.toString() } catch (_: Throwable) { null }
+                    if (pkg != browserPackage) continue
+                    if (win.isActive || win.isFocused) {
+                        return root
+                    }
+                    try {
+                        win.getBoundsInScreen(rect)
+                        val area = rect.width().toLong() * rect.height().toLong()
+                        if (area > bestArea) {
+                            bestArea = area
+                            bestRoot = root
+                        }
+                    } catch (_: Throwable) {
+                        if (bestRoot == null) bestRoot = root
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        return bestRoot ?: activeRoot
+    }
+
+    private fun isInputMethodWindowVisible(): Boolean {
+        return try {
+            windows?.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } == true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun checkBrowserUrl(
+        browserPackage: String,
+        forceSample: Boolean,
+        allowBlocking: Boolean = true,
+        eventRootHint: AccessibilityNodeInfo? = null
+    ) {
+        val now = FocusLayerManager.verifiedNowMs(this)
+        val root = findBrowserWindowRoot(browserPackage, eventRootHint)
+        val imeOpen = isInputMethodWindowVisible()
+
+        // Only pause inspection while the keyboard is ACTUALLY open AND user is actively typing in the address bar
+        if (root != null && imeOpen && isUrlBarFocusedForTyping(root, browserPackage)) {
             return
         }
 
         val detectedHost = if (root != null) {
-            extractBrowserHostReliable(root, browserPackage)
+            extractBrowserHostReliable(root, browserPackage, imeOpen)
         } else {
             null
         }
@@ -969,7 +1068,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         val host = detectedHost ?: lastHost
 
         if (!host.isNullOrBlank()) {
-            // Record sample (Study websites never count toward the 30m non-study limit; Non-study websites do)
+            // ALWAYS record sample (24/7 website tracking; Study sites never count toward the shared 30m Focus pool)
             BlockPolicyEngine.recordBrowserWebsiteSample(this, browserPackage, host, now)
 
             val decision = BlockPolicyEngine.evaluateBrowserUrl(this, browserPackage, host, now)
@@ -988,6 +1087,7 @@ class BlockerAccessibilityService : AccessibilityService() {
                     )
                     return
                 }
+                if (!allowBlocking) return
                 if (host != lastBlockedHost || (now - lastBlockedAtMs) > 1400L) {
                     lastBlockedHost = host
                     lastBlockedAtMs = now
@@ -1002,8 +1102,11 @@ class BlockerAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Fallback when toolbar is hidden/collapsed and no active Study host was detected:
-        // If user marked this browser as a Study/Improve app, never block when toolbar is collapsed (e.g. fullscreen lecture or PDF)
+        // Fallback when toolbar is hidden/collapsed and no real host has been seen yet:
+        // Only account toward Focus-Hours pool when Focus Hours are active and browser is not a Study browser.
+        if (!allowBlocking || !BlockPolicyEngine.isFocusHoursActiveForBrowsers(this, now)) {
+            return
+        }
         if (BlockPolicyEngine.isBrowserMarkedAsStudyOrImprove(this, browserPackage)) {
             return
         }
@@ -1028,7 +1131,14 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     private fun isUrlBarFocusedForTyping(root: AccessibilityNodeInfo, browserPackage: String): Boolean {
-        val candidatePackages = listOf(browserPackage, "com.android.chrome", "com.brave.browser", "org.mozilla.firefox").distinct()
+        val candidatePackages = listOf(
+            browserPackage,
+            "com.android.chrome",
+            "com.brave.browser",
+            "org.mozilla.firefox",
+            "com.microsoft.emmx",
+            "com.sec.android.app.sbrowser"
+        ).distinct()
         for (pkg in candidatePackages) {
             for (viewId in DIRECT_URL_VIEW_IDS) {
                 val nodes = try {
@@ -1038,6 +1148,11 @@ class BlockerAccessibilityService : AccessibilityService() {
                 } ?: continue
                 for (node in nodes) {
                     if (node.isFocused && node.isEditable) {
+                        val txt = node.text?.toString()?.trim().orEmpty()
+                        // If user cleared the bar or is typing a partial query/word without a domain, wait until they navigate
+                        if (txt.isEmpty() || txt.contains(' ') || !txt.contains('.')) {
+                            return true
+                        }
                         return true
                     }
                 }
@@ -1046,9 +1161,23 @@ class BlockerAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun extractBrowserHostReliable(root: AccessibilityNodeInfo, browserPackage: String): String? {
-        // 1. Direct O(1) viewId lookup across Chromium/Brave/Firefox/Samsung/Opera toolbar IDs
-        val candidatePackages = listOf(browserPackage, "com.android.chrome", "com.brave.browser", "org.mozilla.firefox").distinct()
+    private fun extractBrowserHostReliable(
+        root: AccessibilityNodeInfo,
+        browserPackage: String,
+        imeOpen: Boolean
+    ): String? {
+        // 1. Direct O(1) viewId lookup across Chromium/Brave/Firefox/Edge/Samsung/Opera toolbar IDs
+        val candidatePackages = listOf(
+            browserPackage,
+            "com.android.chrome",
+            "com.brave.browser",
+            "org.mozilla.firefox",
+            "com.microsoft.emmx",
+            "com.sec.android.app.sbrowser",
+            "com.opera.browser",
+            "com.kiwibrowser.browser",
+            "com.vivaldi.browser"
+        ).distinct()
         for (pkg in candidatePackages) {
             for (viewId in DIRECT_URL_VIEW_IDS) {
                 val nodes = try {
@@ -1057,9 +1186,8 @@ class BlockerAccessibilityService : AccessibilityService() {
                     null
                 } ?: continue
                 for (node in nodes) {
-                    if (node.isFocused && node.isEditable) continue
-                    val rawText = node.text?.toString()?.trim() ?: node.contentDescription?.toString()?.trim()
-                    val parsed = parseHostFromText(rawText)
+                    if (imeOpen && node.isFocused && node.isEditable) continue
+                    val parsed = extractHostFromNode(node)
                     if (!parsed.isNullOrBlank()) {
                         return parsed
                     }
@@ -1067,70 +1195,135 @@ class BlockerAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 2. Try existing BrowserUrlDetector
+        // 2. Breadth-First Search (BFS) across up to 360 nodes so shallow toolbar views are checked
+        //    BEFORE deep webpage DOM content!
+        val fromBfs = scanTreeBfsForHost(root, imeOpen)
+        if (!fromBfs.isNullOrBlank()) {
+            return fromBfs
+        }
+
+        // 3. Fallback to legacy BrowserUrlDetector
         val fromLegacy = try {
             BrowserUrlDetector.extractHost(root, browserPackage)
         } catch (_: Exception) {
             null
         }
         if (!fromLegacy.isNullOrBlank()) {
-            return BlockPolicyEngine.normalizeHost(fromLegacy)
+            val normalized = parseHostFromText(fromLegacy)
+            if (!normalized.isNullOrBlank()) return normalized
         }
 
-        // 3. Deep 240-node tree scan for any URL bar suffix or visible domain string
-        val budget = intArrayOf(240)
-        return scanTreeForHost(root, budget)
+        return null
     }
 
-    private fun scanTreeForHost(node: AccessibilityNodeInfo?, budget: IntArray): String? {
-        if (node == null || budget[0] <= 0) return null
-        budget[0]--
-
-        val viewIdRes = try {
-            node.viewIdResourceName ?: ""
-        } catch (_: Exception) {
-            ""
-        }
-
-        val isUrlNode = DIRECT_URL_VIEW_IDS.any { suffix ->
-            viewIdRes.endsWith(":id/$suffix") ||
-                viewIdRes.contains("url", ignoreCase = true) ||
-                viewIdRes.contains("omnibox", ignoreCase = true) ||
-                viewIdRes.contains("location_bar", ignoreCase = true)
-        }
-
-        if (isUrlNode && !(node.isFocused && node.isEditable)) {
-            val text = node.text?.toString()?.trim() ?: node.contentDescription?.toString()?.trim()
-            val host = parseHostFromText(text)
-            if (!host.isNullOrBlank()) return host
-        }
-
-        val count = node.childCount
-        for (i in 0 until count) {
-            if (budget[0] <= 0) break
-            val child = try {
-                node.getChild(i)
-            } catch (_: Exception) {
-                null
-            } ?: continue
-            val found = scanTreeForHost(child, budget)
-            if (!found.isNullOrBlank()) return found
-        }
+    private fun extractHostFromNode(node: AccessibilityNodeInfo): String? {
+        val textHost = parseHostFromText(node.text?.toString())
+        if (!textHost.isNullOrBlank()) return textHost
+        val descHost = parseHostFromText(node.contentDescription?.toString())
+        if (!descHost.isNullOrBlank()) return descHost
         return null
+    }
+
+    private fun scanTreeBfsForHost(root: AccessibilityNodeInfo, imeOpen: Boolean): String? {
+        val screenH = resources.displayMetrics.heightPixels.coerceAtLeast(800)
+        val topToolbarCutoff = (screenH * 0.24f).toInt()
+        val bottomToolbarCutoff = (screenH * 0.78f).toInt()
+        val rect = android.graphics.Rect()
+
+        val queue = ArrayDeque<AccessibilityNodeInfo>(64)
+        queue.add(root)
+        var visited = 0
+        var fallbackToolbarHost: String? = null
+
+        while (queue.isNotEmpty() && visited < 360) {
+            val node = queue.removeFirst()
+            visited++
+
+            val viewIdRes = try { node.viewIdResourceName ?: "" } catch (_: Throwable) { "" }
+            val className = try { node.className?.toString() ?: "" } catch (_: Throwable) { "" }
+
+            val isUrlId = viewIdRes.isNotEmpty() && (
+                DIRECT_URL_VIEW_IDS.any { suffix -> viewIdRes.endsWith(":id/$suffix") } ||
+                    viewIdRes.contains("url", ignoreCase = true) ||
+                    viewIdRes.contains("omnibox", ignoreCase = true) ||
+                    viewIdRes.contains("location_bar", ignoreCase = true) ||
+                    viewIdRes.contains("address", ignoreCase = true)
+                )
+
+            if (isUrlId && !(imeOpen && node.isFocused && node.isEditable)) {
+                val host = extractHostFromNode(node)
+                if (!host.isNullOrBlank()) return host
+            }
+
+            // Secondary toolbar heuristic: EditText or TextView positioned inside top or bottom browser toolbar
+            if (fallbackToolbarHost == null &&
+                (className.endsWith("EditText") || className.endsWith("TextView")) &&
+                !(imeOpen && node.isFocused && node.isEditable)
+            ) {
+                try {
+                    node.getBoundsInScreen(rect)
+                    val inTopOrBottomBar = (rect.top in 0..topToolbarCutoff && rect.height() in 1..280) ||
+                        (rect.bottom >= bottomToolbarCutoff && rect.height() in 1..280)
+                    if (inTopOrBottomBar) {
+                        val candidate = extractHostFromNode(node)
+                        if (!candidate.isNullOrBlank()) {
+                            // EditText in toolbar is almost certainly the address bar -> return immediately
+                            if (className.endsWith("EditText")) return candidate
+                            fallbackToolbarHost = candidate
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            val count = try { node.childCount } catch (_: Throwable) { 0 }
+            for (i in 0 until count) {
+                val child = try { node.getChild(i) } catch (_: Throwable) { null } ?: continue
+                // Skip descending into huge WebView DOM subtrees during toolbar discovery when we already have sibling toolbars
+                val childClass = try { child.className?.toString() ?: "" } catch (_: Throwable) { "" }
+                if (childClass.endsWith("WebView")) continue
+                queue.add(child)
+            }
+        }
+        return fallbackToolbarHost
     }
 
     private fun parseHostFromText(rawText: String?): String? {
         if (rawText.isNullOrBlank()) return null
         val trimmed = rawText.trim()
-        if (trimmed.contains(' ') && !trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+        if (trimmed.length < 4 || trimmed.length > 512) return null
+
+        // Ignore obvious browser placeholder hints
+        val lower = trimmed.lowercase()
+        if (lower.startsWith("search or type") ||
+            lower.startsWith("search or enter") ||
+            lower.startsWith("type a url") ||
+            lower.startsWith("chrome://") ||
+            lower.startsWith("brave://") ||
+            lower.startsWith("about:") ||
+            lower.startsWith("edge://")
+        ) {
+            return null
+        }
+
+        val candidate = if (trimmed.contains(' ') && !trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
             val match = DOMAIN_REGEX.find(trimmed) ?: return null
-            val candidate = BlockPolicyEngine.normalizeHost(match.groupValues[1])
-            return if (candidate.contains('.')) candidate else null
+            BlockPolicyEngine.normalizeHost(match.groupValues[1])
+        } else {
+            BlockPolicyEngine.normalizeHost(trimmed)
         }
-        val normalized = BlockPolicyEngine.normalizeHost(trimmed)
-        if (normalized.contains('.') && normalized.length >= 4 && !normalized.contains(' ')) {
-            return normalized
+
+        if (candidate.length < 4 || candidate.contains(' ') || !candidate.contains('.')) {
+            return null
         }
-        return null
+
+        val parts = candidate.split('.')
+        if (parts.size < 2) return null
+        val tld = parts.last()
+        if (tld.length < 2 || tld.length > 18 || !tld.all { it in 'a'..'z' }) return null
+        if (NON_DOMAIN_EXTENSIONS.contains(tld)) return null
+        if (parts.any { it.isEmpty() || it.startsWith('-') || it.endsWith('-') || !it.all { ch -> ch in 'a'..'z' || ch in '0'..'9' || ch == '-' } }) {
+            return null
+        }
+        return candidate
     }
 }

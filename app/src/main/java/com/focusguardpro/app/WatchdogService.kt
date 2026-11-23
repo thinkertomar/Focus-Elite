@@ -412,7 +412,7 @@ class WatchdogService : Service() {
                 } catch (_: Exception) {}
 
                 try {
-                    if (PorterBridge.isEnhancedModeActive()) {
+                    if (PorterBridge.isEnhancedModeActive() && !PaymentSafeModeManager.isActive(this@WatchdogService)) {
                         PorterBridge.ensureAccessibilityServiceEnabled(this@WatchdogService)
                     }
                 } catch (_: Exception) {}

@@ -735,17 +735,16 @@ class UsageStatsActivity : AppCompatActivity() {
                 }
                 isBrowser -> {
                     val siteCount = browserSiteCounts[stat.packageName] ?: 0
-                    val customLimit = BlockPolicyEngine.getFastLimitMinutes(this, stat.packageName)
-                    val cap = (if (customLimit > 0) customLimit else defaultCap).coerceAtLeast(1)
                     val siteWord = if (siteCount == 1) "1 site" else "$siteCount sites"
                     val siteLabel = if (siteCount > 0) " · $siteWord" else ""
 
                     if (dayRange == null || dayRange.isToday) {
+                        val pool = BlockPolicyEngine.getSharedBrowserPoolStatus(this)
+                        val cap = pool.limitMinutes.coerceAtLeast(1)
                         val nonStudyMins = BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this, stat.packageName).coerceAtLeast(0)
                         val studyMins = BlockPolicyEngine.getStudyBrowserMinutesForPackage(this, stat.packageName).coerceAtLeast(0)
-                        val quotaPct = ((nonStudyMins * 100f) / cap.toFloat()).roundToInt()
-                        val overCap = nonStudyMins >= cap
-                        val nearCap = nonStudyMins >= (cap * 0.75f).roundToInt()
+                        val overCap = pool.isFocusHoursActive && pool.usedFocusMinutes >= cap
+                        val nearCap = pool.isFocusHoursActive && pool.usedFocusMinutes >= (cap * 0.75f).roundToInt()
                         val nonStudyColor = when {
                             overCap -> Color.parseColor("#F43F5E")
                             nearCap -> Color.parseColor("#F59E0B")
@@ -758,7 +757,7 @@ class UsageStatsActivity : AppCompatActivity() {
                             else -> Color.parseColor("#A78BFA")
                         }
 
-                        // Dual-segment animated bar: Study (Emerald) + Non-Study (Violet/Amber/Coral) scaled cleanly against cap or total
+                        // Dual-segment bar: Study (Emerald) + Non-Study (Violet/Amber/Coral)
                         val totalTrackedMins = (studyMins + nonStudyMins).coerceAtLeast(0L)
                         if (totalTrackedMins > 0L) {
                             val denominator = max(cap.toLong(), totalTrackedMins).toFloat()
@@ -771,8 +770,12 @@ class UsageStatsActivity : AppCompatActivity() {
                             primaryColor = accentColor
                         }
 
-                        val capNote = if (overCap) " (${quotaPct}%)" else ""
-                        subtitle = "Study ${studyMins}m · Non-Study ${nonStudyMins}m/${cap}m$capNote$siteLabel$opensPart"
+                        val poolNote = if (pool.isFocusHoursActive) {
+                            "Focus Pool ${pool.usedFocusMinutes}m/${cap}m"
+                        } else {
+                            "Free Time (${cap}m in Focus)"
+                        }
+                        subtitle = "Study ${studyMins}m · Non-Study ${nonStudyMins}m · $poolNote$siteLabel$opensPart"
                     } else {
                         accentColor = Color.parseColor("#A78BFA")
                         primaryColor = accentColor
@@ -1118,7 +1121,7 @@ class UsageStatsActivity : AppCompatActivity() {
                     this@UsageStatsActivity,
                     existingActiveRange!!.startMs,
                     existingActiveRange.endMs,
-                    forceRefresh = true
+                    forceRefresh = false
                 )
             }
             val prepared = buildPreparedDayData(snapshot, existingActiveRange)

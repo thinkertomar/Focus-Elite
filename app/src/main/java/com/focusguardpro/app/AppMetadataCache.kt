@@ -32,6 +32,9 @@ object AppMetadataCache {
     private val labelCache = ConcurrentHashMap<String, String>(256)
     private val iconCache = ConcurrentHashMap<String, Drawable>(256)
     private val deletedBadgeCache = ConcurrentHashMap<String, Drawable>(64)
+    private val installedCache = ConcurrentHashMap<String, Boolean>(256)
+    @Volatile
+    private var installedCacheEpochMs: Long = 0L
     private val warmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val isWarmingOrWarm = AtomicBoolean(false)
     private val ledgerLoaded = AtomicBoolean(false)
@@ -70,17 +73,35 @@ object AppMetadataCache {
     }
 
     fun isPackageInstalled(pm: PackageManager, packageName: String): Boolean {
-        return try {
+        if (packageName.isBlank()) return false
+        val now = System.currentTimeMillis()
+        if (now - installedCacheEpochMs > 30_000L) {
+            installedCache.clear()
+            installedCacheEpochMs = now
+        }
+        installedCache[packageName]?.let { return it }
+        val installed = try {
             pm.getApplicationInfo(packageName, 0)
             true
         } catch (_: Throwable) {
             false
         }
+        installedCache[packageName] = installed
+        return installed
     }
 
     fun onPackageRemoved(packageName: String) {
-        // Drop icon cache (APK is gone), but intentionally KEEP labelCache + disk ledger intact!
+        // Drop icon cache (APK is gone), mark uninstalled immediately, and KEEP labelCache + disk ledger intact!
         iconCache.remove(packageName)
+        installedCache[packageName] = false
+        SystemExclusions.onPackageChanged(packageName)
+    }
+
+    fun onPackageAdded(packageName: String) {
+        if (packageName.isBlank()) return
+        installedCache[packageName] = true
+        iconCache.remove(packageName)
+        SystemExclusions.onPackageChanged(packageName)
     }
 
     fun getLabel(pm: PackageManager, packageName: String, context: Context? = null): String {
@@ -90,8 +111,10 @@ object AppMetadataCache {
 
         val resolved = try {
             val ai = pm.getApplicationInfo(packageName, 0)
+            installedCache[packageName] = true
             pm.getApplicationLabel(ai).toString().takeIf { it.isNotBlank() }
         } catch (_: Throwable) {
+            installedCache[packageName] = false
             null
         }
 
@@ -232,6 +255,7 @@ object AppMetadataCache {
 
             for (ri in resolveInfos) {
                 val pkg = ri.activityInfo?.packageName ?: continue
+                installedCache[pkg] = true
                 val label = try { ri.loadLabel(pm).toString() } catch (_: Throwable) { "" }
                 if (label.isNotBlank()) {
                     labelCache[pkg] = label
@@ -247,6 +271,7 @@ object AppMetadataCache {
                     } catch (_: Throwable) {}
                 }
             }
+            installedCacheEpochMs = System.currentTimeMillis()
             if (dirty) editor.apply()
         } catch (_: Throwable) {}
     }

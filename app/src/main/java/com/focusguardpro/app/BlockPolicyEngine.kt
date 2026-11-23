@@ -18,11 +18,24 @@ object BlockPolicyEngine {
     private const val PREFS_BROWSER_NON_STUDY = "FocusGuard_BrowserNonStudyTracker"
     private const val PREFS_UNBLOCKED_TODAY = "FocusGuard_UnblockedToday"
     private const val PREFS_BROWSER_ACCESS_WINDOW = "FocusGuard_BrowserAccessWindow_v1"
+    private const val PREFS_SHARED_BROWSER_POOL = "FocusGuard_SharedBrowserPool_v1"
+
+    const val DEFAULT_SHARED_BROWSER_LIMIT_MINUTES = 30
+    const val ALL_BROWSERS_UNBLOCK_KEY = "ALL_BROWSERS_POOL"
 
     const val WINDOW_MODE_REST_OF_DAY = "REST_OF_DAY"
     const val WINDOW_MODE_AFTER_END = "AFTER_END"
     const val WINDOW_MODE_BEFORE_START = "BEFORE_START"
     const val WINDOW_MODE_BOTH = "BOTH"
+
+    data class SharedBrowserPoolStatus(
+        val isFocusHoursActive: Boolean,
+        val isOffDayPaused: Boolean,
+        val usedFocusMinutes: Int,
+        val limitMinutes: Int,
+        val remainingFocusMinutes: Int,
+        val totalNonStudyMinutesToday: Int
+    )
 
     data class BrowserWindowStatus(
         val isEnabled: Boolean,
@@ -474,160 +487,132 @@ object BlockPolicyEngine {
     }
 
     // =========================================================================
-    // POST-FOCUS / PRE-FOCUS BROWSER FREE-ACCESS REWARD WINDOW (30–60 MIN)
+    // UNIFIED SHARED FOCUS-HOURS BROWSER POOL (30 MIN ACROSS ALL BROWSERS)
+    // + FULL FREE-TIME ACCESS OUTSIDE FOCUS HOURS (WEBSITE TRACKING ALWAYS ON)
     // =========================================================================
 
-    fun isBrowserAccessWindowEnabled(context: Context): Boolean {
-        return context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
-            .getBoolean("enabled", true)
+    /**
+     * Single shared Focus-Hours non-study timer across ALL browsers combined (Chrome, Brave, Firefox, Edge, etc.).
+     * Default is 30 minutes (matching standard app daily caps).
+     */
+    fun getSharedBrowserLimitMinutes(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS_SHARED_BROWSER_POOL, Context.MODE_PRIVATE)
+        val saved = prefs.getInt("shared_focus_limit_minutes", -1)
+        return if (saved > 0) saved.coerceIn(5, 180) else DEFAULT_SHARED_BROWSER_LIMIT_MINUTES
     }
+
+    fun setSharedBrowserLimitMinutes(context: Context, minutes: Int) {
+        val safe = if (minutes <= 0) DEFAULT_SHARED_BROWSER_LIMIT_MINUTES else minutes.coerceIn(5, 180)
+        context.getSharedPreferences(PREFS_SHARED_BROWSER_POOL, Context.MODE_PRIVATE)
+            .edit()
+            .putInt("shared_focus_limit_minutes", safe)
+            .apply()
+        if (minutes > 0) {
+            setUnblockedForToday(context, ALL_BROWSERS_UNBLOCK_KEY, false)
+        }
+    }
+
+    /**
+     * Returns true ONLY when Focus Hours / Focus Mode / Deep Focus Studio is actively running
+     * (and not paused by an off-day, holiday, or disabled shield).
+     * Outside Focus Hours (Free Time), browsers have full access while website tracking continues.
+     */
+    fun isFocusHoursActiveForBrowsers(
+        context: Context,
+        nowMs: Long = FocusLayerManager.verifiedNowMs(context)
+    ): Boolean {
+        val shieldPrefs = context.getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
+        if (!shieldPrefs.getBoolean("shield_active", true)) return false
+        if (isWebShieldPausedForOffDay(context, nowMs)) return false
+        val isDeepFocus = FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
+        val isScheduledFocus = FocusLayerManager.isScheduledActiveNow(context, nowMs)
+        val isManualFocus = FocusLayerManager.isManualOverrideActive(context) && FocusLayerManager.isActiveNow(context)
+        return isDeepFocus || isScheduledFocus || isManualFocus
+    }
+
+    /**
+     * Returns total Non-Study minutes accumulated across ALL browsers combined specifically during Focus Hours today.
+     */
+    fun getSharedFocusBrowserNonStudyMinutesToday(
+        context: Context,
+        nowMs: Long = System.currentTimeMillis()
+    ): Long {
+        val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
+        val dayKey = todayDateKey(nowMs)
+        if (prefs.getString("day_key", null) != dayKey) return 0L
+        val focusNonStudyMs = prefs.getLong("focus_non_study_ms_all_$dayKey", 0L)
+        return (focusNonStudyMs / 60_000L).coerceAtLeast(0L)
+    }
+
+    fun getSharedBrowserPoolStatus(
+        context: Context,
+        nowMs: Long = FocusLayerManager.verifiedNowMs(context)
+    ): SharedBrowserPoolStatus {
+        val offDayPaused = isWebShieldPausedForOffDay(context, nowMs)
+        val focusActive = isFocusHoursActiveForBrowsers(context, nowMs)
+        val limitMins = getSharedBrowserLimitMinutes(context)
+        val usedFocusMins = getSharedFocusBrowserNonStudyMinutesToday(context, nowMs).toInt().coerceAtLeast(0)
+        val remainingFocusMins = (limitMins - usedFocusMins).coerceAtLeast(0)
+        val totalNonStudyToday = getNonStudyBrowserMinutesToday(context, nowMs).toInt().coerceAtLeast(0)
+        return SharedBrowserPoolStatus(
+            isFocusHoursActive = focusActive,
+            isOffDayPaused = offDayPaused,
+            usedFocusMinutes = usedFocusMins,
+            limitMinutes = limitMins,
+            remainingFocusMinutes = remainingFocusMins,
+            totalNonStudyMinutesToday = totalNonStudyToday
+        )
+    }
+
+    // Legacy compatibility wrappers (retained for binary compatibility with precompiled classes)
+    fun isBrowserAccessWindowEnabled(context: Context): Boolean = false
 
     fun setBrowserAccessWindowEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean("enabled", enabled)
+            .putBoolean("enabled", false)
             .apply()
     }
 
-    fun getBrowserAccessWindowMinutes(context: Context): Int {
-        return context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
-            .getInt("duration_minutes", 45)
-            .coerceIn(15, 90)
-    }
+    fun getBrowserAccessWindowMinutes(context: Context): Int = getSharedBrowserLimitMinutes(context)
 
     fun setBrowserAccessWindowMinutes(context: Context, minutes: Int) {
-        context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
-            .edit()
-            .putInt("duration_minutes", minutes.coerceIn(15, 90))
-            .apply()
+        setSharedBrowserLimitMinutes(context, minutes)
     }
 
-    fun getBrowserAccessWindowMode(context: Context): String {
-        val prefs = context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
-        val savedV2 = prefs.getString("mode_v2", null)
-        return when (savedV2) {
-            WINDOW_MODE_AFTER_END, WINDOW_MODE_BEFORE_START, WINDOW_MODE_REST_OF_DAY -> savedV2
-            WINDOW_MODE_BOTH -> WINDOW_MODE_REST_OF_DAY
-            else -> WINDOW_MODE_REST_OF_DAY
-        }
-    }
+    fun getBrowserAccessWindowMode(context: Context): String = WINDOW_MODE_REST_OF_DAY
 
     fun setBrowserAccessWindowMode(context: Context, mode: String) {
-        val safe = when (mode) {
-            WINDOW_MODE_AFTER_END, WINDOW_MODE_BEFORE_START, WINDOW_MODE_REST_OF_DAY -> mode
-            WINDOW_MODE_BOTH -> WINDOW_MODE_REST_OF_DAY
-            else -> WINDOW_MODE_REST_OF_DAY
-        }
-        context.getSharedPreferences(PREFS_BROWSER_ACCESS_WINDOW, Context.MODE_PRIVATE)
-            .edit()
-            .putString("mode_v2", safe)
-            .putString("mode", safe)
-            .apply()
+        // No-op: replaced by unified Focus-Hours 30m shared pool + Free-Time full access
     }
 
-    /**
-     * Evaluates Break-Time Browser Access outside Focus Hours.
-     *
-     * Key fix: Break time applies across the REST OF THE DAY outside Focus Hours (not trapped
-     * in a narrow 45-minute clock slice right after Focus ends!).
-     * - REST_OF_DAY (default): Your 30–60m non-study browser budget works ANYTIME outside Focus
-     *   Hours (after Focus ends for the entire rest of the day AND before Focus starts).
-     * - AFTER_END: Budget works anytime from Focus end (e.g. 6:00 PM) through the rest of the day.
-     * - BEFORE_START: Budget works anytime before Focus starts (until e.g. 9:00 AM).
-     *
-     * Never active during Scheduled Focus Hours, Manual Focus Mode, or active Deep Focus Studio.
-     */
     fun getBrowserAccessWindowStatus(
         context: Context,
         nowMs: Long = FocusLayerManager.verifiedNowMs(context)
     ): BrowserWindowStatus {
-        val enabled = isBrowserAccessWindowEnabled(context)
-        val dur = getBrowserAccessWindowMinutes(context)
-        val mode = getBrowserAccessWindowMode(context)
-        val startMins = FocusLayerManager.getStartMinutes(context)
-        val endMins = FocusLayerManager.getEndMinutes(context)
-        val startFmt = FocusLayerManager.formatMinutesOfDay(startMins)
-        val endFmt = FocusLayerManager.formatMinutesOfDay(endMins)
-        val scheduleEnabled = FocusLayerManager.isScheduleEnabled(context)
-
-        val scheduleLabel = if (!scheduleEnabled) {
-            "All day break allowance • ${dur}m/day"
+        val pool = getSharedBrowserPoolStatus(context, nowMs)
+        val isFreeTime = !pool.isFocusHoursActive
+        val scheduleLabel = if (isFreeTime) {
+            "Free Time • Full Browser Access (Shared ${pool.limitMinutes}m in Focus Hours)"
         } else {
-            when (mode) {
-                WINDOW_MODE_AFTER_END ->
-                    "After $endFmt for the rest of the day • ${dur}m allowance"
-                WINDOW_MODE_BEFORE_START ->
-                    "Before $startFmt • ${dur}m allowance"
-                else ->
-                    "After $endFmt (rest of day) & before $startFmt • ${dur}m allowance"
-            }
+            "Focus Hours • Shared ${pool.limitMinutes}m pool across all browsers"
         }
-
-        val usedMins = getNonStudyBrowserMinutesToday(context, nowMs).toInt().coerceAtLeast(0)
-        val remainingBudget = (dur - usedMins).coerceAtLeast(0)
-
-        val isDeepFocus = FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING
-        val isScheduledFocus = FocusLayerManager.isScheduledActiveNow(context, nowMs)
-        val isManualFocus = FocusLayerManager.isManualOverrideActive(context) && FocusLayerManager.isActiveNow(context)
-
-        if (!enabled || isDeepFocus || isScheduledFocus || isManualFocus) {
-            return BrowserWindowStatus(
-                isEnabled = enabled,
-                isActiveNow = false,
-                remainingMinutes = remainingBudget,
-                durationMinutes = dur,
-                mode = mode,
-                scheduleLabel = scheduleLabel,
-                isInBreakPeriod = false,
-                usedMinutes = usedMins
-            )
-        }
-
-        val inBreakPeriod = if (!scheduleEnabled || !FocusLayerManager.isDayIncludedInSchedule(context, nowMs)) {
-            true
-        } else {
-            val cal = Calendar.getInstance().apply { timeInMillis = nowMs }
-            val nowMins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-            when (mode) {
-                WINDOW_MODE_AFTER_END -> {
-                    if (startMins < endMins) {
-                        // Daytime focus (e.g. 9 AM – 6 PM): after 6 PM for the entire rest of the day until midnight
-                        nowMins >= endMins
-                    } else {
-                        // Overnight focus (e.g. 10 PM – 6 AM): outside focus is already daytime after endMins
-                        nowMins in endMins until startMins
-                    }
-                }
-                WINDOW_MODE_BEFORE_START -> {
-                    if (startMins < endMins) {
-                        nowMins < startMins
-                    } else {
-                        nowMins in endMins until startMins
-                    }
-                }
-                else -> {
-                    // REST_OF_DAY: any time outside Focus Hours (both after Focus ends for the rest of the day & before Focus starts)
-                    true
-                }
-            }
-        }
-
         return BrowserWindowStatus(
-            isEnabled = enabled,
-            isActiveNow = inBreakPeriod && remainingBudget > 0,
-            remainingMinutes = remainingBudget,
-            durationMinutes = dur,
-            mode = mode,
+            isEnabled = false,
+            isActiveNow = isFreeTime,
+            remainingMinutes = pool.remainingFocusMinutes,
+            durationMinutes = pool.limitMinutes,
+            mode = WINDOW_MODE_REST_OF_DAY,
             scheduleLabel = scheduleLabel,
-            isInBreakPeriod = inBreakPeriod,
-            usedMinutes = usedMins
+            isInBreakPeriod = isFreeTime,
+            usedMinutes = pool.usedFocusMinutes
         )
     }
 
     fun isBrowserFreeAccessWindowActive(
         context: Context,
         nowMs: Long = FocusLayerManager.verifiedNowMs(context)
-    ): Boolean = getBrowserAccessWindowStatus(context, nowMs).isActiveNow
+    ): Boolean = !isFocusHoursActiveForBrowsers(context, nowMs)
 
     fun isBrowserPackage(packageName: String?): Boolean {
         if (packageName.isNullOrBlank()) return false
@@ -785,10 +770,12 @@ object BlockPolicyEngine {
     }
 
     /**
-     * Records active foreground time on a browser URL.
-     * - Verified Study websites increment verified study time (`study_ms_*`).
-     * - Neutral search pages allow quick navigation without crediting `study_ms_*`.
-     * - Non-study websites increment per-browser and global non-study millisecond counters (`non_study_ms_*`).
+     * Records active foreground time on a browser URL (ALWAYS active — during Focus Hours AND Free Time).
+     * - Real domains are ALWAYS logged to [BrowserWebsiteTracker] for Today's Browsing & Usage Stats.
+     * - Verified Study websites increment verified study time (`study_ms_*`) and NEVER consume the Focus browser pool.
+     * - Non-study websites increment total daily non-study analytics (`non_study_ms_*`), and when Focus Hours are active,
+     *   also increment the SINGLE SHARED Focus-Hours pool across ALL browsers (`focus_non_study_ms_all_*`).
+     * - Synthetic fallback hosts ("non-study-browsing.local") NEVER overwrite `active_host_*` so they cannot poison tracking.
      */
     fun recordBrowserWebsiteSample(
         context: Context,
@@ -799,6 +786,7 @@ object BlockPolicyEngine {
         val host = normalizeHost(rawHost)
         if (host.isBlank()) return
 
+        val isSyntheticFallback = (host == "non-study-browsing.local")
         val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
         val dayKey = todayDateKey(nowMs)
         val storedDay = prefs.getString("day_key", null)
@@ -806,19 +794,22 @@ object BlockPolicyEngine {
             prefs.edit().clear().putString("day_key", dayKey).apply()
         }
 
-        val isStudy = isStudyWebsiteForBrowser(context, browserPackage, host)
-        val isNeutral = isNeutralNavigationWebsite(context, host)
-        val isBlockedDomain = WebsitePrefs.isBlocked(context, host)
+        val isStudy = !isSyntheticFallback && isStudyWebsiteForBrowser(context, browserPackage, host)
+        val isNeutral = !isSyntheticFallback && isNeutralNavigationWebsite(context, host)
+        val isBlockedDomain = !isSyntheticFallback && WebsitePrefs.isBlocked(context, host)
+        val isFocusNow = isFocusHoursActiveForBrowsers(context, nowMs)
 
         val lastTick = prefs.getLong("last_browser_tick_ms_$browserPackage", 0L)
         val deltaMs = if (lastTick > 0L && nowMs > lastTick) {
-            (nowMs - lastTick).coerceAtMost(15_000L)
+            val gap = nowMs - lastTick
+            // Ignore long background gaps (> 20s) so returning to a browser later never creates a phantom spike
+            if (gap <= 20_000L) gap.coerceAtMost(15_000L) else 1_000L
         } else {
             1_000L
         }
 
-        // Persist per-website duration & visit stats (skipping adult-restricted & synthetic fallback hosts)
-        if (!isRestrictedAdultSite(host) && host != "non-study-browsing.local") {
+        // Persist per-website duration & visit stats 24/7 (skipping adult-restricted & synthetic fallback hosts)
+        if (!isRestrictedAdultSite(host) && !isSyntheticFallback) {
             try {
                 BrowserWebsiteTracker.recordSample(
                     context = context,
@@ -838,14 +829,19 @@ object BlockPolicyEngine {
         val hostSince = if (prevHost == host && prevHostSince > 0L) prevHostSince else nowMs
 
         val editor = prefs.edit()
-            .putString("active_host_$browserPackage", host)
-            .putLong("active_host_ts_$browserPackage", nowMs)
-            .putLong("active_host_since_$browserPackage", hostSince)
-            .putBoolean("active_is_study_$browserPackage", isStudy)
             .putLong("last_browser_tick_ms_$browserPackage", nowMs)
 
+        // CRITICAL: Never let synthetic fallback overwrite a real active domain!
+        if (!isSyntheticFallback) {
+            editor
+                .putString("active_host_$browserPackage", host)
+                .putLong("active_host_ts_$browserPackage", nowMs)
+                .putLong("active_host_since_$browserPackage", hostSince)
+                .putBoolean("active_is_study_$browserPackage", isStudy)
+        }
+
         if (isStudy) {
-            // Verified Study website: credit to study browser time
+            // Verified Study website: credit to study browser time (never consumes the 30m Focus pool)
             val prevStudyPkgMs = prefs.getLong("study_ms_${browserPackage}_$dayKey", 0L)
             val prevStudyAllMs = prefs.getLong("study_ms_all_$dayKey", 0L)
             editor
@@ -861,38 +857,65 @@ object BlockPolicyEngine {
 
         if (isNeutral) {
             // Neutral navigation page (e.g., google.com search or newtab):
-            // Never credit to Study time! If user lingers > 15s on a search page in an uncategorized browser,
-            // count additional time toward non-study browsing so it cannot be used as an infinite loophole.
+            // Never credit to Study time! If user lingers > 20s on a search page in an uncategorized browser
+            // during Focus Hours, count additional time toward the shared non-study pool.
             val lingeredMs = nowMs - hostSince
-            if (!isBrowserMarkedAsStudyOrImprove(context, browserPackage) && lingeredMs > 15_000L) {
+            if (!isBrowserMarkedAsStudyOrImprove(context, browserPackage) && lingeredMs > 20_000L) {
                 val prevNonStudyPkgMs = prefs.getLong("non_study_ms_${browserPackage}_$dayKey", 0L)
                 val prevNonStudyAllMs = prefs.getLong("non_study_ms_$dayKey", 0L)
                 editor
                     .putLong("last_non_study_tick_ms", nowMs)
                     .putLong("non_study_ms_${browserPackage}_$dayKey", prevNonStudyPkgMs + deltaMs)
                     .putLong("non_study_ms_$dayKey", prevNonStudyAllMs + deltaMs)
+                if (isFocusNow) {
+                    val prevFocusAllMs = prefs.getLong("focus_non_study_ms_all_$dayKey", 0L)
+                    val prevFocusPkgMs = prefs.getLong("focus_non_study_ms_${browserPackage}_$dayKey", 0L)
+                    editor
+                        .putLong("focus_non_study_ms_all_$dayKey", prevFocusAllMs + deltaMs)
+                        .putLong("focus_non_study_ms_${browserPackage}_$dayKey", prevFocusPkgMs + deltaMs)
+                }
             }
             editor.apply()
             return
         }
 
-        // Non-study website: accumulate elapsed time for both this browser package and global non-study counter
+        // Non-study website: accumulate elapsed time for analytics AND (if Focus Hours active) the shared All-Browsers pool
         val prevNonStudyPkgMs = prefs.getLong("non_study_ms_${browserPackage}_$dayKey", 0L)
         val prevNonStudyAllMs = prefs.getLong("non_study_ms_$dayKey", 0L)
         editor
             .putLong("last_non_study_tick_ms", nowMs)
             .putLong("non_study_ms_${browserPackage}_$dayKey", prevNonStudyPkgMs + deltaMs)
             .putLong("non_study_ms_$dayKey", prevNonStudyAllMs + deltaMs)
-            .apply()
 
-        try {
-            BrowserFairTimeTracker.sample(context, host)
-        } catch (_: Throwable) {}
+        if (isFocusNow) {
+            val prevFocusAllMs = prefs.getLong("focus_non_study_ms_all_$dayKey", 0L)
+            val prevFocusPkgMs = prefs.getLong("focus_non_study_ms_${browserPackage}_$dayKey", 0L)
+            editor
+                .putLong("focus_non_study_ms_all_$dayKey", prevFocusAllMs + deltaMs)
+                .putLong("focus_non_study_ms_${browserPackage}_$dayKey", prevFocusPkgMs + deltaMs)
+        }
+        editor.apply()
+
+        if (!isSyntheticFallback) {
+            try {
+                BrowserFairTimeTracker.sample(context, host)
+            } catch (_: Throwable) {}
+        }
     }
 
-    fun clearBrowserWebsiteSample(context: Context) {
+    fun clearBrowserWebsiteSample(context: Context, browserPackage: String? = null) {
         val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
-        prefs.edit().putLong("last_non_study_tick_ms", 0L).apply()
+        val editor = prefs.edit().putLong("last_non_study_tick_ms", 0L)
+        if (!browserPackage.isNullOrBlank()) {
+            editor.putLong("last_browser_tick_ms_$browserPackage", 0L)
+        } else {
+            for (k in prefs.all.keys) {
+                if (k.startsWith("last_browser_tick_ms_")) {
+                    editor.putLong(k, 0L)
+                }
+            }
+        }
+        editor.apply()
         try {
             BrowserFairTimeTracker.clearSample(context)
         } catch (_: Throwable) {}
@@ -902,14 +925,15 @@ object BlockPolicyEngine {
         val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
         val ts = prefs.getLong("active_host_ts_$browserPackage", 0L)
         val host = prefs.getString("active_host_$browserPackage", null) ?: return null
+        if (host == "non-study-browsing.local") return null
         // Neutral search hosts expire quickly (12s) so a collapsed URL bar after clicking a search result
         // never masquerades as remaining on google.com
         if (isNeutralNavigationWebsite(context, host)) {
             if (nowMs - ts > 12_000L) return null
             return host
         }
-        // Verified hosts remain valid while staying inside the browser (e.g. reading with hidden toolbar)
-        if (nowMs - ts > 7_200_000L) return null
+        // Verified hosts remain valid while reading/watching inside the browser with a collapsed toolbar (up to 45 min)
+        if (nowMs - ts > 2_700_000L) return null
         return host
     }
 
@@ -1003,6 +1027,66 @@ object BlockPolicyEngine {
         return reconciledMs / 60_000L
     }
 
+    /**
+     * Non-reentrant browser Study vs Non-Study millisecond split used directly inside
+     * [UsageStatsHelper.finalizeWellbeingSnapshot]. Uses [knownBrowserTotalMs] directly instead
+     * of calling back into [UsageStatsHelper.getTodayScreenTimeForPackage], completely eliminating
+     * re-entrant snapshot recursion and supporting historical days accurately.
+     */
+    fun getBrowserSplitMsForSnapshot(
+        context: Context,
+        browserPackage: String,
+        knownBrowserTotalMs: Long,
+        dayStartMs: Long,
+        isToday: Boolean,
+        nowMs: Long = System.currentTimeMillis()
+    ): Pair<Long, Long> {
+        val safeTotal = knownBrowserTotalMs.coerceAtLeast(0L)
+        if (safeTotal == 0L) return 0L to 0L
+
+        val browserIsStudyOrImprove = isBrowserMarkedAsStudyOrImprove(context, browserPackage)
+
+        if (!isToday) {
+            // Historical day: use recorded website splits if available, otherwise respect browser category
+            val sites = try {
+                BrowserWebsiteTracker.getWebsitesForBrowserOnDay(context, browserPackage, dayStartMs)
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            var siteStudyMs = 0L
+            var siteNonStudyMs = 0L
+            for (s in sites) {
+                when (s.category) {
+                    "STUDY" -> siteStudyMs += s.durationMs
+                    "BLOCKED", "NON_STUDY" -> siteNonStudyMs += s.durationMs
+                }
+            }
+            return if (browserIsStudyOrImprove) {
+                val nonStudy = siteNonStudyMs.coerceIn(0L, safeTotal)
+                (safeTotal - nonStudy).coerceAtLeast(0L) to nonStudy
+            } else {
+                val study = siteStudyMs.coerceIn(0L, safeTotal)
+                study to (safeTotal - study).coerceAtLeast(0L)
+            }
+        }
+
+        val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
+        val dayKey = todayDateKey(nowMs)
+        val sameDay = prefs.getString("day_key", null) == dayKey
+        val verifiedPkgStudyMs = if (sameDay) prefs.getLong("study_ms_${browserPackage}_$dayKey", 0L) else 0L
+        val sampledPkgNonStudyMs = if (sameDay) prefs.getLong("non_study_ms_${browserPackage}_$dayKey", 0L) else 0L
+
+        return if (browserIsStudyOrImprove) {
+            val nonStudy = sampledPkgNonStudyMs.coerceIn(0L, safeTotal)
+            val study = maxOf(verifiedPkgStudyMs, (safeTotal - nonStudy).coerceAtLeast(0L)).coerceIn(0L, safeTotal)
+            study to (safeTotal - study).coerceAtLeast(0L)
+        } else {
+            val study = verifiedPkgStudyMs.coerceIn(0L, safeTotal)
+            val nonStudy = maxOf(sampledPkgNonStudyMs, (safeTotal - study).coerceAtLeast(0L)).coerceIn(0L, safeTotal)
+            (safeTotal - nonStudy).coerceAtLeast(0L) to nonStudy
+        }
+    }
+
     fun getNonStudyBrowserMinutesToday(context: Context, nowMs: Long = System.currentTimeMillis()): Long {
         val prefs = context.getSharedPreferences(PREFS_BROWSER_NON_STUDY, Context.MODE_PRIVATE)
         val dayKey = todayDateKey(nowMs)
@@ -1017,14 +1101,23 @@ object BlockPolicyEngine {
         } catch (_: Throwable) {
             0L
         }
+        // Snapshot lookup ONCE instead of calling UsageStatsHelper 27 times in a loop
+        val cachedSnap = try { UsageStatsHelper.getCachedTodaySnapshot(context) } catch (_: Throwable) { null }
         var sumUncategorizedBrowserMinutes = 0L
         var maxBrowserPkgMinutes = 0L
         for (pkg in EXTRA_BROWSER_PACKAGES) {
-            val pkgMins = try {
-                getNonStudyBrowserMinutesForPackage(context, pkg, nowMs)
-            } catch (_: Throwable) {
-                0L
-            }
+            val snapMs = cachedSnap?.perAppStats?.get(pkg)?.durationMs ?: 0L
+            val sampledNonStudyMs = if (isToday) prefs.getLong("non_study_ms_${pkg}_$dayKey", 0L) else 0L
+            if (snapMs <= 0L && sampledNonStudyMs <= 0L) continue
+            val (_, nonStudyMs) = getBrowserSplitMsForSnapshot(
+                context = context,
+                browserPackage = pkg,
+                knownBrowserTotalMs = snapMs,
+                dayStartMs = nowMs,
+                isToday = true,
+                nowMs = nowMs
+            )
+            val pkgMins = nonStudyMs / 60_000L
             if (pkgMins > maxBrowserPkgMinutes) {
                 maxBrowserPkgMinutes = pkgMins
             }
@@ -1051,9 +1144,18 @@ object BlockPolicyEngine {
 
     /**
      * Evaluates whether a specific website [rawHost] inside [browserPackage] should be allowed or blocked.
-     * - On excluded non-focus days (e.g. Sunday on a Mon–Sat schedule) and Calendar Holidays, ALL Web Shield rules are disabled.
-     * - Study websites (and non-distraction sites inside a Study/Improve-designated browser) are ALWAYS ALLOWED 24/7.
-     * - Non-study websites respect Blocked Websites, Browser Hard Block, Focus Layer, Blackout, and the 30-minute daily cap.
+     *
+     * Unified Shared Focus-Hours Browser Policy:
+     * 0. Permanent adult protection is ALWAYS enforced 24/7.
+     * 1. Outside Focus Hours (Free Time / Off-Days / Verified Holidays / Shield Paused):
+     *    FULL browser access across all browsers (website tracking keeps working 24/7!).
+     * 2. During Focus Hours (Scheduled Focus Hours / Manual Focus Mode / Deep Focus Studio):
+     *    - Explicitly Blocked Websites in Web Shield -> Blocked (unless bypassed).
+     *    - Study / Fair Websites (24/7) -> ALWAYS ALLOWED (never consume the shared 30m pool).
+     *    - Neutral navigation/search pages -> Allowed for navigation.
+     *    - Non-Study websites -> Share ONE combined 30-minute timer across ALL browsers
+     *      (Chrome + Brave + Firefox + Edge + etc. together). Once the shared 30m Focus-Hours
+     *      budget is reached, non-study browsing is blocked in ALL browsers until Focus Hours end.
      */
     fun evaluateBrowserUrl(
         context: Context,
@@ -1066,7 +1168,7 @@ object BlockPolicyEngine {
             return BlockDecision.Allowed
         }
 
-        // 0. PERMANENT ALWAYS-ON PROTECTION: Unbypassable, ignores off-days, holidays, shield pause & free windows
+        // 0. PERMANENT ALWAYS-ON PROTECTION: Unbypassable, ignores off-days, holidays, shield pause & free time
         if (isRestrictedAdultSite(host)) {
             return BlockDecision.Blocked(BlockReason.HARD_BLOCK, "Restricted Site", "ADULT_RESTRICTED")
         }
@@ -1076,12 +1178,14 @@ object BlockPolicyEngine {
             return BlockDecision.Allowed
         }
 
-        // Disable all standard Web Shield rules completely on non-focus days & verified Calendar Holidays
-        if (isWebShieldPausedForOffDay(context, nowMs)) {
+        // 1. Outside Focus Hours (Free Time / Off-Days / Holidays): Full browser access while website tracking stays active
+        if (!isFocusHoursActiveForBrowsers(context, nowMs)) {
             return BlockDecision.Allowed
         }
 
-        // 1. Explicitly blocked domain in Web Shield is always blocked (unless temporary bypass is active)
+        // --- Below this line, Focus Hours ARE actively running ---
+
+        // 2. Explicitly blocked domain in Web Shield is blocked during Focus Hours (unless bypassed)
         if (WebsitePrefs.isBlocked(context, host)) {
             if (isFastBypassActive(context, host)) {
                 return BlockDecision.Allowed
@@ -1089,39 +1193,24 @@ object BlockPolicyEngine {
             return BlockDecision.Blocked(BlockReason.WEBSITE, host)
         }
 
-        // 2. CRITICAL RULE: Study Websites (and non-distraction sites in a Study/Improve Browser) work ALL THE TIME (24/7)!
+        // 3. CRITICAL RULE: Study Websites (and non-distraction sites in a Study/Improve Browser) work ALL THE TIME (24/7)!
         if (isStudyWebsiteForBrowser(context, browserPackage, host)) {
             return BlockDecision.Allowed
         }
 
-        // 3. Neutral search engines / new-tab pages are allowed so user can navigate to study websites
+        // 4. Neutral search engines / new-tab pages are allowed so user can navigate to study websites
         if (isNeutralNavigationWebsite(context, host)) {
             return BlockDecision.Allowed
         }
 
-        // 3B. Post-Focus / Pre-Focus Browser Free-Access Window (30–60 min reward window around Focus Layer)
-        if (isBrowserFreeAccessWindowActive(context, nowMs)) {
-            return BlockDecision.Allowed
-        }
-
-        // --- Below this line, `host` is confirmed to be a NON-STUDY / DISTRACTION WEBSITE ---
+        // --- Below this line, `host` is confirmed to be a NON-STUDY WEBSITE during Focus Hours ---
 
         if (isFastBypassActive(context, host) ||
             isFastBypassActive(context, browserPackage) ||
+            isFastBypassActive(context, ALL_BROWSERS_UNBLOCK_KEY) ||
             isFastEmergencyActive(context, browserPackage)
         ) {
             return BlockDecision.Allowed
-        }
-
-        // 4. Scheduled Focus Layer, Manual Focus Mode, or Active Deep Focus Session blocks Non-Study Websites
-        if (FocusLayerManager.isScheduledActiveNow(context, nowMs)) {
-            return BlockDecision.Blocked(BlockReason.FOCUS_LAYER_SCHEDULED, host, "Non-study website blocked during Focus")
-        }
-        if (FocusLayerManager.isManualOverrideActive(context) && FocusLayerManager.isActiveNow(context)) {
-            return BlockDecision.Blocked(BlockReason.FOCUS_LAYER_MANUAL, host, "Non-study website blocked during Focus")
-        }
-        if (FocusSessionManager.snapshot.value.state == FocusSessionManager.SessionState.RUNNING) {
-            return BlockDecision.Blocked(BlockReason.FOCUS_LAYER_MANUAL, host, "Non-study website blocked during Deep Focus")
         }
 
         // 5. Browser Blackout window applies to Non-Study Websites
@@ -1131,46 +1220,31 @@ object BlockPolicyEngine {
             return BlockDecision.Blocked(BlockReason.BLACKOUT, host)
         }
 
-        // 6. Browser Non-Study Website Daily Limit (aligns with configured Break-Time Browser Allowance when enabled)
-        val customLimit = getFastLimitMinutes(context, browserPackage)
-        val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
-        val breakAllowance = if (isBrowserAccessWindowEnabled(context)) getBrowserAccessWindowMinutes(context) else 0
-        val effectiveLimit = when {
-            customLimit > 0 -> maxOf(customLimit, breakAllowance)
-            breakAllowance > 0 -> breakAllowance
-            else -> defaultCap
-        }
-        val nonStudyUsedMinutes = maxOf(
-            getNonStudyBrowserMinutesForPackage(context, browserPackage, nowMs),
-            getNonStudyBrowserMinutesToday(context, nowMs)
-        )
-
-        if (effectiveLimit > 0 && nonStudyUsedMinutes >= effectiveLimit && !isUnblockedForToday(context, browserPackage, nowMs)) {
-            if (customLimit <= 0 && !isBrowserMarkedAsStudyOrImprove(context, browserPackage)) {
-                systemStateCache["LIMIT_MINUTES_$browserPackage"] = effectiveLimit.toString()
-                cacheScope.launch {
-                    try {
-                        TimeLimitManager.setLimitMinutes(context.applicationContext, browserPackage, effectiveLimit)
-                    } catch (_: Exception) {}
-                }
-            }
-            return BlockDecision.Blocked(
-                BlockReason.DAILY_LIMIT,
-                host,
-                "Break-time browser allowance reached (${nonStudyUsedMinutes}m / ${effectiveLimit}m)"
-            )
-        }
-
-        // 7. If the user explicitly toggled Hard Block ON for this browser (and limit is not set or hard-locked),
-        // block Non-Study Websites while keeping Study Websites open 24/7!
-        if (isFastHardBlocked(context, browserPackage) && !isUnblockedForToday(context, browserPackage, nowMs)) {
+        // 6. If the user explicitly toggled Hard Block ON for this browser (and NOT unblocked for today),
+        // block Non-Study Websites during Focus Hours while keeping Study Websites open 24/7
+        val unblockedToday = isUnblockedForToday(context, ALL_BROWSERS_UNBLOCK_KEY, nowMs) ||
+            isUnblockedForToday(context, browserPackage, nowMs)
+        if (isFastHardBlocked(context, browserPackage) && !unblockedToday) {
             return BlockDecision.Blocked(
                 BlockReason.WEBSITE,
                 host,
-                "Non-study website blocked (Study websites remain open 24/7)"
+                "Non-study website blocked during Focus Hours (Study websites remain open 24/7)"
             )
         }
 
+        // 7. SHARED 30-MINUTE FOCUS-HOURS POOL ACROSS ALL BROWSERS COMBINED
+        val sharedLimit = getSharedBrowserLimitMinutes(context)
+        val sharedFocusUsedMins = getSharedFocusBrowserNonStudyMinutesToday(context, nowMs)
+
+        if (sharedLimit > 0 && sharedFocusUsedMins >= sharedLimit && !unblockedToday) {
+            return BlockDecision.Blocked(
+                BlockReason.DAILY_LIMIT,
+                host,
+                "Shared Focus-Hours browser limit reached (${sharedFocusUsedMins}m / ${sharedLimit}m across all browsers)"
+            )
+        }
+
+        // Still within the shared 30-minute Focus-Hours browser pool -> ALLOWED!
         return BlockDecision.Allowed
     }
 
@@ -1275,14 +1349,13 @@ object BlockPolicyEngine {
     fun isAppBlocked(context: Context, packageName: String): Boolean {
         if (isBrowserPackage(packageName)) {
             val nowMs = FocusLayerManager.verifiedNowMs(context)
-            if (isWebShieldPausedForOffDay(context, nowMs)) return false
-            if (isUnblockedForToday(context, packageName, nowMs)) return false
-            val customLimit = getFastLimitMinutes(context, packageName)
-            val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(context)
-            val effectiveLimit = if (customLimit > 0) customLimit else defaultCap
-            val pkgNonStudyMins = getNonStudyBrowserMinutesForPackage(context, packageName, nowMs)
-            return isFastHardBlocked(context, packageName) ||
-                pkgNonStudyMins >= effectiveLimit
+            if (!isFocusHoursActiveForBrowsers(context, nowMs)) return false
+            if (isUnblockedForToday(context, ALL_BROWSERS_UNBLOCK_KEY, nowMs) ||
+                isUnblockedForToday(context, packageName, nowMs)
+            ) return false
+            val sharedLimit = getSharedBrowserLimitMinutes(context)
+            val sharedUsed = getSharedFocusBrowserNonStudyMinutesToday(context, nowMs)
+            return isFastHardBlocked(context, packageName) || sharedUsed >= sharedLimit
         }
         return evaluateApp(context, packageName) is BlockDecision.Blocked
     }
@@ -1296,6 +1369,14 @@ object BlockPolicyEngine {
             HardBlockManager.setHardBlocked(context, packageName, blocked)
         } catch (_: Exception) {}
         setUnblockedForToday(context, packageName, !blocked)
+        if (isBrowserPackage(packageName)) {
+            if (!blocked) {
+                setUnblockedForToday(context, ALL_BROWSERS_UNBLOCK_KEY, true)
+            } else {
+                setUnblockedForToday(context, ALL_BROWSERS_UNBLOCK_KEY, false)
+            }
+            return
+        }
         if (blocked) {
             val existingLimit = getFastLimitMinutes(context, packageName)
             if (existingLimit <= 0) {
@@ -1307,6 +1388,10 @@ object BlockPolicyEngine {
     }
 
     fun setTimeLimit(context: Context, packageName: String, minutes: Int) {
+        if (isBrowserPackage(packageName)) {
+            setSharedBrowserLimitMinutes(context, minutes)
+            return
+        }
         systemStateCache["LIMIT_MINUTES_$packageName"] = minutes.toString()
         TimeLimitManager.setLimitMinutes(context, packageName, minutes)
         if (minutes > 0) {

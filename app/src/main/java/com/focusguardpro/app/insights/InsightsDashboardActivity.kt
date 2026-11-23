@@ -34,10 +34,14 @@ import com.focusguardpro.app.R
 import com.focusguardpro.app.RingProgressView
 import com.focusguardpro.app.StepPrefs
 import com.focusguardpro.app.UiThemePrefs
+import com.focusguardpro.app.DistanceHelper
 import com.focusguardpro.app.UsageStatsHelper
 import com.focusguardpro.app.db.AppDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -250,7 +254,8 @@ class InsightsDashboardActivity : AppCompatActivity() {
             synergyHeroRing.progress = quickScore / 100f
             val showMins = if (hasSplit) todayStudyMins else todayTotalMins
             tvAvgFocus.text = "${showMins / 60}h ${showMins % 60}m"
-            tvAvgSteps.text = "Syncing..."
+            val quickSteps = try { StepPrefs.getDailySteps(this).coerceAtLeast(0) } catch (_: Throwable) { 0 }
+            tvAvgSteps.text = if (quickSteps > 0) String.format(Locale.getDefault(), "%,d", quickSteps) else "—"
         }
 
         DailyRollupManager.rollupIfNeeded(applicationContext)
@@ -293,6 +298,72 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 }
             } catch (_: Throwable) {}
 
+            val nowMs = System.currentTimeMillis()
+            val oldestCal = Calendar.getInstance().apply {
+                timeInMillis = nowMs
+                add(Calendar.DAY_OF_YEAR, -(days - 1))
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val rangeStartMs = oldestCal.timeInMillis
+
+            // Trigger non-blocking background Health Connect sync once instead of blocking per day
+            ActivityTelemetryEngine.triggerBackgroundHealthConnectSync(appCtx, days.coerceAtLeast(7))
+
+            val walkSessionsByDayKey = try {
+                DistanceHelper.getSessions(appCtx, rangeStartMs, nowMs)
+                    .groupBy { keyFmt.format(Date(it.startTime)) }
+            } catch (_: Throwable) {
+                emptyMap()
+            }
+
+            // Build day descriptors once and fetch recent WellbeingSnapshots in PARALLEL
+            data class DayDescriptor(
+                val idx: Int,
+                val dateStr: String,
+                val dayKey: String,
+                val dStart: Long,
+                val dEnd: Long
+            )
+
+            val descriptors = ArrayList<DayDescriptor>(days)
+            val cal = Calendar.getInstance()
+            for (i in 0 until days) {
+                cal.timeInMillis = nowMs
+                cal.add(Calendar.DAY_OF_YEAR, -i)
+                val dateStr = displayFmt.format(cal.time)
+                val dayKey = keyFmt.format(cal.time)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val dStart = cal.timeInMillis
+                val dEnd = if (i == 0) nowMs else dStart + 86_400_000L - 1L
+                descriptors.add(DayDescriptor(i, dateStr, dayKey, dStart, dEnd))
+            }
+
+            val wellbeingByDayKey = HashMap<String, UsageStatsHelper.WellbeingSnapshot?>(12)
+            coroutineScope {
+                descriptors.filter { it.idx <= 9 }.map { desc ->
+                    async(Dispatchers.IO) {
+                        val snap = try {
+                            if (desc.idx == 0) {
+                                UsageStatsHelper.getTodayWellbeingSnapshot(appCtx, forceRefresh = false)
+                            } else {
+                                UsageStatsHelper.getDayWellbeingSnapshot(appCtx, desc.dStart, desc.dEnd, forceRefresh = false)
+                            }
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        desc.dayKey to snap
+                    }
+                }.awaitAll().forEach { (dk, snap) ->
+                    wellbeingByDayKey[dk] = snap
+                }
+            }
+
             val dayList = ArrayList<DayInsight>(days)
             val localStudyMap = HashMap<String, Int>()
             val localDistractMap = HashMap<String, Int>()
@@ -308,32 +379,14 @@ class InsightsDashboardActivity : AppCompatActivity() {
             var totalWorkoutScore = 0
             var countedDays = 0
 
-            val cal = Calendar.getInstance()
-            val nowMs = System.currentTimeMillis()
+            for (desc in descriptors) {
+                val i = desc.idx
+                val dateStr = desc.dateStr
+                val dayKey = desc.dayKey
+                val dStart = desc.dStart
+                val dEnd = desc.dEnd
 
-            for (i in 0 until days) {
-                cal.timeInMillis = nowMs
-                cal.add(Calendar.DAY_OF_YEAR, -i)
-                val dateStr = displayFmt.format(cal.time)
-                val dayKey = keyFmt.format(cal.time)
-
-                cal.set(Calendar.HOUR_OF_DAY, 0)
-                cal.set(Calendar.MINUTE, 0)
-                cal.set(Calendar.SECOND, 0)
-                cal.set(Calendar.MILLISECOND, 0)
-                val dStart = cal.timeInMillis
-                val dEnd = if (i == 0) nowMs else dStart + 86_400_000L - 1L
-
-                // Query categorized WellbeingSnapshot for the recent 10-day Android UsageEvents window
-                val wellbeingSnap = try {
-                    when {
-                        i == 0 -> UsageStatsHelper.getTodayWellbeingSnapshot(appCtx, forceRefresh = false)
-                        i <= 9 -> UsageStatsHelper.getDayWellbeingSnapshot(appCtx, dStart, dEnd, forceRefresh = false)
-                        else -> null
-                    }
-                } catch (_: Throwable) {
-                    null
-                }
+                val wellbeingSnap = wellbeingByDayKey[dayKey]
 
                 val hasSplit = wellbeingSnap != null &&
                     (wellbeingSnap.studyMs + wellbeingSnap.improveMs + wellbeingSnap.distractMs + wellbeingSnap.utilityMs) > 0L
@@ -353,13 +406,18 @@ class InsightsDashboardActivity : AppCompatActivity() {
                     (wellbeingSnap.totalScreenTimeMs / 60_000L).toInt().coerceIn(0, 1440)
                 } else if (i == 0) {
                     (UsageStatsHelper.getTodayScreenTimeMillis(appCtx) / 60_000L).toInt().coerceIn(0, 1440)
-                } else {
-                    val fromHist = (UsageStatsHelper.getHistoricalDayScreenTimeMillis(appCtx, dStart, dEnd) / 60_000L).toInt()
+                } else if (i <= 9) {
+                    val fromHist = (UsageStatsHelper.getCachedHistoricalDayTotalMillis(appCtx, dStart).coerceAtLeast(0L) / 60_000L).toInt()
                     if (fromHist > 0) {
                         fromHist.coerceIn(0, 1080)
                     } else {
                         (snapshotMinutesByDay[dayKey] ?: 0).coerceIn(0, 1080)
                     }
+                } else {
+                    // Older than 10 days: use Room DailyUsageSnapshot or cached historical total directly (never scan pruned UsageEvents)
+                    val cachedMs = UsageStatsHelper.getCachedHistoricalDayTotalMillis(appCtx, dStart)
+                    val fromCached = if (cachedMs > 0L) (cachedMs / 60_000L).toInt() else 0
+                    max(fromCached, snapshotMinutesByDay[dayKey] ?: 0).coerceIn(0, 1080)
                 }
 
                 localStudyMap[dateStr] = studyMins
@@ -370,15 +428,13 @@ class InsightsDashboardActivity : AppCompatActivity() {
                     studySplitDays++
                 }
 
-                val steps = if (i == 0) {
-                    max(todaySteps, ActivityTelemetryEngine.getHistoricalStepsForDay(appCtx, dStart))
-                } else {
-                    try {
-                        ActivityTelemetryEngine.getHistoricalStepsForDay(appCtx, dStart)
-                    } catch (_: Throwable) {
-                        0
-                    }
+                val daySessionSteps = walkSessionsByDayKey[dayKey]?.sumOf { it.steps } ?: 0
+                val localSteps = try {
+                    ActivityTelemetryEngine.getFastLocalStepsForDay(appCtx, dStart, preloadedDaySessionSteps = daySessionSteps) ?: 0
+                } catch (_: Throwable) {
+                    0
                 }
+                val steps = if (i == 0) max(todaySteps, localSteps) else localSteps
 
                 val exerciseSets = exerciseLogs.count { log ->
                     log.timestamp in dStart..dEnd
@@ -422,7 +478,11 @@ class InsightsDashboardActivity : AppCompatActivity() {
             val avgDailySteps = (totalSteps / denom).coerceAtLeast(0)
             val bestDay = dayList.maxByOrNull { it.score }
             val disciplineReport = try {
-                DisciplineDataRepository.loadPeriodInsights(appCtx, days)
+                DisciplineDataRepository.loadPeriodInsights(
+                    context = appCtx,
+                    periodDays = days,
+                    precomputedWellbeingByDateKey = wellbeingByDayKey
+                )
             } catch (_: Throwable) {
                 null
             }

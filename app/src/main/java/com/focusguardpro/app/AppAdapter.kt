@@ -109,27 +109,35 @@ class AppAdapter(
         val isWhitelisted = ((isStudy || isImprove) && !isIgnored) || unblockedTodayPkgs.contains(app.packageName)
 
         val isOffDayWebPaused = isBrowser && BlockPolicyEngine.isWebShieldPausedForOffDay(context)
-        val browserWinStatus = if (isBrowser && !isOffDayWebPaused) {
-            BlockPolicyEngine.getBrowserAccessWindowStatus(context)
-        } else {
-            null
-        }
-        val browserBreakAllowance = if (isBrowser && browserWinStatus?.isEnabled == true) {
-            browserWinStatus.durationMinutes
-        } else {
-            0
-        }
+        val browserPool = if (isBrowser) BlockPolicyEngine.getSharedBrowserPoolStatus(context) else null
+        val isBrowserFreeTime = isBrowser && browserPool != null && !browserPool.isFocusHoursActive
+
         val effectiveLimit = when {
+            isBrowser -> browserPool?.limitMinutes ?: BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES
             isIgnored -> if (limitMins in 1..29) limitMins else 30
-            isBrowser && browserBreakAllowance > 0 -> maxOf(limitMins, browserBreakAllowance)
             limitMins > 0 -> limitMins
             else -> defaultCap
         }
-        val isBrowserFreeWindow = browserWinStatus?.isActiveNow == true
-        val isLimitReached = usedMinutesToday >= effectiveLimit && !isWhitelisted && !isOffDayWebPaused && !isBrowserFreeWindow
+        val displayUsedMins = if (isBrowser) {
+            browserPool?.usedFocusMinutes ?: 0
+        } else {
+            usedMinutesToday
+        }
+        val isLimitReached = if (isBrowser) {
+            browserPool?.isFocusHoursActive == true &&
+                displayUsedMins >= effectiveLimit &&
+                !isWhitelisted &&
+                !BlockPolicyEngine.isUnblockedForToday(context, BlockPolicyEngine.ALL_BROWSERS_UNBLOCK_KEY)
+        } else {
+            usedMinutesToday >= effectiveLimit && !isWhitelisted
+        }
 
-        // Show Blue Tick (✓) whenever app is blocked (hard block, suggestion block, or limit reached)
-        val showBlueTick = !isOffDayWebPaused && !isBrowserFreeWindow && (app.isBlocked || hardBlocked || isLimitReached)
+        // Show Blue Tick (✓) whenever app is actively restricted (for browsers: only during Focus Hours)
+        val showBlueTick = if (isBrowser) {
+            browserPool?.isFocusHoursActive == true && (hardBlocked || isLimitReached) && !isWhitelisted
+        } else {
+            app.isBlocked || hardBlocked || isLimitReached
+        }
 
         val isWhiteBg = UiThemePrefs.isWhiteBackgroundActive(context)
         val isBlackBg = UiThemePrefs.isBlackBackgroundActive(context)
@@ -140,7 +148,7 @@ class AppAdapter(
         val blueTickColor = if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
         val opensSuffix = if (launchesToday > 0) " • $launchesToday opens" else ""
         val browserStudySuffix = if (isBrowser) " · Study ${studyBrowserMins}m" else ""
-        val quotaBar = buildInlineQuotaBar(usedMinutesToday, effectiveLimit, isWhitelisted)
+        val quotaBar = buildInlineQuotaBar(displayUsedMins, effectiveLimit, isWhitelisted)
 
         if (showBlueTick && showBadgeDetails) {
             val sb = SpannableStringBuilder()
@@ -156,9 +164,9 @@ class AppAdapter(
 
             val statusLine = when {
                 isBrowser && isLimitReached ->
-                    "\n$quotaBar ✓ Study 24/7 • Non-Study Limit (${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix)$opensSuffix"
+                    "\n$quotaBar ✓ Shared Focus Pool Full (${displayUsedMins}m / ${effectiveLimit}m all browsers$browserStudySuffix)$opensSuffix"
                 isBrowser ->
-                    "\n$quotaBar ✓ Study 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix$opensSuffix"
+                    "\n$quotaBar ✓ Focus Guard • Shared Pool: ${displayUsedMins}m / ${effectiveLimit}m$browserStudySuffix$opensSuffix"
                 isLimitReached && isIgnored ->
                     "\n$quotaBar ✓ Ignored 30m Cap Reached (${usedMinutesToday}m / ${effectiveLimit}m)$opensSuffix"
                 isLimitReached ->
@@ -193,13 +201,13 @@ class AppAdapter(
             val subStart = sb.length
             val subText = when {
                 isOffDayWebPaused ->
-                    "\n🌿 Off-Day: Web Shield Paused • All Sites Open (${totalBrowserMins}m today)$opensSuffix"
-                isBrowserFreeWindow ->
-                    "\n🎁 Browser Access Window (${browserWinStatus?.remainingMinutes ?: 0}m left) • Non-Study Open (${totalBrowserMins}m today)$opensSuffix"
+                    "\n🌿 Off-Day • Full Browser Access (${totalBrowserMins}m today$browserStudySuffix)$opensSuffix"
+                isBrowserFreeTime ->
+                    "\n✨ Free Time • Full Access (${totalBrowserMins}m today$browserStudySuffix) • ${effectiveLimit}m in Focus$opensSuffix"
                 isBrowser && (isStudy || isImprove) && !isIgnored ->
-                    "\n🟢 Study Browser 24/7 • Distraction Sites Guarded • ${totalBrowserMins}m today$opensSuffix"
+                    "\n🟢 Study Browser 24/7 • Distractions Guarded • ${totalBrowserMins}m today$opensSuffix"
                 isBrowser ->
-                    "\n$quotaBar Study Sites 24/7 • Non-Study: ${usedMinutesToday}m / ${effectiveLimit}m$browserStudySuffix$opensSuffix"
+                    "\n$quotaBar Shared Focus Pool: ${displayUsedMins}m / ${effectiveLimit}m • Study 24/7 (${totalBrowserMins}m today)$opensSuffix"
                 isIgnored ->
                     "\n🟠 Ignored (${effectiveLimit}m Cap) • ${usedMinutesToday}m / ${effectiveLimit}m today$opensSuffix"
                 isStudy ->
@@ -211,12 +219,11 @@ class AppAdapter(
             }
             sb.append(subText)
             val subColor = when {
-                isOffDayWebPaused -> if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399")
-                isBrowserFreeWindow -> if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
+                isOffDayWebPaused || isBrowserFreeTime -> if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399")
                 isIgnored -> if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B")
                 isStudy -> if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399")
                 isImprove -> if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8")
-                usedMinutesToday >= (effectiveLimit * 0.8f).roundToInt() -> if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B")
+                displayUsedMins >= (effectiveLimit * 0.8f).roundToInt() -> if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B")
                 else -> UiThemePrefs.getScreenSubHeaderTextColor(context)
             }
             sb.setSpan(
@@ -259,6 +266,14 @@ class AppAdapter(
         holder.limitButton.textSize = 12.5f
 
         when {
+            isBrowser && showBlueTick -> {
+                holder.limitButton.text = "✓ ${effectiveLimit}m"
+                holder.limitButton.setTextColor(blueTickColor)
+            }
+            isBrowser -> {
+                holder.limitButton.text = "${effectiveLimit}m ⚙"
+                holder.limitButton.setTextColor(palette.accentColor)
+            }
             showBlueTick && limitMins > 0 -> {
                 holder.limitButton.text = "✓ ${limitMins}m"
                 holder.limitButton.setTextColor(blueTickColor)

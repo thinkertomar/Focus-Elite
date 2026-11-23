@@ -407,6 +407,12 @@ class EliteCalendarActivity : AppCompatActivity(), SelfThemedDisciplineActivity 
         val month = displayMonthCal.get(Calendar.MONTH)
         tvPeriodTitle.text = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(displayMonthCal.time)
 
+        // Frame-0 instant paint: never leave the calendar body blank while IO loads
+        if (mainCalendarContent.childCount == 0) {
+            renderActiveCalendarView()
+            renderSelectedDayOverview()
+        }
+
         loadJob = lifecycleScope.launch {
             try {
                 val (daysMap, summary) = withContext(Dispatchers.IO) {

@@ -159,29 +159,73 @@ object SystemExclusions {
     @Volatile
     private var cachedInputMethods: Set<String>? = null
     @Volatile
+    private var cachedDefaultIme: String? = null
+    @Volatile
     private var lastImeFetchTime: Long = 0L
+
+    @Volatile
+    private var cachedDefaultLauncher: String? = null
+    @Volatile
+    private var cachedDefaultDialer: String? = null
+    @Volatile
+    private var cachedDefaultSms: String? = null
+    @Volatile
+    private var lastDefaultsFetchTime: Long = 0L
+
+    private val systemFlagCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>(256)
+    private val excludedDecisionCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>(256)
+    @Volatile
+    private var decisionCacheEpochMs: Long = 0L
+
+    fun onPackageChanged(packageName: String) {
+        if (packageName.isBlank()) return
+        systemFlagCache.remove(packageName)
+        excludedDecisionCache.remove(packageName)
+    }
+
+    fun invalidateCache() {
+        lastImeFetchTime = 0L
+        lastDefaultsFetchTime = 0L
+        systemFlagCache.clear()
+        excludedDecisionCache.clear()
+        decisionCacheEpochMs = 0L
+    }
+
+    private fun refreshDefaultsIfNeeded(context: Context, now: Long) {
+        if (now - lastDefaultsFetchTime < 60_000L && lastDefaultsFetchTime > 0L) return
+        val appCtx = context.applicationContext
+        cachedDefaultLauncher = queryDefaultLauncher(appCtx)
+        cachedDefaultDialer = queryDefaultDialer(appCtx)
+        cachedDefaultSms = queryDefaultSmsPackage(appCtx)
+        lastDefaultsFetchTime = now
+        if (now - decisionCacheEpochMs > 60_000L) {
+            excludedDecisionCache.clear()
+            decisionCacheEpochMs = now
+        }
+    }
 
     fun isInputMethod(context: Context, packageName: String): Boolean {
         if (packageName.isBlank()) return false
         val now = System.currentTimeMillis()
         var imes = cachedInputMethods
-        if (imes == null || now - lastImeFetchTime > 30000L) {
+        if (imes == null || now - lastImeFetchTime > 60_000L) {
             imes = try {
                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                 imm?.inputMethodList?.map { it.packageName }?.toSet() ?: emptySet()
             } catch (_: Exception) {
                 emptySet()
             }
+            cachedDefaultIme = try {
+                Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+            } catch (_: Exception) {
+                null
+            }
             cachedInputMethods = imes
             lastImeFetchTime = now
         }
         if (imes.contains(packageName)) return true
 
-        val defaultIme = try {
-            Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-        } catch (_: Exception) {
-            null
-        }
+        val defaultIme = cachedDefaultIme
         if (!defaultIme.isNullOrBlank() && defaultIme.startsWith("$packageName/")) {
             return true
         }
@@ -209,24 +253,39 @@ object SystemExclusions {
         }
         if (SYSTEM_UTILITY_PACKAGES.contains(packageName)) return true
         if (ESSENTIAL_UTILITY_PACKAGES.contains(packageName)) return true
+
+        val now = System.currentTimeMillis()
+        refreshDefaultsIfNeeded(context, now)
+
+        excludedDecisionCache[packageName]?.let { return it }
+
+        val decision = computeSystemOrCoreUtilityApp(context, packageName)
+        excludedDecisionCache[packageName] = decision
+        return decision
+    }
+
+    private fun computeSystemOrCoreUtilityApp(context: Context, packageName: String): Boolean {
         if (isInputMethod(context, packageName)) return true
-        if (packageName == defaultLauncher(context)) return true
-        if (packageName == defaultDialer(context)) return true
-        if (packageName == defaultSmsPackage(context)) return true
+        if (packageName == cachedDefaultLauncher) return true
+        if (packageName == cachedDefaultDialer) return true
+        if (packageName == cachedDefaultSms) return true
 
         // Never treat known pre-installed distraction / browser / social apps as exempt system utilities
         if (isPreinstalledDistractionPackage(packageName)) {
             return false
         }
 
+        systemFlagCache[packageName]?.let { return it }
+
         // Check Android ApplicationInfo flags for system/ROM apps (Camera, Gallery, Clock, Calculator, Settings, OEM tools)
-        return try {
+        val isSystemFlag = try {
             val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
-            val isSystemFlag = (appInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
-            isSystemFlag
+            (appInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
         } catch (_: Exception) {
             false
         }
+        systemFlagCache[packageName] = isSystemFlag
+        return isSystemFlag
     }
 
     fun isPreinstalledDistractionPackage(packageName: String): Boolean {
@@ -244,24 +303,32 @@ object SystemExclusions {
         return isSystemOrCoreUtilityApp(context, packageName)
     }
 
-    private fun defaultLauncher(context: Context): String? {
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        val resolveInfo = context.packageManager.resolveActivity(intent, 0)
-        return resolveInfo?.activityInfo?.packageName
-    }
-
-    private fun defaultDialer(context: Context): String? {
-        val tm = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
-        val telecomDefault = tm?.defaultDialerPackage
-        if (!telecomDefault.isNullOrBlank()) {
-            return telecomDefault
+    private fun queryDefaultLauncher(context: Context): String? {
+        return try {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+            resolveInfo?.activityInfo?.packageName
+        } catch (_: Throwable) {
+            null
         }
-        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:"))
-        val resolveInfo = context.packageManager.resolveActivity(intent, 0)
-        return resolveInfo?.activityInfo?.packageName
     }
 
-    private fun defaultSmsPackage(context: Context): String? {
+    private fun queryDefaultDialer(context: Context): String? {
+        return try {
+            val tm = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+            val telecomDefault = tm?.defaultDialerPackage
+            if (!telecomDefault.isNullOrBlank()) {
+                return telecomDefault
+            }
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:"))
+            val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+            resolveInfo?.activityInfo?.packageName
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun queryDefaultSmsPackage(context: Context): String? {
         return try {
             Telephony.Sms.getDefaultSmsPackage(context)
         } catch (_: Throwable) {

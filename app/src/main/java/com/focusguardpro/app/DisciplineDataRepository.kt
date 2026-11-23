@@ -855,22 +855,26 @@ object DisciplineDataRepository {
     // Calendar Aggregation (Month / Week / Agenda / Single Day)
     // -------------------------------------------------------------------------
 
-    fun getStepsOrNullForDate(context: Context, dateKey: String, dayStartMs: Long): Int? {
+    fun getStepsOrNullForDate(
+        context: Context,
+        dateKey: String,
+        dayStartMs: Long,
+        preloadedDaySessionSteps: Int? = null
+    ): Int? {
         val today = todayKey(context)
         if (dateKey > today) return null
-        if (dateKey == today) {
-            val live = try { StepPrefs.getDailySteps(context) } catch (_: Throwable) { 0 }
-            val telemetry = try { ActivityTelemetryEngine.getHistoricalStepsForDay(context, dayStartMs) } catch (_: Throwable) { 0 }
-            val hist = try { StepHistoryManager.getStepsForDay(context, dateKey) } catch (_: Throwable) { null }
-            val best = max(max(live, telemetry), hist ?: 0)
-            return if (best > 0 || hist != null) best else 0
-        }
-        val hist = try { StepHistoryManager.getStepsForDay(context, dateKey) } catch (_: Throwable) { null }
-        val telemetry = try { ActivityTelemetryEngine.getHistoricalStepsForDay(context, dayStartMs) } catch (_: Throwable) { 0 }
-        return when {
-            hist != null -> max(hist, telemetry)
-            telemetry > 0 -> telemetry
-            else -> null // Missing record — NOT a failed 0-step day!
+        return try {
+            ActivityTelemetryEngine.getFastLocalStepsForDay(
+                context = context,
+                dayStartMs = dayStartMs,
+                preloadedDaySessionSteps = preloadedDaySessionSteps
+            )
+        } catch (_: Throwable) {
+            if (dateKey == today) {
+                try { StepPrefs.getDailySteps(context) } catch (_: Throwable) { 0 }
+            } else {
+                try { StepHistoryManager.getStepsForDay(context, dateKey) } catch (_: Throwable) { null }
+            }
         }
     }
 
@@ -928,12 +932,17 @@ object DisciplineDataRepository {
             emptyMap()
         }
 
-        val walkSessionsByDate = try {
+        // Trigger non-blocking background Health Connect sync instead of blocking 30x in the day loop
+        ActivityTelemetryEngine.triggerBackgroundHealthConnectSync(context, 31)
+
+        val allWalkSessionsByDate = try {
             DistanceHelper.getSessions(context, rangeStartMs, rangeEndMs)
-                .filter { it.distanceKm >= 0.12 || it.durationMillis >= 90_000L }
                 .groupBy { dateKeyForMs(it.startTime) }
         } catch (_: Throwable) {
             emptyMap()
+        }
+        val walkSessionsByDate = allWalkSessionsByDate.mapValues { (_, list) ->
+            list.filter { it.distanceKm >= 0.12 || it.durationMillis >= 90_000L }
         }
 
         val auditByDate = try {
@@ -952,7 +961,8 @@ object DisciplineDataRepository {
         while (!cursor.after(endCal)) {
             val dk = dateKeyFor(cursor)
             val dStart = cursor.timeInMillis
-            val steps = getStepsOrNullForDate(context, dk, dStart)
+            val daySessionSteps = allWalkSessionsByDate[dk]?.sumOf { it.steps } ?: 0
+            val steps = getStepsOrNullForDate(context, dk, dStart, preloadedDaySessionSteps = daySessionSteps)
             val diary = diariesByDate[dk]
             val jMeta = journalMetaMap[dk]
             val dayWorkouts = workoutsByDate[dk] ?: emptyList()
@@ -1047,7 +1057,11 @@ object DisciplineDataRepository {
     // Transparent Discipline Insights Report (Zero Invented Historical Data)
     // -------------------------------------------------------------------------
 
-    fun loadPeriodInsights(context: Context, periodDays: Int): PeriodInsightsReport {
+    fun loadPeriodInsights(
+        context: Context,
+        periodDays: Int,
+        precomputedWellbeingByDateKey: Map<String, UsageStatsHelper.WellbeingSnapshot?>? = null
+    ): PeriodInsightsReport {
         val today = todayKey(context)
         val startKey = addDays(today, -(periodDays - 1))
         val dayMap = loadDayRangeSummaries(context, startKey, today)
@@ -1137,11 +1151,15 @@ object DisciplineDataRepository {
             val daysAgo = ((startOfDayMs(today) - s.dayStartMs) / 86_400_000L).toInt()
             if (daysAgo !in 0..9) continue
             val dEnd = if (dk == today) nowMs else s.dayStartMs + 86_400_000L - 1L
-            val snap = try {
-                if (dk == today) UsageStatsHelper.getTodayWellbeingSnapshot(context, forceRefresh = false)
-                else UsageStatsHelper.getDayWellbeingSnapshot(context, s.dayStartMs, dEnd, forceRefresh = false)
-            } catch (_: Throwable) {
-                null
+            val snap = if (precomputedWellbeingByDateKey != null && precomputedWellbeingByDateKey.containsKey(dk)) {
+                precomputedWellbeingByDateKey[dk]
+            } else {
+                try {
+                    if (dk == today) UsageStatsHelper.getTodayWellbeingSnapshot(context, forceRefresh = false)
+                    else UsageStatsHelper.getDayWellbeingSnapshot(context, s.dayStartMs, dEnd, forceRefresh = false)
+                } catch (_: Throwable) {
+                    null
+                }
             }
             if (snap != null && (snap.studyMs + snap.improveMs + snap.distractMs + snap.utilityMs) > 0L) {
                 val pMins = ((snap.studyMs + snap.improveMs) / 60_000L).toInt().coerceIn(0, 1440)

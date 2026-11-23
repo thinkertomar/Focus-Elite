@@ -575,11 +575,11 @@ class MainActivity : AppCompatActivity() {
         val clockTampered = SettingsTamperGuard.isClockTamperActive(this)
 
         val isWebOffDayPaused = BlockPolicyEngine.isWebShieldPausedForOffDay(this)
-        val browserWin = BlockPolicyEngine.getBrowserAccessWindowStatus(this)
-        val browserWinSuffix = if (browserWin.isActiveNow && !isWebOffDayPaused) {
-            " • 🎁 Free Browser (${browserWin.remainingMinutes}m left)"
-        } else {
-            ""
+        val browserPool = BlockPolicyEngine.getSharedBrowserPoolStatus(this)
+        val browserSuffix = when {
+            isWebOffDayPaused -> ""
+            browserPool.isFocusHoursActive -> " • 🌐 Browsers: ${browserPool.remainingFocusMinutes}m/${browserPool.limitMinutes}m left"
+            else -> " • ✨ Full Browser Access"
         }
         val isMuteActiveNow = FocusNotificationMuteService.isMutingRightNow(this) &&
             FocusNotificationMuteService.isNotificationListenerEnabled(this)
@@ -601,11 +601,6 @@ class MainActivity : AppCompatActivity() {
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399"))
                 focusLayerStatusSubtitle?.text = "Schedule ($windowSummary) rests today • All sites open ($currentTimeStr)"
             }
-            browserWin.isActiveNow -> {
-                focusLayerStatusTitle?.text = "🌤️ Break Time • Browser Access (${browserWin.remainingMinutes}m/${browserWin.durationMinutes}m left)"
-                focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8"))
-                focusLayerStatusSubtitle?.text = "${browserWin.scheduleLabel} ($currentTimeStr)"
-            }
             graceMins > 0 -> {
                 focusLayerStatusTitle?.text = "⚡ Pre-Window Grace Period ($graceMins min left)"
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#0284C7") else Color.parseColor("#38BDF8"))
@@ -619,17 +614,17 @@ class MainActivity : AppCompatActivity() {
                 }
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B"))
                 focusLayerStatusSubtitle?.text = sameDayRejection
-                    ?: "Zero-escape active ($currentTimeStr)$muteSuffix • Tap for Proof-of-Effort"
+                    ?: "Zero-escape active ($currentTimeStr)$browserSuffix$muteSuffix • Tap for Proof-of-Effort"
             }
             isScheduled -> {
                 focusLayerStatusTitle?.text = "🟢 Focus Layer Active ($windowSummary)"
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399"))
-                focusLayerStatusSubtitle?.text = "Active right now ($currentTimeStr)$muteSuffix • Tap to customize"
+                focusLayerStatusSubtitle?.text = "Active right now ($currentTimeStr)$browserSuffix$muteSuffix • Tap to customize"
             }
             else -> {
-                focusLayerStatusTitle?.text = "Focus Layer: $windowSummary"
+                focusLayerStatusTitle?.text = "✨ Free Time • Outside Focus ($windowSummary)"
                 focusLayerStatusTitle?.setTextColor(headerTitleColor)
-                focusLayerStatusSubtitle?.text = "$currentTimeStr (Outside Window)$muteSuffix$browserWinSuffix • Tap to configure"
+                focusLayerStatusSubtitle?.text = "$currentTimeStr • Full browser access (${browserPool.limitMinutes}m shared in Focus)$muteSuffix • Tap to configure"
             }
         }
         focusLayerStatusSubtitle?.setTextColor(headerSubColor)
@@ -1077,6 +1072,12 @@ class MainActivity : AppCompatActivity() {
             val limitMinsByPkg = HashMap<String, Int>()
             val unblockedTodayPkgs = HashSet<String>()
 
+            val browserPoolStatus = BlockPolicyEngine.getSharedBrowserPoolStatus(this@MainActivity)
+            val allBrowsersUnblocked = BlockPolicyEngine.isUnblockedForToday(
+                this@MainActivity,
+                BlockPolicyEngine.ALL_BROWSERS_UNBLOCK_KEY
+            )
+
             val appModels = resolveInfos.mapNotNull { ri ->
                 val pkg = ri.activityInfo?.packageName ?: return@mapNotNull null
                 if (pkg == packageName) return@mapNotNull null
@@ -1090,7 +1091,7 @@ class MainActivity : AppCompatActivity() {
                 val stat = snapshot?.perAppStats?.get(pkg)
                 val rawPkgMins = ((stat?.durationMs ?: 0L) / 60_000L).toInt()
                 val usedMins = if (isBrowser) {
-                    BlockPolicyEngine.getNonStudyBrowserMinutesForPackage(this@MainActivity, pkg).toInt()
+                    browserPoolStatus.usedFocusMinutes
                 } else {
                     rawPkgMins
                 }
@@ -1098,12 +1099,17 @@ class MainActivity : AppCompatActivity() {
                 totalBrowserMinsMap[pkg] = rawPkgMins
                 launchesMap[pkg] = stat?.launchCount ?: 0
 
-                val limitMins = TimeLimitManager.getLimitMinutes(this@MainActivity, pkg)
+                val limitMins = if (isBrowser) {
+                    browserPoolStatus.limitMinutes
+                } else {
+                    TimeLimitManager.getLimitMinutes(this@MainActivity, pkg)
+                }
                 if (limitMins > 0) {
                     limitMinsByPkg[pkg] = limitMins
                 }
                 val hardBlocked = hardBlockedApps.contains(pkg)
-                val isUnblocked = BlockPolicyEngine.isUnblockedForToday(this@MainActivity, pkg)
+                val isUnblocked = BlockPolicyEngine.isUnblockedForToday(this@MainActivity, pkg) ||
+                    (isBrowser && allBrowsersUnblocked)
                 if (isUnblocked) {
                     unblockedTodayPkgs.add(pkg)
                 }
@@ -1111,20 +1117,29 @@ class MainActivity : AppCompatActivity() {
                 val isIgnored = ignoredApps.contains(pkg)
                 val isWhitelisted = ((studyApps.contains(pkg) || improveApps.contains(pkg)) && !isIgnored) || isUnblocked
                 val effectiveCap = when {
+                    isBrowser -> browserPoolStatus.limitMinutes
                     isIgnored -> if (limitMins in 1..29) limitMins else 30
                     limitMins > 0 -> limitMins
                     else -> defaultCap
                 }
-                val reachedCap = usedMins >= effectiveCap && !isWhitelisted
+                val reachedCap = if (isBrowser) {
+                    browserPoolStatus.isFocusHoursActive && usedMins >= effectiveCap && !isWhitelisted
+                } else {
+                    usedMins >= effectiveCap && !isWhitelisted
+                }
 
-                if (reachedCap && limitMins <= 0) {
+                if (!isBrowser && reachedCap && limitMins <= 0) {
                     try {
                         TimeLimitManager.setLimitMinutes(this@MainActivity, pkg, effectiveCap)
                         limitMinsByPkg[pkg] = effectiveCap
                     } catch (_: Exception) {}
                 }
 
-                val isBlockedNow = hardBlocked || reachedCap
+                val isBlockedNow = if (isBrowser) {
+                    browserPoolStatus.isFocusHoursActive && (hardBlocked || reachedCap) && !isWhitelisted
+                } else {
+                    hardBlocked || reachedCap
+                }
                 AppModel(name, pkg, icon, isBlockedNow)
             }
                 .distinctBy { it.packageName }
@@ -1290,9 +1305,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showLimitDialog(app: AppModel, usedMinutesToday: Int) {
-        val currentLimit = TimeLimitManager.getLimitMinutes(this, app.packageName)
-        val defaultCap = UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
         val isBrowser = BlockPolicyEngine.isBrowserPackage(app.packageName)
+        val browserPool = if (isBrowser) BlockPolicyEngine.getSharedBrowserPoolStatus(this) else null
+        val currentLimit = if (isBrowser) {
+            browserPool?.limitMinutes ?: BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES
+        } else {
+            TimeLimitManager.getLimitMinutes(this, app.packageName)
+        }
+        val defaultCap = if (isBrowser) {
+            BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES
+        } else {
+            UiThemePrefs.getDefaultSuggestionLimitMinutes(this)
+        }
         val stat = UsageStatsHelper.getTodayWellbeingSnapshot(this).perAppStats[app.packageName]
         val exactTimeStr = UsageStatsHelper.formatPreciseDuration(stat?.durationMs ?: (usedMinutesToday * 60_000L))
         val opensCount = stat?.launchCount ?: 0
@@ -1305,7 +1329,7 @@ class MainActivity : AppCompatActivity() {
 
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
-            hint = "Minutes per day (default $defaultCap)"
+            hint = if (isBrowser) "Shared Focus-Hours cap (default 30m)" else "Minutes per day (default $defaultCap)"
             setText((if (currentLimit > 0) currentLimit else defaultCap).toString())
             setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
         }
@@ -1348,12 +1372,19 @@ class MainActivity : AppCompatActivity() {
         container.addView(presetRow)
         container.addView(input)
 
+        val dialogTitle = if (isBrowser) {
+            "Shared Browser Timer (All Browsers)"
+        } else {
+            "Daily Time Limit — ${app.appName}"
+        }
         val dialogMessage = if (isBrowser) {
-            "Digital Wellbeing Telemetry Today:\n" +
-                "• Non-Study Web Time: $usedMinutesToday min\n" +
-                "• Total Browser Time: $exactTimeStr ($opensCount opens)\n" +
-                "• Study Websites: Allowed 24/7 with no limit\n\n" +
-                "Select a preset or enter daily Non-Study Website cap (minutes):"
+            val sharedUsed = browserPool?.usedFocusMinutes ?: 0
+            "All browsers (Chrome, Brave, Firefox, Edge, etc.) share ONE combined Focus-Hours non-study timer:\n" +
+                "• Shared Focus Pool Used: ${sharedUsed}m / ${currentLimit}m\n" +
+                "• ${app.appName} Total Today: $exactTimeStr ($opensCount opens)\n" +
+                "• Study Websites: Allowed 24/7 (never use the timer)\n" +
+                "• Free Time (Outside Focus): Full browser access + website tracking\n\n" +
+                "Set shared Focus-Hours timer for ALL browsers (minutes):"
         } else {
             "Digital Wellbeing Telemetry Today:\n" +
                 "• Screen Time: $exactTimeStr ($opensCount opens · longest $longestStr)\n\n" +
@@ -1361,61 +1392,66 @@ class MainActivity : AppCompatActivity() {
         }
 
         AlertDialog.Builder(this)
-            .setTitle("Daily Time Limit — ${app.appName}")
+            .setTitle(dialogTitle)
             .setMessage(dialogMessage)
             .setView(container)
             .setPositiveButton("Save & Apply ✓") { _, _ ->
                 val minutes = input.text.toString().toIntOrNull() ?: 0
                 val isLooseningLimit = (currentLimit > 0 && (minutes == 0 || minutes > currentLimit))
-                if (isLooseningLimit && FocusLayerManager.isLockedUntilCalendarHoliday(this)) {
-                    CognitiveFrictionGate.show(
-                        context = this,
-                        title = "Increase Limit — ${app.appName}",
-                        reasonPrompt = "Increasing or clearing a daily cap during active Fortress Lock requires Physical Proof-of-Effort."
-                    ) {
-                        BlockPolicyEngine.setTimeLimit(this, app.packageName, minutes)
-                        if (minutes > 0 && usedMinutesToday < minutes) {
-                            HardBlockManager.setHardBlocked(this, app.packageName, false)
-                        }
-                        Toast.makeText(
-                            this,
-                            if (minutes > 0) "🔓 ${app.appName} limit updated to ${minutes}m/day" else "🔓 Custom limit cleared for ${app.appName}",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        loadAppList()
-                    }
-                } else {
+                val applyAction = {
                     BlockPolicyEngine.setTimeLimit(this, app.packageName, minutes)
                     if (!isBrowser && minutes > 0 && usedMinutesToday >= minutes) {
                         HardBlockManager.setHardBlocked(this, app.packageName, true)
-                    } else if (minutes > 0 && usedMinutesToday < minutes) {
+                    } else if (!isBrowser && minutes > 0 && usedMinutesToday < minutes) {
                         HardBlockManager.setHardBlocked(this, app.packageName, false)
                     }
-                    Toast.makeText(
-                        this,
-                        if (minutes > 0) "✓ ${app.appName} limit set to ${minutes}m/day" else "Custom limit cleared for ${app.appName}",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    val toastMsg = if (isBrowser) {
+                        val applied = BlockPolicyEngine.getSharedBrowserLimitMinutes(this)
+                        "✓ Shared Focus-Hours browser timer set to ${applied}m across all browsers"
+                    } else if (minutes > 0) {
+                        "✓ ${app.appName} limit set to ${minutes}m/day"
+                    } else {
+                        "Custom limit cleared for ${app.appName}"
+                    }
+                    Toast.makeText(this, toastMsg, Toast.LENGTH_SHORT).show()
                     loadAppList()
+                }
+                if (isLooseningLimit && FocusLayerManager.isLockedUntilCalendarHoliday(this)) {
+                    CognitiveFrictionGate.show(
+                        context = this,
+                        title = "Increase Limit — ${if (isBrowser) "All Browsers" else app.appName}",
+                        reasonPrompt = "Increasing or clearing a daily cap during active Fortress Lock requires Physical Proof-of-Effort."
+                    ) {
+                        applyAction()
+                    }
+                } else {
+                    applyAction()
                 }
             }
             .setNeutralButton("Clear Limit & Unblock") { _, _ ->
+                val clearAction = {
+                    if (isBrowser) {
+                        BlockPolicyEngine.setSharedBrowserLimitMinutes(this, BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES)
+                        HardBlockManager.setHardBlocked(this, app.packageName, false)
+                        BlockPolicyEngine.setUnblockedForToday(this, app.packageName, true)
+                        BlockPolicyEngine.setUnblockedForToday(this, BlockPolicyEngine.ALL_BROWSERS_UNBLOCK_KEY, true)
+                    } else {
+                        TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
+                        HardBlockManager.setHardBlocked(this, app.packageName, false)
+                        BlockPolicyEngine.setUnblockedForToday(this, app.packageName, true)
+                    }
+                    loadAppList()
+                }
                 if (FocusLayerManager.isLockedUntilCalendarHoliday(this)) {
                     CognitiveFrictionGate.show(
                         context = this,
                         title = "Clear Limit & Unblock — ${app.appName}",
                         reasonPrompt = "Unblocking ${app.appName} during active Fortress Lock requires Physical Proof-of-Effort."
                     ) {
-                        TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
-                        HardBlockManager.setHardBlocked(this, app.packageName, false)
-                        BlockPolicyEngine.setUnblockedForToday(this, app.packageName, true)
-                        loadAppList()
+                        clearAction()
                     }
                 } else {
-                    TimeLimitManager.setLimitMinutes(this, app.packageName, 0)
-                    HardBlockManager.setHardBlocked(this, app.packageName, false)
-                    BlockPolicyEngine.setUnblockedForToday(this, app.packageName, true)
-                    loadAppList()
+                    clearAction()
                 }
             }
             .setNegativeButton("Cancel", null)
