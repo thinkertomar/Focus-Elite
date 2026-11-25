@@ -245,14 +245,9 @@ class FocusForegroundMonitorService : Service() {
                     a11y.evaluateActiveBrowserFromMonitor(fgPkg)
                 } else {
                     val lastHost = BlockPolicyEngine.getLastActiveBrowserHost(this, fgPkg, nowMs)
-                    val hostToEval = when {
-                        !lastHost.isNullOrBlank() -> lastHost
-                        !BlockPolicyEngine.isBrowserMarkedAsStudyOrImprove(this, fgPkg) -> "non-study-browsing.local"
-                        else -> null
-                    }
-                    if (!hostToEval.isNullOrBlank()) {
-                        BlockPolicyEngine.recordBrowserWebsiteSample(this, fgPkg, hostToEval, nowMs)
-                        val urlDecision = BlockPolicyEngine.evaluateBrowserUrl(this, fgPkg, hostToEval, nowMs)
+                    if (!lastHost.isNullOrBlank()) {
+                        BlockPolicyEngine.recordBrowserWebsiteSample(this, fgPkg, lastHost, nowMs)
+                        val urlDecision = BlockPolicyEngine.evaluateBrowserUrl(this, fgPkg, lastHost, nowMs)
                         if (urlDecision is BlockDecision.Blocked) {
                             triggerEnforcement(urlDecision.target, urlDecision.reason.wireKey, nowMs, isWebsite = true, blockedPkgName = fgPkg)
                             return
@@ -278,12 +273,13 @@ class FocusForegroundMonitorService : Service() {
         isWebsite: Boolean = false,
         blockedPkgName: String = target
     ) {
-        // Debounce repeated blocks of the same target within 1200ms
-        if (target == lastBlockedPkg && nowMs - lastBlockedTimeMs < 1200L) {
+        // Debounce repeated blocks of the same target using hardware monotonic clock (900ms)
+        val nowElapsed = SystemClock.elapsedRealtime()
+        if (target == lastBlockedPkg && nowElapsed - lastBlockedTimeMs < 900L) {
             return
         }
         lastBlockedPkg = target
-        lastBlockedTimeMs = nowMs
+        lastBlockedTimeMs = nowElapsed
 
         // Clear tracker package to reset state
         if (!isWebsite) {
@@ -395,15 +391,23 @@ class FocusForegroundMonitorService : Service() {
     private fun getActiveForegroundPackages(): List<String> {
         val a11y = BlockerAccessibilityService.instance
         if (a11y != null) {
-            return try {
+            val live = try {
                 a11y.getAllLiveVisiblePackages().filter { it.isNotBlank() && it != "com.android.systemui" }
             } catch (_: Throwable) {
                 emptyList()
             }
+            if (live.isNotEmpty()) {
+                return live
+            }
         }
 
-        val primary = getActiveForegroundPackage()
+        val primary = try {
+            UsageStatsHelper.getForegroundPackage(this)
+        } catch (_: Throwable) {
+            null
+        }
         return if (!primary.isNullOrBlank() && primary != "com.android.systemui") {
+            lastResolvedUsagesPkg = primary
             listOf(primary)
         } else {
             emptyList()

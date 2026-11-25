@@ -27,11 +27,13 @@ import com.focusguardpro.app.ActivityTelemetryEngine
 import com.focusguardpro.app.DailyRollupManager
 import com.focusguardpro.app.DisciplineDataRepository
 import com.focusguardpro.app.EliteCalendarActivity
+import com.focusguardpro.app.EliteDailyNotebookActivity
 import com.focusguardpro.app.EliteJournalActivity
 import com.focusguardpro.app.EliteTasksActivity
 import com.focusguardpro.app.GoalPrefs
 import com.focusguardpro.app.R
 import com.focusguardpro.app.RingProgressView
+import com.focusguardpro.app.SmartSleepEngine
 import com.focusguardpro.app.StepPrefs
 import com.focusguardpro.app.UiThemePrefs
 import com.focusguardpro.app.DistanceHelper
@@ -80,6 +82,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
     private val studyMinsByDate = HashMap<String, Int>()
     private val distractMinsByDate = HashMap<String, Int>()
     private val hasSplitByDate = HashMap<String, Boolean>()
+    private val sleepByDate = HashMap<String, SmartSleepEngine.SleepDetectionResult>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,20 +114,30 @@ class InsightsDashboardActivity : AppCompatActivity() {
             onDaySelected = { day ->
                 val studyM = studyMinsByDate[day.dateStr]
                 val hasSplit = hasSplitByDate[day.dateStr] == true
+                val sleep = sleepByDate[day.dateStr]
                 val labelTime = if (hasSplit && studyM != null) {
                     "📚 ${studyM / 60}h ${studyM % 60}m study"
                 } else {
                     "${day.screenTimeMinutes / 60}h ${day.screenTimeMinutes % 60}m screen"
                 }
+                val setsTag = if (day.exerciseSets > 0) " + ${day.exerciseSets} sets" else ""
+                val sleepTag = if (sleep != null && sleep.hasValidSleep) {
+                    " • 🌙 ${sleep.grade} (${SmartSleepEngine.formatDuration(sleep.effectiveSleepMs)})"
+                } else ""
                 tvTrendCurveCallout.text =
-                    "${formatShortDate(day.dateStr)}: ${day.score}/100 ($labelTime • ${String.format(Locale.US, "%,d", day.steps)} steps)"
+                    "${formatShortDate(day.dateStr)}: ${day.score}/100 ($labelTime • ${String.format(Locale.US, "%,d", day.steps)} stp$setsTag$sleepTag)"
             }
         }
         curveContainer.addView(trendCurveView)
 
+        // Tap Sleep & Recovery KPI tile to open Daily Notebook Sleep Center
+        (tvAvgBestDay.parent as? View)?.setOnClickListener {
+            startActivity(Intent(this, EliteDailyNotebookActivity::class.java))
+        }
+
         // Transparent formula caption & dedicated Personal Discipline Consistency slot
         findViewById<TextView>(R.id.tvInsightsSubtitle)?.text =
-            "Formula: Study & Hygiene (40) + Steps (35) + Workouts (25)"
+            "Formula: Study & Focus (40) + Fitness Tracker (35) + Sleep & Recovery (25)"
         val trendCard = findViewById<View>(R.id.cardSynergyTrendCurve)
         val mainColumn = trendCard?.parent as? LinearLayout
         if (mainColumn != null) {
@@ -236,6 +249,43 @@ class InsightsDashboardActivity : AppCompatActivity() {
             totalScreenMins <= 480 -> 26
             else -> (26 - ((totalScreenMins - 480) / 30) * 4).coerceIn(8, 26)
         }
+    }
+
+    /**
+     * Fitness Tracker Pillar (0–35 points):
+     * Combines Daily Steps (0–23 pts) + Genuine Daily Exercise Sets logged in ExerciseDao (0–12 pts).
+     * Walking sessions are strictly NEVER counted as workout sets; they contribute only via steps
+     * (plus a capped +2..+3 cardio endurance credit on >=125% step days when 0 strength sets are logged,
+     * capped at 26/35 so genuine exercise sets are needed for top fitness scores).
+     */
+    private fun computeFitnessTrackerScore(
+        steps: Int,
+        stepGoal: Int,
+        genuineExerciseSets: Int
+    ): Int {
+        val safeGoal = stepGoal.coerceAtLeast(1000)
+        val stepRatio = steps.toFloat() / safeGoal.toFloat()
+        val stepPts = (stepRatio * 23f).roundToInt().coerceIn(0, 23)
+        val setPts = when {
+            genuineExerciseSets >= 4 -> 12
+            genuineExerciseSets == 3 -> 10
+            genuineExerciseSets == 2 -> 7
+            genuineExerciseSets == 1 -> 4
+            stepRatio >= 1.50f -> 3
+            stepRatio >= 1.25f -> 2
+            else -> 0
+        }
+        val total = (stepPts + setPts).coerceIn(0, 35)
+        return if (genuineExerciseSets == 0) total.coerceAtMost(26) else total
+    }
+
+    /**
+     * Clinical Sleep & Recovery Pillar (0–25 points):
+     * Maps SmartSleepEngine's 5-domain sleep medicine recovery score (0–100) into 0–25 pillar points.
+     */
+    private fun computeSleepRecoveryPillarScore(sleep: SmartSleepEngine.SleepDetectionResult?): Int {
+        if (sleep == null || !sleep.hasValidSleep || sleep.qualityScore <= 0) return 0
+        return ((sleep.qualityScore * 25f) / 100f).roundToInt().coerceIn(1, 25)
     }
 
     private fun loadInsights(days: Int) {
@@ -364,10 +414,20 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 }
             }
 
+            // Sync & load multi-day clinical Sleep & Recovery summary across the selected period
+            val periodSleep = try {
+                SmartSleepEngine.syncRecentNightsArchive(appCtx, lookbackDays = days.coerceAtMost(14))
+                SmartSleepEngine.getPeriodRecoverySummary(appCtx, periodDays = days)
+            } catch (_: Throwable) {
+                null
+            }
+            val sleepByDayKey = periodSleep?.dailyNights?.toMap().orEmpty()
+
             val dayList = ArrayList<DayInsight>(days)
             val localStudyMap = HashMap<String, Int>()
             val localDistractMap = HashMap<String, Int>()
             val localSplitMap = HashMap<String, Boolean>()
+            val localSleepMap = HashMap<String, SmartSleepEngine.SleepDetectionResult>()
 
             var totalScreenMins = 0
             var totalStudyMins = 0
@@ -375,8 +435,9 @@ class InsightsDashboardActivity : AppCompatActivity() {
             var totalSteps = 0
             var totalScore = 0
             var totalScreenScore = 0
-            var totalStepScore = 0
-            var totalWorkoutScore = 0
+            var totalFitnessScore = 0
+            var totalSleepPillarScore = 0
+            var sleepTrackedDays = 0
             var countedDays = 0
 
             for (desc in descriptors) {
@@ -436,21 +497,36 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 }
                 val steps = if (i == 0) max(todaySteps, localSteps) else localSteps
 
+                // Strictly genuine ExerciseDao logs — walking sessions are NEVER counted as workout sets
                 val exerciseSets = exerciseLogs.count { log ->
                     log.timestamp in dStart..dEnd
                 }
 
+                val sleepResult = sleepByDayKey[dayKey]
+                val hasSleep = sleepResult != null && sleepResult.hasValidSleep
+                if (hasSleep && sleepResult != null) {
+                    localSleepMap[dateStr] = sleepResult
+                }
+
                 val screenScore = computeStudyAndFocusScore(studyMins, distractMins, screenTimeMins, hasSplit)
-                val stepScore = ((steps.toFloat() / stepGoal.toFloat()) * 35f).toInt().coerceIn(0, 35)
-                val exerciseScore = (exerciseSets * 5).coerceIn(0, 25)
-                val dayScore = (screenScore + stepScore + exerciseScore).coerceIn(0, 100)
+                val fitnessScore = computeFitnessTrackerScore(steps, stepGoal, exerciseSets)
+                val sleepPillarScore = computeSleepRecoveryPillarScore(sleepResult)
+                val dayScore = if (hasSleep) {
+                    (screenScore + fitnessScore + sleepPillarScore).coerceIn(0, 100)
+                } else {
+                    // Fair scaling across tracked pillars (75 max -> 100) when no overnight sleep record exists yet
+                    (((screenScore + fitnessScore) * 100f) / 75f).roundToInt().coerceIn(0, 100)
+                }
 
                 totalScreenMins += screenTimeMins
                 totalSteps += steps
                 totalScore += dayScore
                 totalScreenScore += screenScore
-                totalStepScore += stepScore
-                totalWorkoutScore += exerciseScore
+                totalFitnessScore += fitnessScore
+                if (hasSleep) {
+                    totalSleepPillarScore += sleepPillarScore
+                    sleepTrackedDays++
+                }
                 countedDays++
 
                 dayList.add(
@@ -461,8 +537,8 @@ class InsightsDashboardActivity : AppCompatActivity() {
                         exerciseSets = exerciseSets,
                         score = dayScore,
                         screenScore = screenScore,
-                        stepScore = stepScore,
-                        exerciseScore = exerciseScore,
+                        stepScore = fitnessScore,
+                        exerciseScore = sleepPillarScore,
                         stepGoal = stepGoal
                     )
                 )
@@ -471,12 +547,11 @@ class InsightsDashboardActivity : AppCompatActivity() {
             val denom = countedDays.coerceAtLeast(1)
             val avgScore = (totalScore / denom).coerceIn(0, 100)
             val avgScreenPts = (totalScreenScore / denom).coerceIn(0, 40)
-            val avgStepPts = (totalStepScore / denom).coerceIn(0, 35)
-            val avgWorkoutPts = (totalWorkoutScore / denom).coerceIn(0, 25)
+            val avgFitnessPts = (totalFitnessScore / denom).coerceIn(0, 35)
+            val avgSleepPts = if (sleepTrackedDays > 0) (totalSleepPillarScore / sleepTrackedDays).coerceIn(0, 25) else 0
             val avgMins = (totalScreenMins / denom).coerceAtLeast(0)
             val avgStudyMins = if (studySplitDays > 0) (totalStudyMins / studySplitDays).coerceAtLeast(0) else avgMins
             val avgDailySteps = (totalSteps / denom).coerceAtLeast(0)
-            val bestDay = dayList.maxByOrNull { it.score }
             val disciplineReport = try {
                 DisciplineDataRepository.loadPeriodInsights(
                     context = appCtx,
@@ -495,6 +570,8 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 distractMinsByDate.putAll(localDistractMap)
                 hasSplitByDate.clear()
                 hasSplitByDate.putAll(localSplitMap)
+                sleepByDate.clear()
+                sleepByDate.putAll(localSleepMap)
 
                 tvSynergyScore.text = "$avgScore/100"
                 synergyHeroRing.progress = (avgScore / 100f).coerceIn(0f, 1f)
@@ -513,19 +590,21 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 tvPillarScreenScore.text = "$avgScreenPts / 40"
                 pbPillarScreen.progress = (avgScreenPts * 100) / 40
 
-                tvPillarStepScore.text = "$avgStepPts / 35"
-                pbPillarStep.progress = (avgStepPts * 100) / 35
+                tvPillarStepScore.text = "$avgFitnessPts / 35"
+                pbPillarStep.progress = (avgFitnessPts * 100) / 35
 
-                tvPillarWorkoutScore.text = "$avgWorkoutPts / 25"
-                pbPillarWorkout.progress = (avgWorkoutPts * 100) / 25
+                if (periodSleep != null && periodSleep.trackedNights > 0) {
+                    tvPillarWorkoutScore.text = "${periodSleep.grade} · $avgSleepPts/25"
+                    pbPillarWorkout.progress = periodSleep.avgRecoveryScore.coerceIn(0, 100)
+                    tvAvgBestDay.text = "${periodSleep.grade} · ${SmartSleepEngine.formatDuration(periodSleep.avgEffectiveSleepMs)}"
+                } else {
+                    tvPillarWorkoutScore.text = "— / 25"
+                    pbPillarWorkout.progress = 0
+                    tvAvgBestDay.text = "No data"
+                }
 
                 tvAvgFocus.text = "${avgStudyMins / 60}h ${avgStudyMins % 60}m"
                 tvAvgSteps.text = String.format(Locale.getDefault(), "%,d", avgDailySteps)
-                if (bestDay != null) {
-                    tvAvgBestDay.text = "${bestDay.score} pts (${formatShortDate(bestDay.dateStr)})"
-                } else {
-                    tvAvgBestDay.text = "— pts"
-                }
 
                 // Chronological order (oldest -> newest) for the Synergy Trend Curve
                 val chronological = dayList.reversed()
@@ -554,6 +633,9 @@ class InsightsDashboardActivity : AppCompatActivity() {
                                     startActivity(Intent(this@InsightsDashboardActivity, EliteJournalActivity::class.java).apply {
                                         putExtra(EliteJournalActivity.EXTRA_INITIAL_MODE, EliteJournalActivity.MODE_HISTORY)
                                     })
+                                },
+                                onOpenNotebook = {
+                                    startActivity(Intent(this@InsightsDashboardActivity, com.focusguardpro.app.EliteSleepHistoryActivity::class.java))
                                 }
                             )
                         )
@@ -617,6 +699,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
         val hasSplit = hasSplitByDate[day.dateStr] == true
         val studyMins = studyMinsByDate[day.dateStr] ?: 0
         val distractMins = distractMinsByDate[day.dateStr] ?: 0
+        val sleep = sleepByDate[day.dateStr]
 
         if (hasSplit) {
             if (studyMins < STUDY_TARGET_MINUTES) {
@@ -634,15 +717,31 @@ class InsightsDashboardActivity : AppCompatActivity() {
             tips.add("Total screen time reached ${h}h ${m}m. Keep distracting apps capped while preserving study sessions.")
         }
 
-        if (day.stepScore < 21) {
+        // Fitness Tracker guidance (Steps + Genuine Exercise Sets, walking excluded from workout sets)
+        if (day.steps < day.stepGoal) {
             val remaining = (day.stepGoal - day.steps).coerceAtLeast(0)
-            tips.add("You were ${String.format(Locale.getDefault(), "%,d", remaining)} steps shy of your ${String.format(Locale.getDefault(), "%,d", day.stepGoal)} daily step target.")
+            tips.add("Fitness Tracker: ${String.format(Locale.getDefault(), "%,d", remaining)} steps shy of your ${String.format(Locale.getDefault(), "%,d", day.stepGoal)} daily step goal.")
         }
-        if (day.exerciseScore < 15) {
-            tips.add("Log at least 3 calisthenics or workout sets to unlock full physical synergy points.")
+        if (day.exerciseSets < 3) {
+            tips.add("Log ${3 - day.exerciseSets}+ dedicated strength/exercise sets (walking sessions count toward steps only) to unlock full 35/35 Fitness Tracker points.")
         }
+
+        // Clinical Sleep & Recovery guidance (AASM sleep medicine standards)
+        if (sleep != null && sleep.hasValidSleep) {
+            val effMins = (sleep.effectiveSleepMs / 60_000L).toInt()
+            val awakeMins = (sleep.awakeTotalMs / 60_000L).toInt()
+            when {
+                effMins < 420 -> tips.add("Sleep Medicine Note: ${SmartSleepEngine.formatDuration(sleep.effectiveSleepMs)} effective sleep is below the 7–9h restorative window (Grade ${sleep.grade}). Aim for an earlier wind-down tonight.")
+                sleep.efficiencyPct < 85 -> tips.add("Sleep Efficiency was ${sleep.efficiencyPct}% with ${awakeMins}m awake after sleep onset. Keep the phone out of reach during night awakenings.")
+                effMins > 570 -> tips.add("Extended sleep (${SmartSleepEngine.formatDuration(sleep.effectiveSleepMs)}) can signal accumulated sleep debt or circadian drift — stabilize wake time within ±30 min.")
+                sleep.qualityScore >= 84 -> tips.add("Restorative recovery achieved (Grade ${sleep.grade} · ${sleep.qualityScore}/100, ${sleep.efficiencyPct}% efficiency).")
+            }
+        } else {
+            tips.add("Sleep & Recovery pending for this date — review or log your overnight sleep in Daily Notebook for clinical recovery grading.")
+        }
+
         if (tips.isEmpty()) {
-            tips.add("Outstanding discipline across study target, low distraction, movement, and exercise!")
+            tips.add("Outstanding discipline across study target, fitness tracker, and restorative sleep!")
         }
         return tips
     }
@@ -651,6 +750,8 @@ class InsightsDashboardActivity : AppCompatActivity() {
         val view = LayoutInflater.from(this).inflate(R.layout.dialog_day_report_card, null)
         val grade = gradeFor(day.score)
         val gColor = gradeColor(day.score)
+        val sleep = sleepByDate[day.dateStr]
+        val hasSleep = sleep != null && sleep.hasValidSleep
 
         view.findViewById<TextView>(R.id.tvReportDate)?.text = day.dateStr
         view.findViewById<TextView>(R.id.tvReportGrade)?.apply {
@@ -671,8 +772,14 @@ class InsightsDashboardActivity : AppCompatActivity() {
         view.findViewById<TextView>(R.id.tvStepScoreLabel)?.text = "${day.stepScore} / 35"
         view.findViewById<ProgressBar>(R.id.pbStepScore)?.progress = (day.stepScore * 100) / 35
 
-        view.findViewById<TextView>(R.id.tvExerciseScoreLabel)?.text = "${day.exerciseScore} / 25"
-        view.findViewById<ProgressBar>(R.id.pbExerciseScore)?.progress = (day.exerciseScore * 100) / 25
+        if (hasSleep && sleep != null) {
+            view.findViewById<TextView>(R.id.tvExerciseScoreLabel)?.text =
+                "Grade ${sleep.grade} (${sleep.qualityScore}/100) · ${day.exerciseScore}/25"
+            view.findViewById<ProgressBar>(R.id.pbExerciseScore)?.progress = sleep.qualityScore.coerceIn(0, 100)
+        } else {
+            view.findViewById<TextView>(R.id.tvExerciseScoreLabel)?.text = "Pending · —/25"
+            view.findViewById<ProgressBar>(R.id.pbExerciseScore)?.progress = 0
+        }
 
         val h = day.screenTimeMinutes / 60
         val m = day.screenTimeMinutes % 60
@@ -686,8 +793,15 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 append("• Distracting Time: ${distractM / 60}h ${distractM % 60}m\n")
             }
             append("• Total Screen Time: ${h}h ${m}m\n")
-            append("• Steps: ${String.format(Locale.getDefault(), "%,d", day.steps)} / ${String.format(Locale.getDefault(), "%,d", day.stepGoal)}\n")
-            append("• Exercise Sets: ${day.exerciseSets}")
+            append("• Fitness Tracker: ${String.format(Locale.getDefault(), "%,d", day.steps)} / ${String.format(Locale.getDefault(), "%,d", day.stepGoal)} steps")
+            append(" + ${day.exerciseSets} exercise set${if (day.exerciseSets == 1) "" else "s"} (walks excluded)\n")
+            if (hasSleep && sleep != null) {
+                val awStr = if (sleep.awakenings.isNotEmpty()) " · ${sleep.awakenings.size} wake-up (${sleep.awakeTotalMs / 60_000L}m)" else " · Uninterrupted"
+                append("• Sleep & Recovery: ${SmartSleepEngine.formatDuration(sleep.effectiveSleepMs)} (${SmartSleepEngine.formatClock(sleep.bedtimeMs)}–${SmartSleepEngine.formatClock(sleep.wakeTimeMs)}) · ${sleep.efficiencyPct}% eff$awStr\n")
+                append("• Clinical Recovery: Grade ${sleep.grade} (${sleep.qualityScore}/100 · ${sleep.qualityLabel})")
+            } else {
+                append("• Sleep & Recovery: No overnight record logged")
+            }
         }.toString()
         view.findViewById<TextView>(R.id.tvReportRawStats)?.text = rawStats
 
@@ -959,7 +1073,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
             topRow.addView(leftCol)
             topRow.addView(tvBadge)
 
-            // 3-Pillar Mini Proportion Bar (Screen Cyan + Steps Emerald + Sets Amber)
+            // 3-Pillar Mini Proportion Bar (Study Cyan + Fitness Emerald + Sleep & Recovery Indigo)
             val barTrack = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -984,7 +1098,7 @@ class InsightsDashboardActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
             }
             val s3 = View(ctx).apply {
-                setBackgroundColor(Color.parseColor("#F59E0B"))
+                setBackgroundColor(Color.parseColor("#818CF8"))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
             }
             barTrack.addView(s1)
@@ -1006,14 +1120,20 @@ class InsightsDashboardActivity : AppCompatActivity() {
             val h = item.screenTimeMinutes / 60
             val m = item.screenTimeMinutes % 60
             val stepsStr = String.format(Locale.US, "%,d", item.steps)
-            val setsStr = if (item.exerciseSets > 0) " • 💪 ${item.exerciseSets} sets" else ""
+            val setsStr = if (item.exerciseSets > 0) " + ${item.exerciseSets} sets" else ""
+            val sleep = sleepByDate[item.dateStr]
+            val sleepStr = if (sleep != null && sleep.hasValidSleep) {
+                " • 🌙 ${SmartSleepEngine.formatDuration(sleep.effectiveSleepMs)} (${sleep.grade})"
+            } else {
+                ""
+            }
             val hasSplit = hasSplitByDate[item.dateStr] == true
             val studyM = studyMinsByDate[item.dateStr] ?: 0
             val distractM = distractMinsByDate[item.dateStr] ?: 0
             holder.tvSubStats.text = if (hasSplit) {
-                "📚 ${studyM / 60}h ${studyM % 60}m study • 🚫 ${distractM}m dist • 👟 $stepsStr$setsStr"
+                "📚 ${studyM / 60}h ${studyM % 60}m • 🚫 ${distractM}m • 🏃 $stepsStr$setsStr$sleepStr"
             } else {
-                "📱 ${h}h ${m}m screen  •  👟 $stepsStr steps$setsStr"
+                "📱 ${h}h ${m}m • 🏃 $stepsStr$setsStr$sleepStr"
             }
 
             val accent = scoreAccentColor(item.score)

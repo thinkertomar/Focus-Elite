@@ -225,6 +225,8 @@ class ActivityStatsActivity : AppCompatActivity() {
             val current = GoalPrefs.getStepGoal(this)
             showGoalDialog("Daily Step Goal", current) { newGoal ->
                 GoalPrefs.setStepGoal(this, newGoal)
+                CommandDeckWidgetPrefs.setDailyStepGoal(this, newGoal)
+                FocusWidgetService.syncTelemetryNow(this)
                 lifecycleScope.launch {
                     refreshStepStats()
                     loadWeeklyTrend()
@@ -951,22 +953,147 @@ class ActivityStatsActivity : AppCompatActivity() {
     }
 
     private fun showGoalDialog(title: String, current: Int, onSave: (Int) -> Unit) {
+        val density = resources.displayMetrics.density
+        val isLight = UiThemePrefs.isWhiteBackgroundActive(this)
+        val surfaceBg = if (isLight) Color.WHITE else Color.parseColor("#111824")
+        val inputBg = if (isLight) Color.parseColor("#F1F5F9") else Color.parseColor("#182232")
+        val borderCol = if (isLight) Color.parseColor("#CBD5E1") else Color.parseColor("#253447")
+        val primaryText = if (isLight) Color.parseColor("#0F172A") else Color.parseColor("#F1F5F9")
+        val secondaryText = if (isLight) Color.parseColor("#64748B") else Color.parseColor("#8995A3")
+        val emerald = Color.parseColor("#16D99A")
+
+        val isStepGoal = title.contains("Step", ignoreCase = true)
+        val isCalorieGoal = title.contains("Calorie", ignoreCase = true)
+        val presets = when {
+            isStepGoal -> listOf(5000, 6000, 8000, 10000, 12000)
+            isCalorieGoal -> listOf(1800, 2000, 2200, 2500, 3000)
+            else -> listOf(30, 45, 60, 90, 120)
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((20 * density).toInt(), (18 * density).toInt(), (20 * density).toInt(), (18 * density).toInt())
+            background = GradientDrawable().apply {
+                cornerRadius = 20f * density
+                setColor(surfaceBg)
+                setStroke((1.2f * density).toInt(), borderCol)
+            }
+        }
+
+        container.addView(TextView(this).apply {
+            text = title
+            textSize = 18f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(primaryText)
+        })
+        container.addView(TextView(this).apply {
+            text = if (isStepGoal) {
+                "Synced across Activity, Discipline Insights & Command Deck"
+            } else {
+                "Set a sustainable daily benchmark"
+            }
+            textSize = 12f
+            setTextColor(secondaryText)
+            setPadding(0, (4 * density).toInt(), 0, (14 * density).toInt())
+        })
+
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
             setText(current.toString())
             setSelection(text.length)
+            textSize = 22f
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(primaryText)
+            setHintTextColor(secondaryText)
+            setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
+            background = GradientDrawable().apply {
+                cornerRadius = 14f * density
+                setColor(inputBg)
+                setStroke((1.5f * density).toInt(), emerald)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (12 * density).toInt() }
         }
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                val v = input.text.toString().toIntOrNull()
+        container.addView(input)
+
+        val presetScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (16 * density).toInt() }
+        }
+        val presetRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        presets.forEach { preset ->
+            val label = if (isStepGoal) "${preset / 1000}k" else preset.toString()
+            presetRow.addView(TextView(this).apply {
+                text = label
+                textSize = 12.5f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(if (preset == current) Color.parseColor("#080D12") else primaryText)
+                setPadding((13 * density).toInt(), (7 * density).toInt(), (13 * density).toInt(), (7 * density).toInt())
+                background = GradientDrawable().apply {
+                    cornerRadius = 11f * density
+                    setColor(if (preset == current) emerald else inputBg)
+                    setStroke((1 * density).toInt(), borderCol)
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = (7 * density).toInt() }
+                setOnClickListener {
+                    input.setText(preset.toString())
+                    input.setSelection(input.text.length)
+                }
+            })
+        }
+        presetScroll.addView(presetRow)
+        container.addView(presetScroll)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(container)
+            .create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        btnRow.addView(Button(this).apply {
+            text = "Cancel"
+            isAllCaps = false
+            textSize = 13.5f
+            setTextColor(secondaryText)
+            background = GradientDrawable().apply {
+                cornerRadius = 12f * density
+                setColor(inputBg)
+            }
+            layoutParams = LinearLayout.LayoutParams(0, (44 * density).toInt(), 1f).apply {
+                marginEnd = (8 * density).toInt()
+            }
+            setOnClickListener { dialog.dismiss() }
+        })
+        btnRow.addView(Button(this).apply {
+            text = "Save Goal"
+            isAllCaps = false
+            textSize = 13.5f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#080D12"))
+            background = GradientDrawable().apply {
+                cornerRadius = 12f * density
+                setColor(emerald)
+            }
+            layoutParams = LinearLayout.LayoutParams(0, (44 * density).toInt(), 1.3f)
+            setOnClickListener {
+                val v = input.text.toString().trim().toIntOrNull()
                 if (v != null && v > 0) {
                     onSave(v)
+                    dialog.dismiss()
                 }
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        })
+        container.addView(btnRow)
+        dialog.show()
     }
 
     private fun refreshWeightDisplay() {

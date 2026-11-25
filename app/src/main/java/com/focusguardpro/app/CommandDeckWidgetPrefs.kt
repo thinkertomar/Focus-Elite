@@ -9,6 +9,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import com.focusguardpro.app.db.AppDatabase
+import java.util.Calendar
 import java.util.Locale
 import kotlin.math.min
 
@@ -24,6 +26,8 @@ object CommandDeckWidgetPrefs {
     private const val KEY_STEP_GOAL = "daily_step_goal"
     private const val KEY_QUICK_FOCUS_MINS = "quick_focus_mins"
     private const val KEY_AUTO_40HZ = "auto_40hz_enabled"
+    private const val KEY_SHOW_SLEEP_BADGE = "show_sleep_badge"
+    private const val KEY_SHOW_BROWSER_POOL = "show_browser_pool"
 
     enum class WidgetSkin(
         val id: String,
@@ -94,6 +98,20 @@ object CommandDeckWidgetPrefs {
             accentColor = Color.parseColor("#C084FC"),
             textPrimary = Color.WHITE,
             textSecondary = Color.parseColor("#D4D4D8")
+        ),
+        MIDNIGHT_INDIGO(
+            id = "MIDNIGHT_INDIGO",
+            title = "Midnight Indigo",
+            subtitle = "Sleep Violet & Aurora Emerald",
+            bgStartColor = Color.parseColor("#0B0B1E"),
+            bgEndColor = Color.parseColor("#151434"),
+            panelColor = Color.parseColor("#1E1D46"),
+            borderColor = Color.parseColor("#818CF8"),
+            outerRingColor = Color.parseColor("#A5B4FC"),
+            innerRingColor = Color.parseColor("#16D99A"),
+            accentColor = Color.parseColor("#38BDF8"),
+            textPrimary = Color.WHITE,
+            textSecondary = Color.parseColor("#C7D2FE")
         );
 
         companion object {
@@ -119,11 +137,20 @@ object CommandDeckWidgetPrefs {
         prefs(context).edit().putInt(KEY_SCREEN_BUDGET_MINS, minutes.coerceIn(30, 600)).apply()
     }
 
-    fun getDailyStepGoal(context: Context): Int =
-        prefs(context).getInt(KEY_STEP_GOAL, 8000).coerceIn(1000, 30000)
+    fun getDailyStepGoal(context: Context): Int {
+        return try {
+            GoalPrefs.getStepGoal(context).coerceIn(1000, 30000)
+        } catch (_: Throwable) {
+            prefs(context).getInt(KEY_STEP_GOAL, 8000).coerceIn(1000, 30000)
+        }
+    }
 
     fun setDailyStepGoal(context: Context, steps: Int) {
-        prefs(context).edit().putInt(KEY_STEP_GOAL, steps.coerceIn(1000, 30000)).apply()
+        val clamped = steps.coerceIn(1000, 30000)
+        prefs(context).edit().putInt(KEY_STEP_GOAL, clamped).apply()
+        try {
+            GoalPrefs.setStepGoal(context, clamped)
+        } catch (_: Throwable) {}
     }
 
     fun getQuickFocusMinutes(context: Context): Int =
@@ -138,6 +165,20 @@ object CommandDeckWidgetPrefs {
 
     fun setAuto40HzEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_AUTO_40HZ, enabled).apply()
+    }
+
+    fun isShowSleepBadgeEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SHOW_SLEEP_BADGE, true)
+
+    fun setShowSleepBadgeEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SHOW_SLEEP_BADGE, enabled).apply()
+    }
+
+    fun isShowBrowserPoolEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SHOW_BROWSER_POOL, true)
+
+    fun setShowBrowserPoolEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SHOW_BROWSER_POOL, enabled).apply()
     }
 
     data class TelemetrySnapshot(
@@ -155,7 +196,16 @@ object CommandDeckWidgetPrefs {
         val sessionSoundName: String,
         val quickFocusMinutes: Int,
         val auto40Hz: Boolean,
-        val todayFocusMinutes: Int
+        val todayFocusMinutes: Int,
+        val todayExerciseSets: Int = 0,
+        val sleepDurationFormatted: String? = null,
+        val sleepGrade: String? = null,
+        val sleepRecoveryScore: Int = 0,
+        val browserPoolRemainingMinutes: Int = BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES,
+        val browserPoolLimitMinutes: Int = BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES,
+        val isBrowserFocusActive: Boolean = false,
+        val showSleepBadge: Boolean = true,
+        val showBrowserPool: Boolean = true
     )
 
     fun captureTelemetry(context: Context): TelemetrySnapshot {
@@ -175,6 +225,21 @@ object CommandDeckWidgetPrefs {
             0
         }
         val stepGoal = getDailyStepGoal(context)
+
+        val todayExerciseSets = try {
+            val cal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val dayStart = cal.timeInMillis
+            val dayEnd = dayStart + 86_400_000L
+            AppDatabase.getDatabase(context).exerciseDao().getAllLogs()
+                .count { it.timestamp in dayStart until dayEnd }
+        } catch (_: Throwable) {
+            0
+        }
 
         val isFocusActive = try {
             FocusLayerManager.isActiveNow(context)
@@ -197,6 +262,19 @@ object CommandDeckWidgetPrefs {
             "9:00 AM - 6:00 PM"
         }
 
+        val sleepSummary = try {
+            val latest = SmartSleepEngine.getLatestSleepSummary(context)
+            if (latest.hasValidSleep) latest else null
+        } catch (_: Throwable) {
+            null
+        }
+
+        val browserPool = try {
+            BlockPolicyEngine.getSharedBrowserPoolStatus(context)
+        } catch (_: Throwable) {
+            null
+        }
+
         val snap = FocusSessionManager.snapshot.value
         val todayFocusMins = FocusSessionManager.getTodayFocusMinutes(context)
 
@@ -215,7 +293,16 @@ object CommandDeckWidgetPrefs {
             sessionSoundName = snap.soundMode.displayName,
             quickFocusMinutes = getQuickFocusMinutes(context),
             auto40Hz = isAuto40HzEnabled(context),
-            todayFocusMinutes = todayFocusMins
+            todayFocusMinutes = todayFocusMins,
+            todayExerciseSets = todayExerciseSets,
+            sleepDurationFormatted = sleepSummary?.let { SmartSleepEngine.formatDuration(it.effectiveSleepMs) },
+            sleepGrade = sleepSummary?.grade,
+            sleepRecoveryScore = sleepSummary?.qualityScore ?: 0,
+            browserPoolRemainingMinutes = browserPool?.remainingFocusMinutes ?: BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES,
+            browserPoolLimitMinutes = browserPool?.limitMinutes ?: BlockPolicyEngine.DEFAULT_SHARED_BROWSER_LIMIT_MINUTES,
+            isBrowserFocusActive = browserPool?.isFocusHoursActive ?: isFocusActive,
+            showSleepBadge = isShowSleepBadgeEnabled(context),
+            showBrowserPool = isShowBrowserPoolEnabled(context)
         )
     }
 
@@ -323,26 +410,31 @@ object CommandDeckWidgetPrefs {
         val stepsFormatted = String.format(Locale.US, "%,d", data.dailySteps)
         canvas.drawText("$stepsFormatted stp", ringCx, ringCy + 20f * scale, textPaint)
 
-        // Bottom Legend under Rings
+        // Bottom Legend under Rings (includes genuine logged exercise sets when present)
         textPaint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        textPaint.textSize = 14.5f * scale
+        textPaint.textSize = 14f * scale
         textPaint.color = skin.textSecondary
         val budgetHrs = data.screenBudgetMinutes / 60f
         val budgetStr = if (data.screenBudgetMinutes % 60 == 0) "${data.screenBudgetMinutes / 60}h" else String.format(Locale.US, "%.1fh", budgetHrs)
-        canvas.drawText("SCR / $budgetStr  •  GOAL ${data.stepGoal / 1000}K", ringCx, h - 22f * scale, textPaint)
+        val fitnessTag = if (data.todayExerciseSets > 0) {
+            "💪 ${data.todayExerciseSets} set${if (data.todayExerciseSets == 1) "" else "s"}"
+        } else {
+            "GOAL ${data.stepGoal / 1000}K"
+        }
+        canvas.drawText("SCR/$budgetStr • $fitnessTag", ringCx, h - 22f * scale, textPaint)
 
         // =========================================================================
-        // ZONE 2 (CENTER): LIVE FOCUS LAYER & SHIELD TOGGLE
+        // ZONE 2 (CENTER): LIVE FOCUS LAYER, SLEEP GRADE & BROWSER POOL PILLS
         // =========================================================================
-        val centerLeft = leftZoneEnd + 22f * scale
-        val centerRight = centerZoneEnd - 22f * scale
+        val centerLeft = leftZoneEnd + 20f * scale
+        val centerRight = centerZoneEnd - 20f * scale
         val centerMidX = (centerLeft + centerRight) * 0.5f
 
         textPaint.textAlign = Paint.Align.LEFT
         textPaint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        textPaint.textSize = 15f * scale
+        textPaint.textSize = 14.5f * scale
         textPaint.color = skin.borderColor
-        canvas.drawText("FOCUS COMMAND DECK", centerLeft, 48f * scale, textPaint)
+        canvas.drawText("FOCUS COMMAND DECK", centerLeft, 44f * scale, textPaint)
 
         // Status Headline
         val statusText: String
@@ -366,22 +458,84 @@ object CommandDeckWidgetPrefs {
             }
         }
 
-        textPaint.textSize = 21f * scale
+        textPaint.textSize = 20.5f * scale
         textPaint.color = statusColor
-        canvas.drawText(statusText, centerLeft, 88f * scale, textPaint)
+        canvas.drawText(statusText, centerLeft, 82f * scale, textPaint)
 
-        // Schedule Window Subtitle
+        // Schedule Window + Today Deep Work Subtitle
         textPaint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
-        textPaint.textSize = 16f * scale
+        textPaint.textSize = 15f * scale
         textPaint.color = skin.textSecondary
-        val shortWindow = if (data.windowSummary.length > 26) data.windowSummary.take(26) + "…" else data.windowSummary
-        canvas.drawText(shortWindow, centerLeft, 120f * scale, textPaint)
+        val shortWindow = if (data.windowSummary.length > 20) data.windowSummary.take(20) + "…" else data.windowSummary
+        val focusSub = if (data.todayFocusMinutes > 0) "$shortWindow • ⚡${data.todayFocusMinutes}m" else shortWindow
+        canvas.drawText(focusSub, centerLeft, 112f * scale, textPaint)
 
-        // Today's Deep Focus Metric
-        textPaint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        textPaint.textSize = 15.5f * scale
-        textPaint.color = skin.accentColor
-        canvas.drawText("⚡ Deep Work Today: ${data.todayFocusMinutes}m", centerLeft, 154f * scale, textPaint)
+        // Compact Biometric Sleep Grade & Focus Browser Pool Telemetry Pills
+        val pillTop = 132f * scale
+        val pillBottom = 178f * scale
+        val showSleep = data.showSleepBadge
+        val showPool = data.showBrowserPool
+        val pillGap = 8f * scale
+
+        fun drawMiniTelemetryPill(rect: RectF, label: String, accent: Int) {
+            paint.style = Paint.Style.FILL
+            paint.color = skin.panelColor
+            canvas.drawRoundRect(rect, 12f * scale, 12f * scale, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.4f * scale
+            paint.color = Color.argb(135, Color.red(accent), Color.green(accent), Color.blue(accent))
+            canvas.drawRoundRect(rect, 12f * scale, 12f * scale, paint)
+
+            textPaint.textAlign = Paint.Align.CENTER
+            textPaint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textPaint.textSize = 13.5f * scale
+            textPaint.color = accent
+            canvas.drawText(label, rect.centerX(), rect.centerY() + 5f * scale, textPaint)
+        }
+
+        val sleepLabel = if (!data.sleepDurationFormatted.isNullOrBlank() && !data.sleepGrade.isNullOrBlank()) {
+            "🌙 ${data.sleepDurationFormatted} · ${data.sleepGrade}"
+        } else {
+            "🌙 Sleep —"
+        }
+        val sleepColor = when {
+            data.sleepRecoveryScore >= 84 -> Color.parseColor("#16D99A")
+            data.sleepRecoveryScore >= 68 -> Color.parseColor("#818CF8")
+            data.sleepRecoveryScore >= 50 -> Color.parseColor("#F59E0B")
+            else -> skin.textSecondary
+        }
+        val poolLabel = if (data.isBrowserFocusActive) {
+            "🌐 ${data.browserPoolRemainingMinutes}/${data.browserPoolLimitMinutes}m"
+        } else {
+            "✨ Web Free"
+        }
+        val poolColor = when {
+            !data.isBrowserFocusActive -> Color.parseColor("#38BDF8")
+            data.browserPoolRemainingMinutes <= 0 -> Color.parseColor("#F87171")
+            data.browserPoolRemainingMinutes <= 5 -> Color.parseColor("#F59E0B")
+            else -> Color.parseColor("#38BDF8")
+        }
+
+        when {
+            showSleep && showPool -> {
+                val halfW = (centerRight - centerLeft - pillGap) * 0.5f
+                drawMiniTelemetryPill(RectF(centerLeft, pillTop, centerLeft + halfW, pillBottom), sleepLabel, sleepColor)
+                drawMiniTelemetryPill(RectF(centerLeft + halfW + pillGap, pillTop, centerRight, pillBottom), poolLabel, poolColor)
+            }
+            showSleep -> {
+                drawMiniTelemetryPill(RectF(centerLeft, pillTop, centerRight, pillBottom), sleepLabel, sleepColor)
+            }
+            showPool -> {
+                drawMiniTelemetryPill(RectF(centerLeft, pillTop, centerRight, pillBottom), poolLabel, poolColor)
+            }
+            else -> {
+                textPaint.textAlign = Paint.Align.LEFT
+                textPaint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                textPaint.textSize = 15.5f * scale
+                textPaint.color = skin.accentColor
+                canvas.drawText("⚡ Deep Work Today: ${data.todayFocusMinutes}m", centerLeft, 158f * scale, textPaint)
+            }
+        }
 
         // Interactive Shield Toggle Button Pill
         val shieldBtnRect = RectF(centerLeft, h - 88f * scale, centerRight, h - 24f * scale)

@@ -157,6 +157,10 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
         <activity
+            android:theme="@style/Theme.FocusGuardPro"
+            android:name="com.focusguardpro.app.EliteSleepHistoryActivity"
+            android:exported="false"/>
+        <activity
             android:theme="@style/Theme.FocusGuardPro.Dialog"
             android:name="com.focusguardpro.app.TimeSplitterActivity"
             android:exported="false"

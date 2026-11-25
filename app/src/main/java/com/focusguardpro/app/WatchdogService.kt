@@ -90,6 +90,11 @@ class WatchdogService : Service() {
                     ScreenStateTracker.isScreenOn = true
                     SmartSleepEngine.recordScreenSignal(ctx, SmartSleepEngine.SIG_UNLOCK)
                     AwayTimeTracker.resolveIfDue(ctx)
+                    serviceScope.launch {
+                        try {
+                            SmartSleepEngine.syncRecentNightsArchive(ctx.applicationContext, lookbackDays = 7)
+                        } catch (_: Throwable) {}
+                    }
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     ScreenStateTracker.isScreenOn = true

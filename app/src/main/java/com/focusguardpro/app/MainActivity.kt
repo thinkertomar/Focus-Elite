@@ -559,6 +559,7 @@ class MainActivity : AppCompatActivity() {
         // Update Focus Layer Criteria & Real-Time Status Banner
         val exemptionDetails = FocusLayerManager.getCalendarExemptionDetails(this)
         val isLocked = FocusLayerManager.isLockedUntilCalendarHoliday(this)
+        val isActiveNow = FocusLayerManager.isActiveNow(this)
         val isScheduled = FocusLayerManager.isScheduledActiveNow(this)
         val windowSummary = FocusLayerManager.formatWindowSummary(this)
         val currentTimeStr = FocusLayerManager.getCurrentDeviceTimeFormatted()
@@ -616,10 +617,15 @@ class MainActivity : AppCompatActivity() {
                 focusLayerStatusSubtitle?.text = sameDayRejection
                     ?: "Zero-escape active ($currentTimeStr)$browserSuffix$muteSuffix • Tap for Proof-of-Effort"
             }
-            isScheduled -> {
+            isScheduled || isActiveNow -> {
                 focusLayerStatusTitle?.text = "🟢 Focus Layer Active ($windowSummary)"
                 focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#059669") else Color.parseColor("#34D399"))
                 focusLayerStatusSubtitle?.text = "Active right now ($currentTimeStr)$browserSuffix$muteSuffix • Tap to customize"
+            }
+            FocusLayerManager.isManualOverrideActive(this) && !FocusLayerManager.isStrictLockEnabled(this) -> {
+                focusLayerStatusTitle?.text = "⏸️ Focus Paused Manually ($windowSummary)"
+                focusLayerStatusTitle?.setTextColor(if (isWhiteBg) Color.parseColor("#D97706") else Color.parseColor("#F59E0B"))
+                focusLayerStatusSubtitle?.text = "$currentTimeStr • Tap to resume Focus Shield or adjust schedule"
             }
             else -> {
                 focusLayerStatusTitle?.text = "✨ Free Time • Outside Focus ($windowSummary)"

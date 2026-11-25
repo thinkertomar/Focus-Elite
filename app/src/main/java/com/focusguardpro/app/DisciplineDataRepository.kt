@@ -114,8 +114,9 @@ object DisciplineDataRepository {
         val tasks: List<EnrichedTask>,
         val awayAuditRecords: List<AuditRecord>
     ) {
-        val hasWorkout: Boolean get() = workoutLogs.isNotEmpty() || walkSessionCount > 0
-        val workoutCount: Int get() = workoutLogs.size + walkSessionCount
+        // Strictly genuine logged ExerciseLog sets ONLY — ordinary walking sessions are NOT workout sets.
+        val hasWorkout: Boolean get() = workoutLogs.isNotEmpty()
+        val workoutCount: Int get() = workoutLogs.size
         val totalTasks: Int get() = tasks.size
         val completedTasks: Int get() = tasks.count { it.item.isDone }
         val remainingTasks: Int get() = tasks.count { !it.item.isDone }
@@ -152,7 +153,7 @@ object DisciplineDataRepository {
         val recordedStepDays: Int,
         val stepGoalMetDays: Int,
         val avgRecordedSteps: Int?,
-        val dailyWorkoutCounts: List<Pair<String, Int>>, // dateKey -> sets + walk sessions
+        val dailyWorkoutCounts: List<Pair<String, Int>>, // dateKey -> genuine logged exercise sets only (excludes walking)
         val workoutActiveDays: Int,
         val totalWorkoutSets: Int,
         val dailyTaskStats: List<Triple<String, Int, Int>>, // dateKey, done, total
@@ -169,7 +170,9 @@ object DisciplineDataRepository {
         val productiveVsDistractedDays: List<Triple<String, Int, Int>>, // dateKey, productiveMins, distractedMins (only recorded days)
         val totalProductiveMins: Int,
         val totalDistractedMins: Int,
-        val telemetrySplitDays: Int
+        val telemetrySplitDays: Int,
+        val dailyExerciseSets: List<Pair<String, Int>> = dailyWorkoutCounts,
+        val sleepRecovery: SmartSleepEngine.PeriodSleepRecoverySummary? = null
     )
 
     // -------------------------------------------------------------------------
@@ -1091,10 +1094,10 @@ object DisciplineDataRepository {
                 stepSum += s.steps
                 if (s.stepGoalMet) stepGoalMetDays++
             }
-            val wCount = s.workoutCount
-            dailyWorkouts.add(dk to wCount)
-            if (wCount > 0) workoutActiveDays++
-            totalWorkoutSets += s.workoutLogs.size
+            val genuineSets = s.workoutLogs.size
+            dailyWorkouts.add(dk to genuineSets)
+            if (genuineSets > 0) workoutActiveDays++
+            totalWorkoutSets += genuineSets
 
             dailyTasks.add(Triple(dk, s.completedTasks, s.totalTasks))
             totalTasksScheduled += s.totalTasks
@@ -1170,6 +1173,13 @@ object DisciplineDataRepository {
             }
         }
 
+        val sleepRecovery = try {
+            SmartSleepEngine.syncRecentNightsArchive(context, lookbackDays = periodDays.coerceAtMost(14))
+            SmartSleepEngine.getPeriodRecoverySummary(context, periodDays = periodDays)
+        } catch (_: Throwable) {
+            null
+        }
+
         return PeriodInsightsReport(
             periodDays = periodDays,
             stepGoal = stepGoal,
@@ -1194,7 +1204,9 @@ object DisciplineDataRepository {
             productiveVsDistractedDays = prodVsDist,
             totalProductiveMins = totalProd,
             totalDistractedMins = totalDist,
-            telemetrySplitDays = prodVsDist.size
+            telemetrySplitDays = prodVsDist.size,
+            dailyExerciseSets = dailyWorkouts,
+            sleepRecovery = sleepRecovery
         )
     }
 }

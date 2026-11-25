@@ -64,6 +64,8 @@ object FocusSessionManager {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var tickerRunnable: Runnable? = null
     private var appContext: Context? = null
+    @Volatile
+    private var sessionEndElapsedMs: Long = 0L
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -81,6 +83,7 @@ object FocusSessionManager {
     ) {
         init(context)
         val totalSecs = (durationMinutes * 60).coerceAtLeast(60)
+        sessionEndElapsedMs = android.os.SystemClock.elapsedRealtime() + totalSecs * 1000L
         _snapshot.value = SessionSnapshot(
             state = SessionState.RUNNING,
             intention = intention.trim().ifBlank { "Deep Work Session" },
@@ -91,26 +94,41 @@ object FocusSessionManager {
 
         AmbientFocusAudioEngine.setSoundMode(soundMode)
         startTicker()
-        FocusNotificationMuteService.triggerSweepIfActive()
-        EliteCommandWidgetProvider.updateAllWidgets(context)
+        try {
+            WatchdogService.start(context.applicationContext)
+            FocusForegroundMonitorService.start(context.applicationContext)
+            FocusNotificationMuteService.triggerSweepIfActive()
+            EliteCommandWidgetProvider.updateAllWidgets(context.applicationContext)
+        } catch (_: Throwable) {}
     }
 
     fun pauseSession() {
         if (_snapshot.value.state == SessionState.RUNNING) {
+            val rem = ((sessionEndElapsedMs - android.os.SystemClock.elapsedRealtime()) / 1000L)
+                .toInt()
+                .coerceIn(1, _snapshot.value.totalSeconds)
             stopTicker()
+            sessionEndElapsedMs = 0L
             AmbientFocusAudioEngine.stop()
-            _snapshot.value = _snapshot.value.copy(state = SessionState.PAUSED)
+            _snapshot.value = _snapshot.value.copy(state = SessionState.PAUSED, remainingSeconds = rem)
             appContext?.let { EliteCommandWidgetProvider.updateAllWidgets(it) }
         }
     }
 
     fun resumeSession() {
         if (_snapshot.value.state == SessionState.PAUSED) {
+            val rem = _snapshot.value.remainingSeconds.coerceAtLeast(1)
+            sessionEndElapsedMs = android.os.SystemClock.elapsedRealtime() + rem * 1000L
             _snapshot.value = _snapshot.value.copy(state = SessionState.RUNNING)
             AmbientFocusAudioEngine.setSoundMode(_snapshot.value.soundMode)
             startTicker()
-            FocusNotificationMuteService.triggerSweepIfActive()
-            appContext?.let { EliteCommandWidgetProvider.updateAllWidgets(it) }
+            appContext?.let {
+                try {
+                    FocusForegroundMonitorService.start(it)
+                    FocusNotificationMuteService.triggerSweepIfActive()
+                    EliteCommandWidgetProvider.updateAllWidgets(it)
+                } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -118,6 +136,7 @@ object FocusSessionManager {
         init(context)
         val current = _snapshot.value
         stopTicker()
+        sessionEndElapsedMs = 0L
         AmbientFocusAudioEngine.stop()
         if (completed) {
             SensoryFeedbackEngine.workoutFinished(context)
@@ -151,6 +170,7 @@ object FocusSessionManager {
     fun completeSession() {
         appContext?.let { stopSession(it, completed = true) } ?: run {
             stopTicker()
+            sessionEndElapsedMs = 0L
             AmbientFocusAudioEngine.stop()
             _snapshot.value = _snapshot.value.copy(
                 state = SessionState.COMPLETED,
@@ -165,11 +185,15 @@ object FocusSessionManager {
             override fun run() {
                 val current = _snapshot.value
                 if (current.state == SessionState.RUNNING) {
-                    val nextSecs = current.remainingSeconds - 1
+                    val nextSecs = if (sessionEndElapsedMs > 0L) {
+                        ((sessionEndElapsedMs - android.os.SystemClock.elapsedRealtime() + 500L) / 1000L).toInt()
+                    } else {
+                        current.remainingSeconds - 1
+                    }
                     if (nextSecs <= 0) {
                         completeSession()
                     } else {
-                        _snapshot.value = current.copy(remainingSeconds = nextSecs)
+                        _snapshot.value = current.copy(remainingSeconds = nextSecs.coerceAtMost(current.totalSeconds))
                         if (nextSecs % 15 == 0) {
                             appContext?.let { EliteCommandWidgetProvider.updateAllWidgets(it) }
                         }

@@ -42,6 +42,7 @@ class WidgetStudioActivity : AppCompatActivity() {
     private lateinit var statusBadgeView: TextView
     private lateinit var budgetValueLabel: TextView
     private lateinit var stepGoalValueLabel: TextView
+    private var liveTelemetryStrip: LinearLayout? = null
     private var ringAnimator: ValueAnimator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +57,7 @@ class WidgetStudioActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshPinStatusBadge()
+        refreshLiveTelemetryStrip()
         previewView.invalidate()
         dualNeonRingsView.refreshTelemetryAndSyncHealthConnect(animate = false)
         FocusWidgetService.syncTelemetryNow(this)
@@ -219,10 +221,11 @@ class WidgetStudioActivity : AppCompatActivity() {
             setOnClickListener {
                 FocusWidgetService.syncTelemetryNow(this@WidgetStudioActivity)
                 dualNeonRingsView.refreshTelemetryAndSyncHealthConnect(animate = true)
+                refreshLiveTelemetryStrip()
                 animatePreviewSweep()
                 Toast.makeText(
                     this@WidgetStudioActivity,
-                    "✨ Command Deck & Health Connect telemetry synced!",
+                    "✨ Command Deck, Sleep & Fitness telemetry synced!",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -230,6 +233,19 @@ class WidgetStudioActivity : AppCompatActivity() {
         pinBtnRow.addView(syncBtn)
         quickPinCard.addView(pinBtnRow)
         content.addView(quickPinCard)
+
+        // =========================================================================
+        // 1B. LIVE DECK TELEMETRY SNAPSHOT STRIP (Shield · Fitness · Sleep & Web Pool)
+        // =========================================================================
+        liveTelemetryStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(16f) }
+        }
+        content.addView(liveTelemetryStrip)
+        refreshLiveTelemetryStrip()
 
         // =========================================================================
         // 2. LIVE INTERACTIVE WYSIWYG COMMAND DECK PREVIEW (OPTION 1)
@@ -343,10 +359,10 @@ class WidgetStudioActivity : AppCompatActivity() {
         }
         calibratorCard.addView(budgetSeek)
 
-        // Daily Step Goal Slider
+        // Daily Step Goal Slider (Synced App-Wide with GoalPrefs)
         val currentStepGoal = CommandDeckWidgetPrefs.getDailyStepGoal(this)
         stepGoalValueLabel = TextView(this).apply {
-            text = "Inner Ring • Daily Physical Step Target: $currentStepGoal steps"
+            text = "Inner Ring • Daily Step Target (App-Wide Sync): $currentStepGoal steps"
             textSize = 12.5f
             setTextColor(Color.parseColor("#10B981"))
             typeface = Typeface.DEFAULT_BOLD
@@ -361,19 +377,105 @@ class WidgetStudioActivity : AppCompatActivity() {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     val steppedGoal = ((progress + 2000) / 500) * 500
                     CommandDeckWidgetPrefs.setDailyStepGoal(this@WidgetStudioActivity, steppedGoal)
-                    stepGoalValueLabel.text = "Inner Ring • Daily Physical Step Target: $steppedGoal steps"
+                    stepGoalValueLabel.text = "Inner Ring • Daily Step Target (App-Wide Sync): $steppedGoal steps"
                     previewView.invalidate()
                     dualNeonRingsView.loadCachedTelemetry()
                     dualNeonRingsView.invalidate()
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    refreshLiveTelemetryStrip()
                     FocusWidgetService.syncTelemetryNow(this@WidgetStudioActivity)
                 }
             })
         }
         calibratorCard.addView(stepSeek)
         content.addView(calibratorCard)
+
+        // =========================================================================
+        // 3B. DECK TELEMETRY OVERLAY CONTROLS (Sleep Recovery & Focus Browser Pool)
+        // =========================================================================
+        val overlayCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16f), dp(16f), dp(16f), dp(16f))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16f).toFloat()
+                setColor(Color.parseColor("#18181B"))
+                setStroke(dp(1f), Color.parseColor("#27272A"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(16f) }
+        }
+        overlayCard.addView(TextView(this).apply {
+            text = "🛰️ Deck Telemetry Overlays"
+            textSize = 14.5f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(10f))
+        })
+
+        fun addOverlayToggleRow(
+            title: String,
+            subtitle: String,
+            initialChecked: Boolean,
+            bottomSpaceDp: Float,
+            onToggle: (Boolean) -> Unit
+        ) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(bottomSpaceDp) }
+            }
+            val textCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            textCol.addView(TextView(this).apply {
+                text = title
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                typeface = Typeface.DEFAULT_BOLD
+            })
+            textCol.addView(TextView(this).apply {
+                text = subtitle
+                textSize = 11f
+                setTextColor(Color.parseColor("#94A3B8"))
+            })
+            row.addView(textCol)
+            row.addView(Switch(this).apply {
+                isChecked = initialChecked
+                setOnCheckedChangeListener { _, checked ->
+                    onToggle(checked)
+                    previewView.invalidate()
+                    EliteCommandWidgetProvider.updateAllWidgets(this@WidgetStudioActivity)
+                }
+            })
+            overlayCard.addView(row)
+        }
+
+        addOverlayToggleRow(
+            title = "🌙 Show Sleep & Recovery Grade",
+            subtitle = "Displays last night's effective sleep duration & clinical recovery grade",
+            initialChecked = CommandDeckWidgetPrefs.isShowSleepBadgeEnabled(this),
+            bottomSpaceDp = 10f
+        ) { enabled ->
+            CommandDeckWidgetPrefs.setShowSleepBadgeEnabled(this@WidgetStudioActivity, enabled)
+        }
+
+        addOverlayToggleRow(
+            title = "🌐 Show Focus Browser Pool",
+            subtitle = "Displays live remaining shared browser minutes during Focus Hours",
+            initialChecked = CommandDeckWidgetPrefs.isShowBrowserPoolEnabled(this),
+            bottomSpaceDp = 0f
+        ) { enabled ->
+            CommandDeckWidgetPrefs.setShowBrowserPoolEnabled(this@WidgetStudioActivity, enabled)
+        }
+        content.addView(overlayCard)
 
         // =========================================================================
         // 4. 1-TAP DEEP FOCUS + 40HZ GAMMA LAUNCHER SETTINGS
@@ -469,6 +571,92 @@ class WidgetStudioActivity : AppCompatActivity() {
             setStroke(dp(1f), if (isPinned) Color.parseColor("#10B981") else Color.parseColor("#38BDF8"))
         }
         statusBadgeView.setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
+    }
+
+    private fun refreshLiveTelemetryStrip() {
+        val strip = liveTelemetryStrip ?: return
+        strip.removeAllViews()
+        val snap = CommandDeckWidgetPrefs.captureTelemetry(this)
+
+        fun buildMiniTile(
+            tag: String,
+            value: String,
+            sub: String,
+            accent: Int,
+            marginEndDp: Float,
+            onClick: () -> Unit
+        ): View {
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10f), dp(9f), dp(10f), dp(9f))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(13f).toFloat()
+                    setColor(Color.parseColor("#141720"))
+                    setStroke(dp(1f), Color.argb(110, Color.red(accent), Color.green(accent), Color.blue(accent)))
+                }
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(marginEndDp)
+                }
+                setOnClickListener { onClick() }
+                addView(TextView(this@WidgetStudioActivity).apply {
+                    text = tag
+                    textSize = 9.5f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.parseColor("#94A3B8"))
+                })
+                addView(TextView(this@WidgetStudioActivity).apply {
+                    text = value
+                    textSize = 13.5f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(accent)
+                    setPadding(0, dp(3f), 0, 0)
+                    maxLines = 1
+                })
+                addView(TextView(this@WidgetStudioActivity).apply {
+                    text = sub
+                    textSize = 10f
+                    setTextColor(Color.parseColor("#CBD5E1"))
+                    setPadding(0, dp(2f), 0, 0)
+                    maxLines = 1
+                })
+            }
+        }
+
+        val shieldVal = when {
+            snap.exemptionText != null -> "Holiday"
+            snap.isStrictLocked -> "Strict Lock"
+            snap.isFocusActive -> "Active"
+            else -> "Standby"
+        }
+        val shieldColor = when {
+            snap.isFocusActive -> Color.parseColor("#10B981")
+            snap.isStrictLocked -> Color.parseColor("#F59E0B")
+            else -> Color.parseColor("#38BDF8")
+        }
+        val poolSub = if (snap.isBrowserFocusActive) {
+            "Web ${snap.browserPoolRemainingMinutes}/${snap.browserPoolLimitMinutes}m"
+        } else {
+            "Web Free"
+        }
+        strip.addView(buildMiniTile("🛡️ FOCUS", shieldVal, poolSub, shieldColor, 6f) {
+            startActivity(Intent(this, AuxiliarySettingsActivity::class.java))
+        })
+
+        val fitnessVal = "${java.lang.String.format(java.util.Locale.US, "%,d", snap.dailySteps)}"
+        val fitnessSub = if (snap.todayExerciseSets > 0) "${snap.todayExerciseSets} exercise sets" else "Goal ${snap.stepGoal / 1000}k stp"
+        strip.addView(buildMiniTile("🏃 FITNESS", fitnessVal, fitnessSub, Color.parseColor("#16D99A"), 6f) {
+            startActivity(Intent(this, ActivityStatsActivity::class.java))
+        })
+
+        val sleepVal = if (!snap.sleepDurationFormatted.isNullOrBlank()) {
+            "${snap.sleepDurationFormatted} · ${snap.sleepGrade ?: "—"}"
+        } else {
+            "Pending"
+        }
+        val sleepSub = if (snap.sleepRecoveryScore > 0) "${snap.sleepRecoveryScore}/100 recovery" else "Tap Notebook"
+        strip.addView(buildMiniTile("🌙 SLEEP", sleepVal, sleepSub, Color.parseColor("#818CF8"), 0f) {
+            startActivity(Intent(this, EliteDailyNotebookActivity::class.java))
+        })
     }
 
     private fun renderSkinChips() {

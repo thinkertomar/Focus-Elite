@@ -178,9 +178,9 @@ class BlockerAccessibilityService : AccessibilityService() {
             SystemExclusions.isInputMethod(this, pkg)
     }
 
-    private fun isRecentlyEvicted(pkg: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+    private fun isRecentlyEvicted(pkg: String, nowElapsedMs: Long = android.os.SystemClock.elapsedRealtime()): Boolean {
         val evictedAt = recentlyEvictedPackages[pkg] ?: return false
-        if (nowMs - evictedAt <= 2500L) {
+        if (nowElapsedMs - evictedAt <= 900L) {
             return true
         }
         recentlyEvictedPackages.remove(pkg)
@@ -194,7 +194,7 @@ class BlockerAccessibilityService : AccessibilityService() {
      */
     fun getAllLiveVisiblePackages(): List<String> {
         val result = LinkedHashSet<String>()
-        val now = System.currentTimeMillis()
+        val nowElapsed = android.os.SystemClock.elapsedRealtime()
 
         val activeRootPkg = try {
             rootInActiveWindow?.packageName?.toString()
@@ -210,7 +210,7 @@ class BlockerAccessibilityService : AccessibilityService() {
             ) {
                 recentEventPackages.clear()
             }
-            if (!isRecentlyEvicted(activeRootPkg, now)) {
+            if (!isRecentlyEvicted(activeRootPkg, nowElapsed)) {
                 result.add(activeRootPkg)
             }
         }
@@ -242,7 +242,7 @@ class BlockerAccessibilityService : AccessibilityService() {
                         null
                     } ?: continue
                     if (pkg.isBlank() || isIgnoredWindowOverlayPackage(pkg)) continue
-                    if (isRecentlyEvicted(pkg, now)) continue
+                    if (isRecentlyEvicted(pkg, nowElapsed)) continue
 
                     if (pkg != activeRootPkg && isSafeForegroundActive) {
                         // When Home Launcher, Focus Elite, or Settings is the active window,
@@ -272,7 +272,7 @@ class BlockerAccessibilityService : AccessibilityService() {
             val iterator = recentEventPackages.entries.iterator()
             while (iterator.hasNext()) {
                 val entry = iterator.next()
-                if (now - entry.value <= 2_000L && !isRecentlyEvicted(entry.key, now)) {
+                if (nowElapsed - entry.value <= 2_000L && !isRecentlyEvicted(entry.key, nowElapsed)) {
                     if (!isIgnoredWindowOverlayPackage(entry.key) && !SystemExclusions.isExcludedPackage(this, entry.key)) {
                         result.add(entry.key)
                     }
@@ -400,9 +400,10 @@ class BlockerAccessibilityService : AccessibilityService() {
                     val browserAppDecision = BlockPolicyEngine.evaluateApp(this, livePkg, now)
                     if (browserAppDecision is BlockDecision.Blocked) {
                         anyBlockedVisible = true
-                        if (livePkg != lastBlockedAppPkg || (now - lastBlockedAppAtMs) >= 1200L) {
+                        val nowEl = android.os.SystemClock.elapsedRealtime()
+                        if (livePkg != lastBlockedAppPkg || (nowEl - lastBlockedAppAtMs) >= 900L) {
                             lastBlockedAppPkg = livePkg
-                            lastBlockedAppAtMs = now
+                            lastBlockedAppAtMs = nowEl
                             enforceBlockNow(
                                 target = browserAppDecision.target,
                                 reasonWireKey = browserAppDecision.reason.wireKey,
@@ -424,9 +425,10 @@ class BlockerAccessibilityService : AccessibilityService() {
             val decision = BlockPolicyEngine.evaluateApp(this, livePkg, now)
             if (decision is BlockDecision.Blocked) {
                 anyBlockedVisible = true
-                if (livePkg != lastBlockedAppPkg || (now - lastBlockedAppAtMs) >= 1200L) {
+                val nowEl = android.os.SystemClock.elapsedRealtime()
+                if (livePkg != lastBlockedAppPkg || (nowEl - lastBlockedAppAtMs) >= 900L) {
                     lastBlockedAppPkg = livePkg
-                    lastBlockedAppAtMs = now
+                    lastBlockedAppAtMs = nowEl
                     enforceBlockNow(
                         target = decision.target,
                         reasonWireKey = decision.reason.wireKey,
@@ -455,9 +457,9 @@ class BlockerAccessibilityService : AccessibilityService() {
         isWebsite: Boolean = false,
         blockedPackageName: String = target
     ) {
-        val nowSys = System.currentTimeMillis()
+        val nowElapsed = android.os.SystemClock.elapsedRealtime()
         recentEventPackages.remove(blockedPackageName)
-        recentlyEvictedPackages[blockedPackageName] = nowSys
+        recentlyEvictedPackages[blockedPackageName] = nowElapsed
         if (ForegroundTracker.currentPackage == blockedPackageName) {
             ForegroundTracker.currentPackage = null
             ForegroundTracker.currentPackageSince = 0L
@@ -498,7 +500,7 @@ class BlockerAccessibilityService : AccessibilityService() {
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
 
-                // 5. Follow-up check after 280ms: if the blocked package is still the active window, send HOME once more
+                // 5. Follow-up check after 280ms: if the blocked package is still the active window, send HOME + BlockActivity fallback
                 mainHandler.postDelayed({
                     try {
                         val activeRoot = try {
@@ -510,6 +512,9 @@ class BlockerAccessibilityService : AccessibilityService() {
                             performGlobalAction(GLOBAL_ACTION_BACK)
                             if (!hasAllowedStudyCompanion) {
                                 performGlobalAction(GLOBAL_ACTION_HOME)
+                                try {
+                                    TimeLimitManager(this@BlockerAccessibilityService).triggerBlock(target, reasonWireKey)
+                                } catch (_: Throwable) {}
                             }
                         }
                     } catch (_: Exception) {}
@@ -830,7 +835,7 @@ class BlockerAccessibilityService : AccessibilityService() {
                     }
                 }
             } else if (!isRecentlyEvicted(rawEventPkg)) {
-                recentEventPackages[rawEventPkg] = System.currentTimeMillis()
+                recentEventPackages[rawEventPkg] = android.os.SystemClock.elapsedRealtime()
             }
         }
 
@@ -925,13 +930,14 @@ class BlockerAccessibilityService : AccessibilityService() {
             }
 
             // 5. If active package is a Browser, ALWAYS track visited websites (24/7) and enforce shared Focus-Hours policy
+            val nowElapsed = android.os.SystemClock.elapsedRealtime()
             if (BlockPolicyEngine.isBrowserPackage(activePkg)) {
                 if (isWindowTransition ||
                     eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
                     eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
-                    (now - lastBrowserEvalAtMs) >= 600L
+                    (nowElapsed - lastBrowserEvalAtMs) >= 600L
                 ) {
-                    lastBrowserEvalAtMs = now
+                    lastBrowserEvalAtMs = nowElapsed
                     try {
                         val eventRootHint = if (rawEventPkg == activePkg) {
                             try { event?.source?.window?.root } catch (_: Throwable) { null }
@@ -956,17 +962,17 @@ class BlockerAccessibilityService : AccessibilityService() {
                 eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
                 eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
                 activePkg != lastContentEvalPkg ||
-                (now - lastContentEvalAtMs) >= 500L
+                (nowElapsed - lastContentEvalAtMs) >= 500L
 
             if (shouldEvaluateApp) {
                 lastContentEvalPkg = activePkg
-                lastContentEvalAtMs = now
+                lastContentEvalAtMs = nowElapsed
                 try {
                     val decision = BlockPolicyEngine.evaluateApp(this, activePkg, now)
                     if (decision is BlockDecision.Blocked) {
-                        if (activePkg != lastBlockedAppPkg || (now - lastBlockedAppAtMs) >= 650L) {
+                        if (activePkg != lastBlockedAppPkg || (nowElapsed - lastBlockedAppAtMs) >= 650L) {
                             lastBlockedAppPkg = activePkg
-                            lastBlockedAppAtMs = now
+                            lastBlockedAppAtMs = nowElapsed
                             enforceBlockNow(
                                 target = decision.target,
                                 reasonWireKey = decision.reason.wireKey,

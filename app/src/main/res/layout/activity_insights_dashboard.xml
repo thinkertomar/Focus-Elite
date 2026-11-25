@@ -54,7 +54,7 @@
                     android:id="@+id/tvInsightsSubtitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Study goal (6h) • Low distraction • Steps • Sets"
+                    android:text="Study &amp; Focus (40) • Fitness Tracker (35) • Sleep &amp; Recovery (25)"
                     android:textColor="#8995A3"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -155,9 +155,12 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:background="@drawable/bg_fitness_pill"
+                    android:gravity="center"
+                    android:maxLines="2"
                     android:paddingHorizontal="10dp"
-                    android:paddingVertical="3dp"
+                    android:paddingVertical="4dp"
                     android:text="Grade —"
+                    android:textAlignment="center"
                     android:textColor="#16D99A"
                     android:textSize="10.5sp"
                     android:textStyle="bold" />
@@ -180,7 +183,7 @@
                     android:textSize="9.5sp"
                     android:textStyle="bold" />
 
-                <!-- Pillar 1: Screen Hygiene (/40) -->
+                <!-- Pillar 1: Study & Focus (/40) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -191,8 +194,11 @@
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
                         android:layout_weight="1"
-                        android:text="Study &amp; Focus (6h Goal)"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Study &amp; Focus"
                         android:textColor="#F1F5F9"
                         android:textSize="11.5sp"
                         android:textStyle="bold" />
@@ -218,7 +224,7 @@
                     android:progressBackgroundTint="#17212B"
                     android:progressTint="#27C7C9" />
 
-                <!-- Pillar 2: Daily Movement (/35) -->
+                <!-- Pillar 2: Fitness Tracker — Steps + Genuine Exercise Sets (/35) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -229,8 +235,11 @@
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
                         android:layout_weight="1"
-                        android:text="Step Target"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Fitness Tracker"
                         android:textColor="#F1F5F9"
                         android:textSize="11.5sp"
                         android:textStyle="bold" />
@@ -256,7 +265,7 @@
                     android:progressBackgroundTint="#17212B"
                     android:progressTint="#16D99A" />
 
-                <!-- Pillar 3: Strength & Sets (/25) -->
+                <!-- Pillar 3: Clinical Sleep & Recovery Grade (/25) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -267,8 +276,11 @@
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
                         android:layout_weight="1"
-                        android:text="Workout Sets"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Sleep &amp; Recovery"
                         android:textColor="#F1F5F9"
                         android:textSize="11.5sp"
                         android:textStyle="bold" />
@@ -277,8 +289,8 @@
                         android:id="@+id/tvPillarWorkoutScore"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0 / 25"
-                        android:textColor="#F59E0B"
+                        android:text="— / 25"
+                        android:textColor="#818CF8"
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
@@ -292,7 +304,7 @@
                     android:max="100"
                     android:progress="0"
                     android:progressBackgroundTint="#17212B"
-                    android:progressTint="#F59E0B" />
+                    android:progressTint="#818CF8" />
             </LinearLayout>
         </LinearLayout>
 
@@ -375,7 +387,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:letterSpacing="0.04"
-                    android:text="PEAK DAY"
+                    android:text="SLEEP &amp; RECOVERY"
                     android:textColor="#8995A3"
                     android:textSize="9.5sp"
                     android:textStyle="bold" />
@@ -385,9 +397,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="3dp"
-                    android:text="— pts"
-                    android:textColor="#27C7C9"
-                    android:textSize="16sp"
+                    android:text="—"
+                    android:textColor="#818CF8"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>

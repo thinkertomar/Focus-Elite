@@ -279,6 +279,7 @@ class EliteDailyNotebookActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val payload = withContext(Dispatchers.IO) {
                 val dao = AppDatabase.getDatabase(this@EliteDailyNotebookActivity).systemDao()
+                SmartSleepEngine.syncRecentNightsArchive(this@EliteDailyNotebookActivity, lookbackDays = 14)
                 val sleepResult = SmartSleepEngine.analyzeSleepForDate(
                     context = this@EliteDailyNotebookActivity,
                     targetDayStartMs = dayStart,
@@ -371,12 +372,12 @@ class EliteDailyNotebookActivity : AppCompatActivity() {
 
         if (sleep.hasValidSleep) {
             val scoreColor = when {
-                sleep.qualityScore >= 82 -> accentGreen
-                sleep.qualityScore >= 65 -> accentIndigo
+                sleep.qualityScore >= 84 -> accentGreen
+                sleep.qualityScore >= 68 -> accentIndigo
                 else -> accentAmber
             }
             headerRow.addView(TextView(this).apply {
-                text = "${sleep.qualityScore} · ${sleep.qualityLabel}"
+                text = "Grade ${sleep.grade} · ${sleep.qualityScore}/100"
                 textSize = 11f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(scoreColor)
@@ -650,9 +651,9 @@ class EliteDailyNotebookActivity : AppCompatActivity() {
             )
         }
         val weeklyText = if (weekly.nightsLogged > 0) {
-            "7-Day Avg: ${SmartSleepEngine.formatDuration(weekly.avgEffectiveSleepMs)} · ${weekly.consistencyLabel}"
+            "7-Day Avg: ${SmartSleepEngine.formatDuration(weekly.avgEffectiveSleepMs)} · Grade ${weekly.recoveryGrade} (${weekly.nightsLogged}/7 nights · ${weekly.consistencyLabel})"
         } else {
-            "7-Day Sleep Consistency · Log tonight to start tracking"
+            "7-Day Sleep Tracking · Auto-tracks & archives across days"
         }
         footerRow.addView(TextView(this).apply {
             text = weeklyText
@@ -661,13 +662,13 @@ class EliteDailyNotebookActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         footerRow.addView(TextView(this).apply {
-            text = "7-Day Chart ›"
+            text = "Sleep Chart ›"
             textSize = 12f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(accentIndigo)
             setPadding((8 * density).toInt(), (4 * density).toInt(), 0, (4 * density).toInt())
             setOnClickListener {
-                startActivity(Intent(this@EliteDailyNotebookActivity, SleepSummaryActivity::class.java))
+                startActivity(Intent(this@EliteDailyNotebookActivity, EliteSleepHistoryActivity::class.java))
             }
         })
         cardMorningSleep.addView(footerRow)

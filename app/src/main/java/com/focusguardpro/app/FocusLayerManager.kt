@@ -36,11 +36,20 @@ object FocusLayerManager {
     private const val TWENTY_FOUR_HOURS_MS = 24L * 60L * 60L * 1000L
 
     private val HOLIDAY_EVENT_KEYWORDS = listOf(
-        "holiday", "vacation", "day off", "day-off", "off day", "leave",
-        "trip", "travel", "break", "rest day", "free day", "festive",
-        "festival", "sick", "doctor", "relax", "outing", "diwali",
-        "christmas", "eid", "new year", "exam off", "event"
+        "holiday", "vacation", "day off", "day-off", "off day",
+        "rest day", "free day", "festive", "festival", "diwali",
+        "christmas", "eid", "new year", "exam off", "sick leave",
+        "sick day", "on leave", "family trip", "road trip", "outing"
     )
+
+    private val HOLIDAY_KEYWORD_REGEXES: List<Regex> = HOLIDAY_EVENT_KEYWORDS.map { kw ->
+        Regex("""(?i)(?:^|[^a-z0-9])${Regex.escape(kw)}(?:$|[^a-z0-9])""")
+    }
+
+    private fun containsWholeWordHolidayKeyword(text: String?): Boolean {
+        if (text.isNullOrBlank()) return false
+        return HOLIDAY_KEYWORD_REGEXES.any { it.containsMatchIn(text) }
+    }
 
     sealed class CalendarExemption {
         object None : CalendarExemption()
@@ -305,10 +314,8 @@ object FocusLayerManager {
                 cal.add(Calendar.DAY_OF_YEAR, 1)
                 val dKey = fmt.format(cal.time)
                 val entry = dao.getDiaryEntry(dKey)
-                val todos = dao.getTodosForDate(dKey)
                 val hasHoliday = (entry?.isHoliday == true) ||
-                    (entry != null && HOLIDAY_EVENT_KEYWORDS.any { entry.note.lowercase().contains(it) }) ||
-                    todos.any { t -> HOLIDAY_EVENT_KEYWORDS.any { t.text.lowercase().contains(it) } }
+                    (entry != null && containsWholeWordHolidayKeyword(entry.note))
 
                 val prefKey = "$KEY_HOLIDAY_FIRST_SEEN_PREFIX$dKey"
                 if (hasHoliday) {
@@ -351,20 +358,8 @@ object FocusLayerManager {
                 if (entry.isHoliday) {
                     return entry.note.ifBlank { "Marked as Holiday" }
                 }
-                val noteLower = entry.note.lowercase()
-                for (kw in HOLIDAY_EVENT_KEYWORDS) {
-                    if (noteLower.contains(kw)) {
-                        return entry.note
-                    }
-                }
-            }
-            val todos = AppDatabase.getDatabase(context).systemDao().getTodosForDate(tKey)
-            for (t in todos) {
-                val textLower = t.text.lowercase()
-                for (kw in HOLIDAY_EVENT_KEYWORDS) {
-                    if (textLower.contains(kw)) {
-                        return t.text
-                    }
+                if (containsWholeWordHolidayKeyword(entry.note)) {
+                    return entry.note
                 }
             }
         } catch (_: Throwable) {}
@@ -403,7 +398,7 @@ object FocusLayerManager {
             return CalendarExemption.None
         }
 
-        // 2. Check In-App Calendar Diary Entry for Today
+        // 2. Check In-App Calendar Diary Entry for Today (explicit holiday flag or strict whole-word holiday phrase)
         var foundTodayHolidayOrKeyword = false
         try {
             FocusGuardApp.ensureRoomMainThreadQueries(context)
@@ -416,30 +411,10 @@ object FocusLayerManager {
                         return CalendarExemption.Holiday(label)
                     }
                 }
-                val noteLower = entry.note.lowercase()
-                for (kw in HOLIDAY_EVENT_KEYWORDS) {
-                    if (noteLower.contains(kw)) {
-                        foundTodayHolidayOrKeyword = true
-                        if (verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
-                            return CalendarExemption.Holiday(entry.note)
-                        }
-                    }
-                }
-            }
-        } catch (_: Throwable) {}
-
-        // 3. Check In-App Calendar TodoItems / Events for Today
-        try {
-            FocusGuardApp.ensureRoomMainThreadQueries(context)
-            val todos = AppDatabase.getDatabase(context).systemDao().getTodosForDate(tKey)
-            for (t in todos) {
-                val textLower = t.text.lowercase()
-                for (kw in HOLIDAY_EVENT_KEYWORDS) {
-                    if (textLower.contains(kw)) {
-                        foundTodayHolidayOrKeyword = true
-                        if (verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
-                            return CalendarExemption.CalendarEvent(t.text)
-                        }
+                if (containsWholeWordHolidayKeyword(entry.note)) {
+                    foundTodayHolidayOrKeyword = true
+                    if (verifyHolidayAdvanceEligibility(context, tKey, nowMs)) {
+                        return CalendarExemption.Holiday(entry.note)
                     }
                 }
             }
@@ -549,24 +524,45 @@ object FocusLayerManager {
             .putInt(KEY_DAYS_MODE, daysMode)
             .apply()
         UiThemePrefs.markSetupScheduleConfigured(context)
+        if (scheduleEnabled) {
+            try {
+                context.getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
+                    .edit().putBoolean("shield_active", true).apply()
+            } catch (_: Throwable) {}
+            // Clear any stale manual-OFF override for today when the user explicitly configures/enables Focus Hours
+            if (getManualOverride(context) == false) {
+                clearManualOverride(context)
+            }
+            try {
+                WatchdogService.start(context.applicationContext)
+                FocusForegroundMonitorService.start(context.applicationContext)
+                FocusMonitorWorker.schedule(context.applicationContext)
+                FocusNotificationMuteService.triggerSweepIfActive()
+            } catch (_: Throwable) {}
+        }
+        try {
+            EliteCommandWidgetProvider.updateAllWidgets(context.applicationContext)
+        } catch (_: Throwable) {}
         return true
     }
 
     fun isActiveNow(context: Context): Boolean {
         val nowMs = verifiedNowMs(context)
-        if (isHolidayToday(context)) {
-            val manual = getManualOverride(context)
-            return manual == true
-        }
-        if (!isDayIncludedInSchedule(context, nowMs)) {
-            val manual = getManualOverride(context)
-            return manual == true
-        }
-        if (isScheduledActiveNow(context, nowMs)) {
+        val manual = getManualOverride(context)
+        if (manual == true) {
             return true
         }
-        val manual = getManualOverride(context)
-        return manual == true
+        if (isHolidayToday(context)) {
+            return false
+        }
+        if (isScheduledActiveNow(context, nowMs)) {
+            // If Strict Fortress Lock is OFF and user explicitly paused via manual override, honor pause
+            if (manual == false && !isStrictLockEnabled(context)) {
+                return false
+            }
+            return true
+        }
+        return false
     }
 
     fun isScheduledActiveNow(context: Context, nowMs: Long = verifiedNowMs(context)): Boolean {
@@ -577,25 +573,47 @@ object FocusLayerManager {
         if (!isScheduleEnabled(context)) {
             return false
         }
-        if (!isDayIncludedInSchedule(context, nowMs)) {
+        val startMinutes = getStartMinutes(context)
+        val endMinutes = getEndMinutes(context)
+        if (startMinutes == endMinutes) return false
+
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = nowMs
+        val nowMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+
+        val inTimeWindow: Boolean
+        val scheduleAnchorMs: Long
+        if (startMinutes < endMinutes) {
+            inTimeWindow = nowMinutes in startMinutes until endMinutes
+            scheduleAnchorMs = nowMs
+        } else {
+            // Overnight window (e.g. 10:00 PM – 6:00 AM): after midnight belongs to yesterday's scheduled shift
+            if (nowMinutes >= startMinutes) {
+                inTimeWindow = true
+                scheduleAnchorMs = nowMs
+            } else if (nowMinutes < endMinutes) {
+                inTimeWindow = true
+                scheduleAnchorMs = nowMs - 86_400_000L
+            } else {
+                inTimeWindow = false
+                scheduleAnchorMs = nowMs
+            }
+        }
+        if (!inTimeWindow) {
+            return false
+        }
+        if (!isDayIncludedInSchedule(context, scheduleAnchorMs)) {
             return false
         }
         // User-adaptive: Verified 24h+ calendar holiday or Proof-of-Effort adaptive break relaxes blocking
         if (isHolidayToday(context)) {
             return false
         }
-        val cal = Calendar.getInstance()
-        cal.timeInMillis = nowMs
-        val nowMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-        val startMinutes = getStartMinutes(context)
-        val endMinutes = getEndMinutes(context)
-        if (startMinutes == endMinutes) return false
-
-        return if (startMinutes < endMinutes) {
-            nowMinutes in startMinutes until endMinutes
-        } else {
-            nowMinutes >= startMinutes || nowMinutes < endMinutes
+        // If Strict Lock is OFF and the user explicitly paused Focus via toggle, respect it
+        if (!isStrictLockEnabled(context) && getManualOverride(context) == false) {
+            return false
         }
+        return true
     }
 
     private fun getManualOverride(context: Context): Boolean? {

@@ -90,6 +90,7 @@ object FocusSelfUsageTracker {
             "WeightHistoryActivity",
             "SleepLogActivity",
             "SleepSummaryActivity",
+            "EliteSleepHistoryActivity",
             "EliteDailyNotebookActivity",
             "EliteJournalActivity",
             "EliteTasksActivity" -> MODULE_IMPROVE

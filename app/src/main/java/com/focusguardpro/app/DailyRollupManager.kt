@@ -79,6 +79,10 @@ object DailyRollupManager {
                 val oldestCal = startOfDay(RETENTION_DAYS)
                 val oldestKey = dayFmt.format(oldestCal.time)
                 dao.deleteSnapshotsOlderThan(oldestKey)
+
+                try {
+                    SmartSleepEngine.syncRecentNightsArchive(appCtx, lookbackDays = 14)
+                } catch (_: Throwable) {}
             } catch (_: Throwable) {
             } finally {
                 isRollingUp.set(false)

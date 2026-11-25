@@ -36,6 +36,11 @@ open class FocusGuardApp : Application() {
         SystemDiagnosticsAndUpdatesManager.installGlobalExceptionLogger(this)
         ensureRoomMainThreadQueries(this)
         try {
+            // Auto-heal legacy FocusGuard_ITR.shield_active flag (no master-off toggle exists in current UI)
+            val shieldPrefs = getSharedPreferences("FocusGuard_ITR", Context.MODE_PRIVATE)
+            if (!shieldPrefs.getBoolean("shield_active", true)) {
+                shieldPrefs.edit().putBoolean("shield_active", true).apply()
+            }
             AppCategoryPrefs.getStudyApps(this)
             AppMetadataCache.init(this)
             AppMetadataCache.warmUpAsync(this)

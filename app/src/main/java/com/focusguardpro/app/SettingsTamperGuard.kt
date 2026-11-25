@@ -36,8 +36,16 @@ object SettingsTamperGuard {
     private const val KEY_TAMPER_DETECTED_AT_ELAPSED = "tamper_detected_at_elapsed"
     private const val KEY_TAMPER_OFFSET_MS = "tamper_offset_ms"
 
-    // Maximum legitimate drift between wall clock and monotonic clock before flagging clock tamper (2 minutes)
-    private const val MAX_ALLOWED_CLOCK_DRIFT_MS = 120_000L
+    // Maximum legitimate drift between wall clock and monotonic clock before flagging manual clock tamper (3 minutes)
+    private const val MAX_ALLOWED_CLOCK_DRIFT_MS = 180_000L
+
+    private fun isAutomaticNetworkTimeEnabled(context: Context): Boolean {
+        return try {
+            Settings.Global.getInt(context.contentResolver, Settings.Global.AUTO_TIME, 1) == 1
+        } catch (_: Throwable) {
+            true
+        }
+    }
 
     private var lastSettingsInterceptAtMs: Long = 0L
 
@@ -64,7 +72,7 @@ object SettingsTamperGuard {
 
     /**
      * Records a verified monotonic anchor when the system clock is in sync, or preserves
-     * the monotonic offset if the user tampered with the device clock.
+     * the monotonic offset ONLY if the user disabled Automatic Time and manually tampered with the clock.
      */
     fun recordVerifiedHeartbeat(context: Context) {
         val p = prefs(context)
@@ -74,8 +82,8 @@ object SettingsTamperGuard {
         val prevWall = p.getLong(KEY_ANCHOR_WALL_MS, 0L)
         val prevElapsed = p.getLong(KEY_ANCHOR_ELAPSED_MS, 0L)
 
-        // First initialization or device rebooted (elapsedNow < prevElapsed)
-        if (prevWall <= 0L || prevElapsed <= 0L || elapsedNow < prevElapsed) {
+        // First initialization, device rebooted (elapsedNow < prevElapsed), or Android Automatic Network Time is active
+        if (prevWall <= 0L || prevElapsed <= 0L || elapsedNow < prevElapsed || isAutomaticNetworkTimeEnabled(context)) {
             p.edit()
                 .putLong(KEY_ANCHOR_WALL_MS, wallNow)
                 .putLong(KEY_ANCHOR_ELAPSED_MS, elapsedNow)
@@ -89,7 +97,7 @@ object SettingsTamperGuard {
         val drift = wallNow - expectedWallNow
 
         if (abs(drift) > MAX_ALLOWED_CLOCK_DRIFT_MS) {
-            // Device wall clock was jumped forward or backward!
+            // Manual clock spoofing while Automatic Network Time is OFF
             p.edit()
                 .putLong(KEY_TAMPER_DETECTED_AT_ELAPSED, elapsedNow)
                 .putLong(KEY_TAMPER_OFFSET_MS, -drift)
@@ -111,11 +119,11 @@ object SettingsTamperGuard {
     fun onSystemTimeChanged(context: Context) {
         recordVerifiedHeartbeat(context)
         if (isClockTamperActive(context)) {
-            logTamperAudit(context, "CLOCK_SPOOF_ATTEMPT: System clock or timezone modified during active monitoring")
+            logTamperAudit(context, "CLOCK_SPOOF_ATTEMPT: Manual system clock modified during active monitoring")
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(
                     context.applicationContext,
-                    "🛡️ Fortress Clock Anchor: System time change detected. Schedule remains bound to hardware monotonic clock.",
+                    "🛡️ Fortress Clock Anchor: Manual time change detected. Schedule remains bound to hardware monotonic clock.",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -123,9 +131,13 @@ object SettingsTamperGuard {
     }
 
     /**
-     * Returns true if the user has shifted the system clock relative to the hardware monotonic clock.
+     * Returns true ONLY if the user disabled Automatic Time and manually shifted the system clock
+     * relative to the hardware monotonic clock.
      */
     fun isClockTamperActive(context: Context): Boolean {
+        if (isAutomaticNetworkTimeEnabled(context)) {
+            return false
+        }
         val p = prefs(context)
         val prevWall = p.getLong(KEY_ANCHOR_WALL_MS, 0L)
         val prevElapsed = p.getLong(KEY_ANCHOR_ELAPSED_MS, 0L)
@@ -140,8 +152,9 @@ object SettingsTamperGuard {
 
     /**
      * Returns the tamper-proof current timestamp in milliseconds.
-     * If the user alters the system clock, this returns the monotonic-anchored time
-     * so 9:00 AM - 6:00 PM schedules and session timers cannot be escaped via time-travel.
+     * If Android Automatic Network Time is ON, smoothly tracks wall clock so NTP/Doze/timezone syncs
+     * never desync Focus Hours. If Automatic Time is OFF and the user manually spoofs the clock,
+     * falls back to the hardware monotonic anchor so schedules cannot be bypassed.
      */
     fun getVerifiedCurrentTimeMillis(context: Context): Long {
         val p = prefs(context)
@@ -151,10 +164,12 @@ object SettingsTamperGuard {
         val prevWall = p.getLong(KEY_ANCHOR_WALL_MS, 0L)
         val prevElapsed = p.getLong(KEY_ANCHOR_ELAPSED_MS, 0L)
 
-        if (prevWall <= 0L || prevElapsed <= 0L || elapsedNow < prevElapsed) {
+        if (prevWall <= 0L || prevElapsed <= 0L || elapsedNow < prevElapsed || isAutomaticNetworkTimeEnabled(context)) {
             p.edit()
                 .putLong(KEY_ANCHOR_WALL_MS, wallNow)
                 .putLong(KEY_ANCHOR_ELAPSED_MS, elapsedNow)
+                .putLong(KEY_TAMPER_DETECTED_AT_ELAPSED, 0L)
+                .putLong(KEY_TAMPER_OFFSET_MS, 0L)
                 .apply()
             return wallNow
         }

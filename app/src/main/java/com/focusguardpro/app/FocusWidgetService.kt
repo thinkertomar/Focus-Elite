@@ -192,6 +192,8 @@ class FocusWidgetService : Service() {
                 }
                 // 2. Touch UsageStatsHelper so screen-time cache is warm
                 UsageStatsHelper.getTodayScreenTimeMillis(applicationContext)
+                // 3. Keep multi-day Sleep & Recovery archive warm for the Command Deck badge
+                SmartSleepEngine.syncRecentNightsArchive(applicationContext, lookbackDays = 7)
             } catch (_: Throwable) {}
 
             withContext(Dispatchers.Main) {
